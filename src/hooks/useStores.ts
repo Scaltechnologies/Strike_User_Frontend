@@ -1,0 +1,52 @@
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { storeApi } from '@/api/store.api';
+
+// Hierarchical query key factory — used for targeted invalidation.
+export const storeKeys = {
+  all: ['stores'] as const,
+  list: () => [...storeKeys.all, 'list'] as const,
+  nearby: () => [...storeKeys.all, 'nearby'] as const,
+  search: (query: string) => [...storeKeys.all, 'search', query] as const,
+};
+
+// All stores — always loaded, no location dependency.
+export function useAllStores() {
+  return useQuery({
+    queryKey: storeKeys.list(),
+    queryFn: storeApi.getStores,
+    staleTime: 3 * 60 * 1000,
+  });
+}
+
+// Nearby stores — only enabled once the user's location has been saved
+// to the backend (locationStatus === 'ready').
+export function useNearbyStores(opts: { enabled: boolean }) {
+  return useQuery({
+    queryKey: storeKeys.nearby(),
+    queryFn: storeApi.getNearbyStores,
+    enabled: opts.enabled,
+    staleTime: 2 * 60 * 1000,
+    // 400 from backend means location not saved yet — treat as empty, not error.
+    retry: (failureCount, error: unknown) => {
+      const status = (error as { response?: { status?: number } })?.response?.status;
+      if (status === 400) return false;
+      return failureCount < 2;
+    },
+  });
+}
+
+// Search — enabled once query reaches 2+ characters.
+export function useSearchStores(query: string) {
+  return useQuery({
+    queryKey: storeKeys.search(query),
+    queryFn: () => storeApi.searchStores(query),
+    enabled: query.trim().length >= 2,
+    staleTime: 30 * 1000,
+  });
+}
+
+// Convenience hook for invalidating all store data (used in pull-to-refresh).
+export function useInvalidateStores() {
+  const queryClient = useQueryClient();
+  return () => queryClient.invalidateQueries({ queryKey: storeKeys.all });
+}

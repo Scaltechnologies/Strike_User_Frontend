@@ -13,6 +13,13 @@ export const API_ENDPOINTS = {
   USER: {
     PROFILE: `${P}/user/profile`,
     PUSH_TOKEN: `${P}/user/push-token`,
+    LOCATION: `${P}/user/me/location`,
+  },
+
+  USER_STORES: {
+    LIST: `${P}/user/stores`,
+    SEARCH: `${P}/user/stores/search`,
+    NEARBY: `${P}/user/stores/nearby/me`,
   },
 
   SAVED_STORES: {

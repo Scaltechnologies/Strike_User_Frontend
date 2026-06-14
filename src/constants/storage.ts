@@ -6,6 +6,11 @@ export const STORAGE_KEYS = {
   REFRESH_TOKEN: 'strike_refresh_token',
   USER_ID: 'strike_user_id',
   HAS_SEEN_ONBOARDING: 'strike_onboarding_complete',
+  LOCATION_LAT: 'strike_location_lat',
+  LOCATION_LNG: 'strike_location_lng',
+  LOCATION_UPDATED_AT: 'strike_location_updated_at',
+  LOCATION_NAME: 'strike_location_name',
+  LOCATION_HISTORY: 'strike_location_history',
 } as const;
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS];

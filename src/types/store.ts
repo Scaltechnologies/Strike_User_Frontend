@@ -1,26 +1,54 @@
-// Vendor Service DTOs — mirrors the strike-gateway /api/stores/* contracts.
-
 import type { PaginationParams } from './api';
 
+// ── Nested types from backend StoreResponse ──────────────────────────────────
+
+export interface StoreTiming {
+  id: number;
+  storeId: number;
+  dayOfWeek: string;       // "MONDAY" … "SUNDAY"
+  openTime: string | null; // "HH:MM:SS"
+  closeTime: string | null;
+  isClosed: boolean;
+}
+
+export interface StoreHoliday {
+  id: number;
+  storeId: number;
+  date: string;            // "YYYY-MM-DD"
+  reason: string | null;
+  createdAt: string;
+}
+
+// ── Store status enum mirrors Java StoreStatus ────────────────────────────────
+
+export type StoreStatus = 'ACTIVE' | 'INACTIVE' | 'TEMPORARILY_CLOSED';
+
+// ── Primary store DTO — matches vendor-service StoreResponse exactly ──────────
+
 export interface Store {
-  id: string;
+  id: number;
+  vendorId: number;
   name: string;
   address: string;
-  distance: number;     // km from user
-  rating: number;       // 0–5
-  reviewCount: number;
-  isTopRated: boolean;
-  imageUrl: string | null;
-  tags: string[];       // e.g. ['Breakfast', 'Meals', 'Curries']
-  startingPrice: number;
-  isSaved: boolean;
+  phone: string | null;
+  email: string | null;
+  category: string;
+  description: string | null;
+  logoUrl: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  distanceKm: number | null;  // only populated by nearby endpoint
+  status: StoreStatus;
+  timings: StoreTiming[];
+  holidays: StoreHoliday[];
+  createdAt: string;
+  updatedAt: string;
 }
+
+// ── Store detail (extends Store with menu) ────────────────────────────────────
 
 export interface StoreDetail extends Store {
   mapThumbnailUrl: string | null;
-  latitude: number;
-  longitude: number;
-  description: string | null;
   testimonials: Testimonial[];
 }
 
@@ -31,13 +59,11 @@ export interface Testimonial {
   rating: number;
 }
 
-// --- Menu types ---
-// These represent a FULL store menu (discovery context).
-// For redemption-eligible menu, see EligibleMenu in subscription.ts.
+// ── Menu types ────────────────────────────────────────────────────────────────
 
 export interface MenuCategory {
   id: string;
-  name: string; // 'Breakfast', 'Curries', 'Meals', etc.
+  name: string;
   items: MenuItem[];
 }
 
@@ -54,18 +80,16 @@ export interface StoreMenu {
   categories: MenuCategory[];
 }
 
-// --- Query param types ---
-
-export interface NearbyStoresParams extends PaginationParams {
-  latitude: number;
-  longitude: number;
-  radius?: number; // km, default varies by backend
-  category?: string;
-  sort?: 'nearby' | 'top-rated' | 'offer' | 'low-price';
-}
+// ── Query param types ─────────────────────────────────────────────────────────
 
 export interface SearchStoresParams {
-  query: string;
-  latitude?: number;
-  longitude?: number;
+  q: string;
+  category?: string;
+}
+
+// NearbyStoresParams omitted — /nearby/me uses the backend-saved user location,
+// no lat/lng needed from the frontend.
+
+export interface StoreListParams extends PaginationParams {
+  category?: string;
 }
