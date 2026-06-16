@@ -3,10 +3,12 @@ import { storeApi } from '@/api/store.api';
 
 // Hierarchical query key factory — used for targeted invalidation.
 export const storeKeys = {
-  all: ['stores'] as const,
-  list: () => [...storeKeys.all, 'list'] as const,
+  all:    ['stores'] as const,
+  list:   () => [...storeKeys.all, 'list'] as const,
   nearby: () => [...storeKeys.all, 'nearby'] as const,
   search: (query: string) => [...storeKeys.all, 'search', query] as const,
+  detail: (id: string | number) => [...storeKeys.all, 'detail', String(id)] as const,
+  menu:   (id: string | number) => [...storeKeys.all, 'menu', String(id)] as const,
 };
 
 // All stores — always loaded, no location dependency.
@@ -42,6 +44,26 @@ export function useSearchStores(query: string) {
     queryFn: () => storeApi.searchStores(query),
     enabled: query.trim().length >= 2,
     staleTime: 30 * 1000,
+  });
+}
+
+// Store detail — single store by id.
+export function useStoreDetail(id: string | number) {
+  return useQuery({
+    queryKey: storeKeys.detail(id),
+    queryFn: () => storeApi.getStoreById(id),
+    enabled: !!id,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+// Store menu — categories + items for a store.
+export function useStoreMenu(id: string | number) {
+  return useQuery({
+    queryKey: storeKeys.menu(id),
+    queryFn: () => storeApi.getStoreMenu(id),
+    enabled: !!id,
+    staleTime: 5 * 60 * 1000,
   });
 }
 

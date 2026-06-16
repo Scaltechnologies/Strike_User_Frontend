@@ -1,15 +1,104 @@
-// Tab bar is hidden for Phase 1B — only a single home placeholder exists.
-// Phase 3 adds the 5-tab bar (Home, Saved, Cards, History, Profile) with icons.
-
 import { Tabs } from 'expo-router';
+import { Platform, StyleSheet, View } from 'react-native';
+import { CreditCard, History, Home, User } from 'lucide-react-native';
+
+const ACCENT  = '#D63527';
+const MUTED   = '#AEAEB2';
+const SURFACE = '#FFFFFF';
+const BORDER  = '#E8E8ED';
+
+function TabIcon({
+  Icon,
+  focused,
+}: {
+  Icon: React.ComponentType<{ size: number; color: string; strokeWidth: number }>;
+  focused: boolean;
+}) {
+  return (
+    <View style={[styles.iconWrap, focused && styles.iconWrapActive]}>
+      <Icon size={22} color={focused ? ACCENT : MUTED} strokeWidth={focused ? 2.2 : 1.8} />
+    </View>
+  );
+}
 
 export default function TabsLayout() {
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarStyle: { display: 'none' },
+        tabBarStyle: styles.tabBar,
+        tabBarActiveTintColor: ACCENT,
+        tabBarInactiveTintColor: MUTED,
+        tabBarLabelStyle: styles.label,
+        tabBarItemStyle: styles.tabItem,
       }}
-    />
+    >
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: 'Home',
+          tabBarIcon: ({ focused }) => <TabIcon Icon={Home} focused={focused} />,
+        }}
+      />
+      <Tabs.Screen
+        name="cards"
+        options={{
+          title: 'My Cards',
+          tabBarIcon: ({ focused }) => <TabIcon Icon={CreditCard} focused={focused} />,
+        }}
+      />
+      <Tabs.Screen
+        name="history"
+        options={{
+          title: 'History',
+          tabBarIcon: ({ focused }) => <TabIcon Icon={History} focused={focused} />,
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: 'Profile',
+          tabBarIcon: ({ focused }) => <TabIcon Icon={User} focused={focused} />,
+        }}
+      />
+    </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  tabBar: {
+    backgroundColor: SURFACE,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: BORDER,
+    height: Platform.select({ ios: 82, android: 64 }),
+    paddingBottom: Platform.select({ ios: 24, android: 8 }),
+    paddingTop: 8,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 8,
+      },
+      android: { elevation: 8 },
+    }),
+  },
+  tabItem: {
+    paddingTop: 4,
+  },
+  label: {
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  iconWrap: {
+    width: 40,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 10,
+  },
+  iconWrapActive: {
+    backgroundColor: '#FEF2EF',
+  },
+});

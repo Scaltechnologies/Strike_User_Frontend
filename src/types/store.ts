@@ -6,7 +6,7 @@ export interface StoreTiming {
   id: number;
   storeId: number;
   dayOfWeek: string;       // "MONDAY" … "SUNDAY"
-  openTime: string | null; // "HH:MM:SS"
+  openTime: string | null; // "HH:mm:ss"
   closeTime: string | null;
   isClosed: boolean;
 }
@@ -19,7 +19,7 @@ export interface StoreHoliday {
   createdAt: string;
 }
 
-// ── Store status enum mirrors Java StoreStatus ────────────────────────────────
+// ── Store status enum — mirrors Java StoreStatus ──────────────────────────────
 
 export type StoreStatus = 'ACTIVE' | 'INACTIVE' | 'TEMPORARILY_CLOSED';
 
@@ -37,7 +37,7 @@ export interface Store {
   logoUrl: string | null;
   latitude: number | null;
   longitude: number | null;
-  distanceKm: number | null;  // only populated by nearby endpoint
+  distanceKm: number | null;
   status: StoreStatus;
   timings: StoreTiming[];
   holidays: StoreHoliday[];
@@ -45,39 +45,35 @@ export interface Store {
   updatedAt: string;
 }
 
-// ── Store detail (extends Store with menu) ────────────────────────────────────
+// ── Menu types — match vendor-service CategoryWithItemsResponse / MenuItemResponse ─
+//
+// GET /api/user/stores/{id}/menu → MenuCategory[]
+// Each category embeds its items directly.
 
-export interface StoreDetail extends Store {
-  mapThumbnailUrl: string | null;
-  testimonials: Testimonial[];
-}
-
-export interface Testimonial {
-  id: string;
-  authorName: string;
-  text: string;
-  rating: number;
-}
-
-// ── Menu types ────────────────────────────────────────────────────────────────
-
-export interface MenuCategory {
-  id: string;
-  name: string;
-  items: MenuItem[];
-}
+export type ItemType = 'VEG' | 'NON_VEG';
+export type ItemAvailabilityStatus = 'AVAILABLE' | 'OUT_OF_STOCK';
 
 export interface MenuItem {
-  id: string;
+  id: number;
   name: string;
-  price: number;
-  imageUrl: string | null;
   description: string | null;
+  price: number;                     // BigDecimal serialises as JSON number
+  imageUrl: string | null;
+  itemType: ItemType;
+  availabilityStatus: ItemAvailabilityStatus;
+  categoryId: number;
+  storeId: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
-export interface StoreMenu {
-  storeId: string;
-  categories: MenuCategory[];
+export interface MenuCategory {
+  id: number;
+  name: string;
+  description: string | null;
+  imageUrl: string | null;
+  displayOrder: number | null;
+  items: MenuItem[];
 }
 
 // ── Query param types ─────────────────────────────────────────────────────────
@@ -86,9 +82,6 @@ export interface SearchStoresParams {
   q: string;
   category?: string;
 }
-
-// NearbyStoresParams omitted — /nearby/me uses the backend-saved user location,
-// no lat/lng needed from the frontend.
 
 export interface StoreListParams extends PaginationParams {
   category?: string;

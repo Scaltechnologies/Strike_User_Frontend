@@ -20,6 +20,8 @@ export const API_ENDPOINTS = {
     LIST: `${P}/user/stores`,
     SEARCH: `${P}/user/stores/search`,
     NEARBY: `${P}/user/stores/nearby/me`,
+    DETAIL: (storeId: string | number) => `${P}/user/stores/${storeId}`,
+    MENU: (storeId: string | number) => `${P}/user/stores/${storeId}/menu`,
   },
 
   SAVED_STORES: {
@@ -27,20 +29,25 @@ export const API_ENDPOINTS = {
     TOGGLE: (storeId: string) => `${P}/user/saved-stores/${storeId}`,
   },
 
-  STORES: {
-    NEARBY: `${P}/stores/nearby`,
-    SEARCH: `${P}/stores/search`,
-    DETAIL: (storeId: string) => `${P}/stores/${storeId}`,
-    MENU: (storeId: string) => `${P}/stores/${storeId}/menu`,
-    CARDS: (storeId: string) => `${P}/stores/${storeId}/cards`,
+  // Card-service: GET /api/cards/store/{storeId} and GET /api/cards/{id}
+  // Response is wrapped in ApiResponse<T> (unlike user-service which returns DTO directly).
+  CARDS: {
+    BY_STORE: (storeId: string | number) => `${P}/cards/store/${storeId}`,
+    BY_ID:    (id: string | number)      => `${P}/cards/${id}`,
   },
 
+  // Card-service subscriptions.
+  // All responses are wrapped in ApiResponse<T>.
+  // X-User-Id header is injected by the gateway from the JWT — do not set manually.
   SUBSCRIPTIONS: {
-    LIST: `${P}/subscriptions`,
-    DETAIL: (id: string) => `${P}/subscriptions/${id}`,
-    // Returns ONLY categories + items the purchased card covers (eligibility filter).
+    PURCHASE:  `${P}/subscriptions`,
+    MY:        `${P}/subscriptions/my`,
+    MY_ACTIVE: `${P}/subscriptions/my/active`,
+    DETAIL:    (id: string | number) => `${P}/subscriptions/${id}`,
+    CANCEL:    (id: string | number) => `${P}/subscriptions/${id}/cancel`,
+    // Returns ONLY the categories + items the purchased card covers.
     // This is the redemption menu — NOT the full store menu.
-    ELIGIBLE_MENU: (id: string) => `${P}/subscriptions/${id}/menu`,
+    MENU:      (id: string | number) => `${P}/subscriptions/${id}/menu`,
   },
 
   REDEMPTIONS: {

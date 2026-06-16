@@ -1,20 +1,3 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Animated,
-  Keyboard,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import {
   AlertCircle,
@@ -29,41 +12,78 @@ import {
   RefreshCw,
   Search,
   Settings,
+  Sparkles,
   X,
 } from 'lucide-react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'expo-router';
+import {
+  ActivityIndicator,
+  Animated,
+  Easing,
+  Keyboard,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import { formatDistance, openDirections } from '@/utils/maps';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useAppStore } from '@/store/appStore';
 import { useLocation } from '@/hooks/useLocation';
-import { useAllStores, useNearbyStores, useSearchStores, useInvalidateStores } from '@/hooks/useStores';
-import { storageService } from '@/services/storageService';
+import { useAllStores, useInvalidateStores, useNearbyStores, useSearchStores } from '@/hooks/useStores';
 import type { RecentLocation } from '@/services/storageService';
+import { storageService } from '@/services/storageService';
+import { useAppStore } from '@/store/appStore';
 import type { Store, StoreTiming } from '@/types/store';
 
 // ─── Design Tokens ─────────────────────────────────────────────────────────────
 
 const C = {
-  accent:      '#D63527',
-  accentSoft:  '#FEF2EF',
-  bg:          '#F2F2F7',    // iOS system grouped background
-  surface:     '#FFFFFF',
-  border:      '#E8E8ED',
-  divider:     '#F0F0F5',    // lighter than border – for internal dividers
-  primary:     '#0D0D0D',
-  secondary:   '#6C6C6C',
-  muted:       '#AEAEB2',
-  success:     '#34C759',
-  successBg:   '#EDFAF2',
-  successText: '#1A7A35',
-  danger:      '#FF3B30',
-  dangerBg:    '#FEF0EE',
-  dangerText:  '#C0261A',
-  skeleton:    '#E5E5EA',
-  warning:     '#FF9500',
-  warningBg:   '#FFF5E0',
-  blue:        '#2563EB',
-  blueBg:      '#EFF7FF',
-  green:       '#16A34A',
-  greenBg:     '#F0FDF4',
+  // Brand
+  accent:       '#D63527',
+  accentSoft:   '#FEF2EF',
+  accentMid:    '#F5C5BB',
+  accentDeep:   '#B02A1E',
+
+  // Surfaces
+  bg:           '#F2F2F7',
+  surface:      '#FFFFFF',
+  surfaceRaised:'#FAFAFA',
+
+  // Borders & Dividers
+  border:       '#E5E5EA',
+  divider:      '#F0F0F5',
+
+  // Text
+  primary:      '#0D0D0D',
+  secondary:    '#5C5C5C',
+  muted:        '#AEAEB2',
+  placeholder:  '#C7C7CC',
+
+  // Semantic
+  success:      '#30D158',
+  successBg:    '#E8FAF0',
+  successText:  '#1A7A35',
+  danger:       '#FF3B30',
+  dangerBg:     '#FFF0EE',
+  dangerText:   '#C0261A',
+  warning:      '#FF9F0A',
+  warningBg:    '#FFF4E0',
+
+  // Utility
+  skeleton:     '#E8E8ED',
+  blue:         '#2563EB',
+  blueBg:       '#EEF4FF',
+  green:        '#16A34A',
+  greenBg:      '#F0FDF4',
+  overlay:      'rgba(0,0,0,0.42)',
 } as const;
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -73,12 +93,6 @@ function getGreeting(): string {
   if (h < 12) return 'Good morning';
   if (h < 17) return 'Good afternoon';
   return 'Good evening';
-}
-
-function formatDistance(km: number | null): string {
-  if (km == null) return '';
-  if (km < 1) return `${Math.round(km * 1000)} m`;
-  return `${km.toFixed(1)} km`;
 }
 
 function getTodayTiming(timings: StoreTiming[]): string | null {
@@ -97,9 +111,20 @@ function getTodayTiming(timings: StoreTiming[]): string | null {
   return `${fmt(t.openTime)} – ${fmt(t.closeTime)}`;
 }
 
-// Deterministic soft color from store name for the banner fallback
 function getStoreFallbackColor(name: string): string {
-  const palette = ['#E8EDF5', '#E5EFF5', '#EDF5E8', '#F5EEE8', '#EEE8F5', '#E8F2F5', '#F5EDE8'];
+  const palette = [
+    '#EEF2FF', '#F0FDF4', '#FFF7ED', '#FDF4FF', '#F0F9FF',
+    '#FEFCE8', '#FFF1F2',
+  ];
+  const idx = name.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % palette.length;
+  return palette[idx];
+}
+
+function getStoreInitialColor(name: string): string {
+  const palette = [
+    '#818CF8', '#34D399', '#FB923C', '#C084FC', '#38BDF8',
+    '#FACC15', '#FB7185',
+  ];
   const idx = name.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % palette.length;
   return palette[idx];
 }
@@ -125,13 +150,7 @@ async function searchArea(query: string): Promise<GeoResult[]> {
       `&dedupe=1` +
       `&email=inquire.scalatechnologies%40gmail.com`;
 
-    // Do NOT set User-Agent here. React Native's native layer controls that
-    // header and on some Android builds throws TypeError: Unsafe header
-    // "User-Agent", which the catch block silently swallows returning [].
-    const res = await fetch(url, {
-      headers: { 'Accept': 'application/json' },
-    });
-
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
     if (!res.ok) return [];
 
     const data = (await res.json()) as Array<{
@@ -157,31 +176,17 @@ async function searchArea(query: string): Promise<GeoResult[]> {
     return data
       .map((item) => {
         const a = item.address;
-        // Walk from most-specific to least-specific. Indian localities appear
-        // under widely varying keys depending on how OSM contributors tagged them.
         const name =
-          a?.neighbourhood ??
-          a?.quarter ??
-          a?.suburb ??
-          a?.hamlet ??
-          a?.locality ??
-          a?.municipality ??
-          a?.city_district ??
-          a?.city ??
-          a?.town ??
-          a?.village ??
-          a?.county ??
+          a?.neighbourhood ?? a?.quarter ?? a?.suburb ?? a?.hamlet ??
+          a?.locality ?? a?.municipality ?? a?.city_district ??
+          a?.city ?? a?.town ?? a?.village ?? a?.county ??
           item.display_name.split(',')[0];
-
-        // Short display: "Locality, City, State" — trim verbose OSM suffixes
         const cityOrTown = a?.city ?? a?.town ?? a?.municipality ?? a?.county;
         const parts = [name, cityOrTown, a?.state].filter(Boolean);
         const displayName = parts.length > 1 ? parts.join(', ') : item.display_name;
-
         const lat = parseFloat(item.lat);
         const lon = parseFloat(item.lon);
         if (isNaN(lat) || isNaN(lon)) return null;
-
         return {
           name: (name ?? item.display_name.split(',')[0]).trim(),
           displayName: displayName.trim(),
@@ -195,20 +200,119 @@ async function searchArea(query: string): Promise<GeoResult[]> {
   }
 }
 
+// ─── Animated Pressable ────────────────────────────────────────────────────────
+
+function ScalePressable({
+  children,
+  style,
+  onPress,
+  hitSlop,
+  disabled,
+}: {
+  children: React.ReactNode;
+  style?: object | object[];
+  onPress?: () => void;
+  hitSlop?: number;
+  disabled?: boolean;
+}) {
+  const scale = useRef(new Animated.Value(1)).current;
+
+  const onPressIn = () =>
+    Animated.spring(scale, {
+      toValue: 0.96,
+      useNativeDriver: true,
+      speed: 50,
+      bounciness: 4,
+    }).start();
+
+  const onPressOut = () =>
+    Animated.spring(scale, {
+      toValue: 1,
+      useNativeDriver: true,
+      speed: 50,
+      bounciness: 4,
+    }).start();
+
+  return (
+    <Pressable
+      onPress={onPress}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
+      hitSlop={hitSlop}
+      disabled={disabled}
+    >
+      <Animated.View style={[style, { transform: [{ scale }] }]}>
+        {children}
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+// ─── Fade-In Wrapper ───────────────────────────────────────────────────────────
+
+function FadeIn({
+  children,
+  delay = 0,
+  style,
+}: {
+  children: React.ReactNode;
+  delay?: number;
+  style?: object;
+}) {
+  const opacity = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(10)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: 380,
+        delay,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateY, {
+        toValue: 0,
+        duration: 380,
+        delay,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
+
+  return (
+    <Animated.View style={[style, { opacity, transform: [{ translateY }] }]}>
+      {children}
+    </Animated.View>
+  );
+}
+
 // ─── Skeleton ──────────────────────────────────────────────────────────────────
 
-function SkeletonPulse({ width, height, style }: {
+function SkeletonPulse({ width, height, style, radius = 8 }: {
   width?: number | string;
   height: number;
   style?: object;
+  radius?: number;
 }) {
-  const opacity = useRef(new Animated.Value(1)).current;
+  const opacity = useRef(new Animated.Value(0.6)).current;
 
   useEffect(() => {
     const anim = Animated.loop(
       Animated.sequence([
-        Animated.timing(opacity, { toValue: 0.35, duration: 950, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 1,    duration: 950, useNativeDriver: true }),
+        Animated.timing(opacity, {
+          toValue: 0.25,
+          duration: 900,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0.6,
+          duration: 900,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
       ]),
     );
     anim.start();
@@ -218,7 +322,7 @@ function SkeletonPulse({ width, height, style }: {
   return (
     <Animated.View
       style={[
-        { backgroundColor: C.skeleton, borderRadius: 8, height, opacity },
+        { backgroundColor: C.skeleton, borderRadius: radius, height, opacity },
         width != null ? { width } : { flex: 1 },
         style,
       ]}
@@ -229,14 +333,14 @@ function SkeletonPulse({ width, height, style }: {
 function StoreCardSkeleton() {
   return (
     <View style={[styles.card, { overflow: 'hidden' }]}>
-      <SkeletonPulse height={180} style={{ borderRadius: 0, width: '100%' }} />
+      <SkeletonPulse height={188} radius={0} style={{ width: '100%' }} />
       <View style={styles.cardBody}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 }}>
-          <SkeletonPulse height={16} width="56%" />
-          <SkeletonPulse height={16} width="18%" />
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10, gap: 8 }}>
+          <SkeletonPulse height={15} width="55%" />
+          <SkeletonPulse height={15} width="20%" />
         </View>
-        <SkeletonPulse height={22} width="28%" style={{ borderRadius: 6, marginBottom: 12 }} />
-        <SkeletonPulse height={12} width="64%" />
+        <SkeletonPulse height={22} width="30%" style={{ borderRadius: 8, marginBottom: 12 }} />
+        <SkeletonPulse height={12} width="62%" />
       </View>
     </View>
   );
@@ -244,97 +348,123 @@ function StoreCardSkeleton() {
 
 // ─── Store Card ────────────────────────────────────────────────────────────────
 
-function StoreCard({ store }: { store: Store }) {
+function StoreCard({ store, index = 0 }: { store: Store; index?: number }) {
+  const router = useRouter();
   const isOpen = store.status === 'ACTIVE';
   const timing = getTodayTiming(store.timings);
   const distance = store.distanceKm != null ? formatDistance(store.distanceKm) : null;
   const initial = store.name.charAt(0).toUpperCase();
   const fallbackBg = getStoreFallbackColor(store.name);
-
+  const initialColor = getStoreInitialColor(store.name);
   return (
-    <Pressable style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}>
-      {/* ── Banner ─────────────────────────────────────────────── */}
-      <View style={styles.banner}>
-        {store.logoUrl ? (
-          <Image
-            source={{ uri: store.logoUrl }}
-            style={StyleSheet.absoluteFill}
-            contentFit="cover"
-            transition={250}
-          />
-        ) : (
-          <View style={[styles.bannerFallback, { backgroundColor: fallbackBg }]}>
-            <Text style={styles.bannerFallbackInitial}>{initial}</Text>
-            <Text style={styles.bannerFallbackLabel} numberOfLines={1}>
-              {store.name}
+    <FadeIn delay={index * 60} style={styles.cardWrapper}>
+      <ScalePressable style={styles.card} onPress={() => router.push(`/store/${store.id}` as never)}>
+        {/* ── Banner ─────────────────────────────────── */}
+        <View style={styles.banner}>
+          {store.logoUrl ? (
+            <Image
+              source={{ uri: store.logoUrl }}
+              style={StyleSheet.absoluteFill}
+              contentFit="cover"
+              transition={300}
+            />
+          ) : (
+            <View style={[styles.bannerFallback, { backgroundColor: fallbackBg }]}>
+              <View style={[styles.bannerInitialCircle, { backgroundColor: `${initialColor}22` }]}>
+                <Text style={[styles.bannerFallbackInitial, { color: initialColor }]}>
+                  {initial}
+                </Text>
+              </View>
+              <Text style={styles.bannerFallbackLabel} numberOfLines={1}>
+                {store.name}
+              </Text>
+            </View>
+          )}
+
+          {/* Subtle scrim for photos */}
+          {store.logoUrl ? <View style={styles.bannerPhotoScrim} /> : null}
+
+          {/* Status chip */}
+          <View style={[styles.statusChip, isOpen ? styles.statusChipOpen : styles.statusChipClosed]}>
+            <View style={[styles.statusDot, { backgroundColor: isOpen ? C.success : C.danger }]} />
+            <Text style={[styles.statusChipText, { color: isOpen ? C.successText : C.dangerText }]}>
+              {isOpen ? 'Open' : 'Closed'}
             </Text>
           </View>
-        )}
-        {/* Subtle scrim over photos only */}
-        {store.logoUrl ? (
-          <View style={styles.bannerPhotoScrim} />
-        ) : null}
 
-        {/* Status chip */}
-        <View style={[styles.statusChip, isOpen ? styles.statusChipOpen : styles.statusChipClosed]}>
-          <View style={[styles.statusDot, { backgroundColor: isOpen ? C.success : C.danger }]} />
-          <Text style={[styles.statusChipText, { color: isOpen ? C.successText : C.dangerText }]}>
-            {isOpen ? 'Open' : 'Closed'}
-          </Text>
-        </View>
-      </View>
-
-      {/* ── Card Body ──────────────────────────────────────────── */}
-      <View style={styles.cardBody}>
-        {/* Row 1: name + distance */}
-        <View style={styles.cardTitleRow}>
-          <Text style={styles.cardName} numberOfLines={1}>{store.name}</Text>
+          {/* Distance badge top-left */}
           {distance != null && (
-            <View style={styles.distancePill}>
-              <MapPin size={9} color={C.muted} strokeWidth={2} />
-              <Text style={styles.distancePillText}>{distance}</Text>
+            <View style={styles.distanceBadge}>
+              <MapPin size={10} color={C.accent} strokeWidth={2.5} />
+              <Text style={styles.distanceBadgeText}>{distance}</Text>
             </View>
           )}
         </View>
 
-        {/* Row 2: category tag */}
-        <View style={styles.categoryTag}>
-          <Text style={styles.categoryTagText}>{store.category}</Text>
-        </View>
+        {/* ── Card Body ──────────────────────────────── */}
+        <View style={styles.cardBody}>
+          {/* Name + category row */}
+          <View style={styles.cardTitleRow}>
+            <Text style={styles.cardName} numberOfLines={1}>{store.name}</Text>
+          </View>
 
-        {/* Row 3: timing + address */}
-        {(timing != null || store.address) ? (
+          <View style={styles.categoryTag}>
+            <Text style={styles.categoryTagText}>{store.category}</Text>
+          </View>
+
+          {/* Footer: timing / address + Directions button */}
           <View style={styles.cardFooter}>
-            {timing != null && (
-              <View style={styles.metaItem}>
-                <Clock size={11} color={C.muted} strokeWidth={2} />
-                <Text style={styles.metaText}>{timing}</Text>
-              </View>
-            )}
-            {timing != null && store.address ? (
-              <Text style={styles.metaDot}>·</Text>
-            ) : null}
-            {store.address ? (
-              <Text style={styles.cardAddress} numberOfLines={1}>{store.address}</Text>
+            <View style={styles.cardMeta}>
+              {distance != null ? (
+                <View style={styles.metaItem}>
+                  <MapPin size={11} color={C.accent} strokeWidth={2} />
+                  <Text style={[styles.metaText, styles.metaDistance]}>{distance}</Text>
+                </View>
+              ) : timing != null ? (
+                <View style={styles.metaItem}>
+                  <Clock size={11} color={C.muted} strokeWidth={2} />
+                  <Text style={styles.metaText}>{timing}</Text>
+                </View>
+              ) : store.address ? (
+                <Text style={styles.cardAddress} numberOfLines={1}>{store.address}</Text>
+              ) : null}
+            </View>
+
+            {store.latitude != null && store.longitude != null ? (
+              <Pressable
+                style={styles.cardDirectionsBtn}
+                onPress={() => openDirections(store.latitude!, store.longitude!)}
+                hitSlop={6}
+              >
+                <Navigation size={13} color={C.accent} strokeWidth={2.2} />
+                <Text style={styles.cardDirectionsBtnText}>Directions</Text>
+              </Pressable>
             ) : null}
           </View>
-        ) : null}
-      </View>
-    </Pressable>
+        </View>
+      </ScalePressable>
+    </FadeIn>
   );
 }
 
 // ─── Section Header ────────────────────────────────────────────────────────────
 
-function SectionHeader({ title, count }: { title: string; count?: number }) {
+function SectionHeader({ title, count, icon }: {
+  title: string;
+  count?: number;
+  icon?: React.ReactNode;
+}) {
   return (
     <View style={styles.sectionHeader}>
-      <Text style={styles.sectionTitle}>
-        {title}
-        {count != null ? (
-          <Text style={styles.sectionCountInline}>{`  ${count} places`}</Text>
-        ) : null}
-      </Text>
+      {icon ? <View style={styles.sectionIcon}>{icon}</View> : null}
+      <View style={{ flex: 1 }}>
+        <Text style={styles.sectionTitle}>{title}</Text>
+      </View>
+      {count != null ? (
+        <View style={styles.sectionCountPill}>
+          <Text style={styles.sectionCountText}>{count}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -343,10 +473,15 @@ function SectionHeader({ title, count }: { title: string; count?: number }) {
 
 function EmptyState({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
-    <View style={styles.emptyWrap}>
-      <Text style={styles.emptyTitle}>{title}</Text>
-      {subtitle ? <Text style={styles.emptySub}>{subtitle}</Text> : null}
-    </View>
+    <FadeIn>
+      <View style={styles.emptyWrap}>
+        <View style={styles.emptyIconWrap}>
+          <Sparkles size={20} color={C.muted} strokeWidth={1.5} />
+        </View>
+        <Text style={styles.emptyTitle}>{title}</Text>
+        {subtitle ? <Text style={styles.emptySub}>{subtitle}</Text> : null}
+      </View>
+    </FadeIn>
   );
 }
 
@@ -365,93 +500,73 @@ function LocationPermissionBanner({
   onContinueWithAll: () => void;
   onRetry: () => void;
 }) {
-  if (status === 'denied') {
-    return (
-      <View style={styles.permissionCard}>
+  const configs: Record<string, {
+    icon: React.ReactNode;
+    iconBg: string;
+    title: string;
+    sub: string;
+    action: () => void;
+    actionLabel: string;
+    borderColor?: string;
+  }> = {
+    denied: {
+      icon: <MapPin size={16} color={C.accent} strokeWidth={2} />,
+      iconBg: C.accentSoft,
+      title: 'Enable location',
+      sub: 'Discover stores near you',
+      action: onRequestPermission,
+      actionLabel: 'Enable',
+    },
+    blocked: {
+      icon: <Settings size={16} color={C.accent} strokeWidth={2} />,
+      iconBg: C.accentSoft,
+      title: 'Location disabled',
+      sub: 'Enable in device settings',
+      action: onOpenSettings,
+      actionLabel: 'Settings',
+    },
+    error: {
+      icon: <AlertCircle size={16} color={C.warning} strokeWidth={2} />,
+      iconBg: C.warningBg,
+      title: 'Location unavailable',
+      sub: 'Could not detect GPS position',
+      action: onRetry,
+      actionLabel: 'Retry',
+      borderColor: '#FDDCBA',
+    },
+  };
+
+  const cfg = configs[status];
+  if (!cfg) return null;
+
+  return (
+    <FadeIn style={{ marginHorizontal: 16, marginTop: 18 }}>
+      <View style={[styles.permissionCard, cfg.borderColor ? { borderColor: cfg.borderColor } : {}]}>
         <View style={styles.permissionLeft}>
-          <View style={styles.permissionIconWrap}>
-            <MapPin size={16} color={C.accent} strokeWidth={2} />
+          <View style={[styles.permissionIconWrap, { backgroundColor: cfg.iconBg }]}>
+            {cfg.icon}
           </View>
           <View style={styles.permissionText}>
-            <Text style={styles.permissionTitle}>Enable location</Text>
-            <Text style={styles.permissionSub}>Discover stores near you</Text>
+            <Text style={styles.permissionTitle}>{cfg.title}</Text>
+            <Text style={styles.permissionSub}>{cfg.sub}</Text>
           </View>
         </View>
         <View style={styles.permissionActions}>
-          <Pressable style={styles.permissionBtn} onPress={onRequestPermission}>
-            <Text style={styles.permissionBtnText}>Enable</Text>
-          </Pressable>
+          <ScalePressable style={styles.permissionBtn} onPress={cfg.action}>
+            <Text style={styles.permissionBtnText}>{cfg.actionLabel}</Text>
+          </ScalePressable>
           <Pressable onPress={onContinueWithAll} style={styles.permissionSkip}>
             <Text style={styles.permissionSkipText}>Skip</Text>
           </Pressable>
         </View>
       </View>
-    );
-  }
-
-  if (status === 'blocked') {
-    return (
-      <View style={styles.permissionCard}>
-        <View style={styles.permissionLeft}>
-          <View style={styles.permissionIconWrap}>
-            <Settings size={16} color={C.accent} strokeWidth={2} />
-          </View>
-          <View style={styles.permissionText}>
-            <Text style={styles.permissionTitle}>Location disabled</Text>
-            <Text style={styles.permissionSub}>Enable in device Settings</Text>
-          </View>
-        </View>
-        <View style={styles.permissionActions}>
-          <Pressable style={styles.permissionBtn} onPress={onOpenSettings}>
-            <Text style={styles.permissionBtnText}>Settings</Text>
-          </Pressable>
-          <Pressable onPress={onContinueWithAll} style={styles.permissionSkip}>
-            <Text style={styles.permissionSkipText}>Skip</Text>
-          </Pressable>
-        </View>
-      </View>
-    );
-  }
-
-  if (status === 'error') {
-    return (
-      <View style={[styles.permissionCard, { borderColor: '#FDDCBA' }]}>
-        <View style={styles.permissionLeft}>
-          <View style={[styles.permissionIconWrap, { backgroundColor: C.warningBg }]}>
-            <AlertCircle size={16} color={C.warning} strokeWidth={2} />
-          </View>
-          <View style={styles.permissionText}>
-            <Text style={styles.permissionTitle}>Location unavailable</Text>
-            <Text style={styles.permissionSub}>Could not detect GPS position</Text>
-          </View>
-        </View>
-        <View style={styles.permissionActions}>
-          <Pressable style={styles.permissionBtn} onPress={onRetry}>
-            <Text style={styles.permissionBtnText}>Retry</Text>
-          </Pressable>
-          <Pressable onPress={onContinueWithAll} style={styles.permissionSkip}>
-            <Text style={styles.permissionSkipText}>Skip</Text>
-          </Pressable>
-        </View>
-      </View>
-    );
-  }
-
-  return null;
+    </FadeIn>
+  );
 }
 
 // ─── Active Location Sheet ─────────────────────────────────────────────────────
 
 type SheetView = 'options' | 'search';
-
-// Four discrete phases for the search flow:
-//   idle    – query < 2 chars, no search started
-//   waiting – query >= 2 chars, inside debounce window, fetch not yet sent
-//   loading – fetch in flight
-//   done    – fetch completed (results may be empty)
-//
-// "No results found" must ONLY show in 'done'. Showing it in 'waiting' (the old
-// bug) caused it to flash on every keystroke before the debounce fired.
 type SearchPhase = 'idle' | 'waiting' | 'loading' | 'done';
 
 function ActiveLocationSheet({
@@ -473,36 +588,58 @@ function ActiveLocationSheet({
   const [searchPhase, setSearchPhase] = useState<SearchPhase>('idle');
   const [kbHeight, setKbHeight] = useState(0);
 
+  const sheetTranslateY = useRef(new Animated.Value(600)).current;
+  const backdropOpacity = useRef(new Animated.Value(0)).current;
   const searchInputRef = useRef<TextInput>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Monotonically increasing counter so each debounced callback can verify it
-  // is still the latest dispatched request before applying its results.
   const searchGenRef = useRef(0);
 
-  // Reset all search state when the sheet is dismissed.
+  // Sheet enter/exit animation
   useEffect(() => {
-    if (!visible) {
-      setView('options');
-      setSearchQuery('');
-      setGeoResults([]);
-      setSearchPhase('idle');
-      setKbHeight(0);
+    if (visible) {
+      Animated.parallel([
+        Animated.spring(sheetTranslateY, {
+          toValue: 0,
+          useNativeDriver: true,
+          damping: 22,
+          stiffness: 280,
+          mass: 0.8,
+        }),
+        Animated.timing(backdropOpacity, {
+          toValue: 1,
+          duration: 280,
+          easing: Easing.out(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } else {
+      Animated.parallel([
+        Animated.timing(sheetTranslateY, {
+          toValue: 600,
+          duration: 260,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(backdropOpacity, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        setView('options');
+        setSearchQuery('');
+        setGeoResults([]);
+        setSearchPhase('idle');
+        setKbHeight(0);
+      });
     }
   }, [visible]);
 
-  // Android: KAV with behavior={undefined} does nothing inside a Modal.
-  // Manually track keyboard height and apply it as paddingBottom on the KAV
-  // so the sheet slides up above the keyboard when it opens.
   useEffect(() => {
     if (!visible || Platform.OS !== 'android') return;
-    const show = Keyboard.addListener('keyboardDidShow', (e) =>
-      setKbHeight(e.endCoordinates.height),
-    );
+    const show = Keyboard.addListener('keyboardDidShow', (e) => setKbHeight(e.endCoordinates.height));
     const hide = Keyboard.addListener('keyboardDidHide', () => setKbHeight(0));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
+    return () => { show.remove(); hide.remove(); };
   }, [visible]);
 
   const handleOpenSearch = useCallback(() => {
@@ -522,24 +659,17 @@ function ActiveLocationSheet({
   const handleSearchChange = useCallback((text: string) => {
     setSearchQuery(text);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-
     if (text.trim().length < 2) {
       setGeoResults([]);
       setSearchPhase('idle');
       return;
     }
-
-    // Move to 'waiting' — debounce window is open, fetch not yet sent.
-    // This is the key fix: the render shows the neutral hint in 'waiting',
-    // NOT "No results found". Previously geoLoading=false here caused that
-    // premature message to flash on every keystroke.
     setSearchPhase('waiting');
-
     debounceRef.current = setTimeout(async () => {
       const gen = ++searchGenRef.current;
       setSearchPhase('loading');
       const results = await searchArea(text);
-      if (gen !== searchGenRef.current) return; // stale — newer request in flight
+      if (gen !== searchGenRef.current) return;
       setGeoResults(results);
       setSearchPhase('done');
     }, 400);
@@ -555,57 +685,49 @@ function ActiveLocationSheet({
 
   const renderOptions = () => (
     <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
-      {/* Title block */}
       <View style={styles.sheetTitleBlock}>
-        <Text style={styles.sheetTitle}>Active Location</Text>
+        <Text style={styles.sheetTitle}>Set location</Text>
         <Text style={styles.sheetSubtitle}>
-          Browse stores and subscriptions in any area — not just where you are.
+          Browse stores and subscriptions in any area
         </Text>
       </View>
 
-      {/* Option group */}
       <View style={styles.sheetOptionGroup}>
-        {/* GPS */}
-        <Pressable
-          style={({ pressed }) => [styles.sheetOptionRow, pressed && styles.sheetOptionPressed]}
+        <ScalePressable
+          style={styles.sheetOptionRow}
           onPress={() => { onDetect(); onClose(); }}
         >
           <View style={[styles.sheetOptionIcon, { backgroundColor: C.blueBg }]}>
             <Navigation size={16} color={C.blue} strokeWidth={2} />
           </View>
           <View style={styles.sheetOptionContent}>
-            <Text style={styles.sheetOptionLabel}>Use Current Location</Text>
-            <Text style={styles.sheetOptionSub}>Detect my GPS position</Text>
+            <Text style={styles.sheetOptionLabel}>Use my location</Text>
+            <Text style={styles.sheetOptionSub}>Detect GPS position</Text>
           </View>
-          <ChevronRight size={15} color={C.muted} strokeWidth={2} />
-        </Pressable>
+          <ChevronRight size={14} color={C.muted} strokeWidth={2} />
+        </ScalePressable>
 
         <View style={styles.sheetOptionDivider} />
 
-        {/* Search area */}
-        <Pressable
-          style={({ pressed }) => [styles.sheetOptionRow, pressed && styles.sheetOptionPressed]}
-          onPress={handleOpenSearch}
-        >
+        <ScalePressable style={styles.sheetOptionRow} onPress={handleOpenSearch}>
           <View style={[styles.sheetOptionIcon, { backgroundColor: C.greenBg }]}>
             <Search size={16} color={C.green} strokeWidth={2} />
           </View>
           <View style={styles.sheetOptionContent}>
-            <Text style={styles.sheetOptionLabel}>Search an Area</Text>
-            <Text style={styles.sheetOptionSub}>Locality, landmark or city</Text>
+            <Text style={styles.sheetOptionLabel}>Search an area</Text>
+            <Text style={styles.sheetOptionSub}>Locality, landmark, or city</Text>
           </View>
-          <ChevronRight size={15} color={C.muted} strokeWidth={2} />
-        </Pressable>
+          <ChevronRight size={14} color={C.muted} strokeWidth={2} />
+        </ScalePressable>
 
         <View style={styles.sheetOptionDivider} />
 
-        {/* Map – deferred */}
-        <View style={[styles.sheetOptionRow, { opacity: 0.45 }]}>
+        <View style={[styles.sheetOptionRow, { opacity: 0.42 }]}>
           <View style={[styles.sheetOptionIcon, { backgroundColor: C.bg }]}>
             <Map size={16} color={C.muted} strokeWidth={2} />
           </View>
           <View style={styles.sheetOptionContent}>
-            <Text style={styles.sheetOptionLabel}>Select on Map</Text>
+            <Text style={styles.sheetOptionLabel}>Pick on map</Text>
             <Text style={styles.sheetOptionSub}>Pin a location manually</Text>
           </View>
           <View style={styles.comingSoonBadge}>
@@ -614,46 +736,47 @@ function ActiveLocationSheet({
         </View>
       </View>
 
-      {/* Recent locations */}
       {history.length > 0 && (
         <View style={styles.sheetRecentSection}>
           <Text style={styles.sheetSectionLabel}>Recent</Text>
           {history.map((loc) => (
             <Pressable
               key={`${loc.latitude}-${loc.longitude}`}
-              style={({ pressed }) => [styles.sheetRecentRow, pressed && styles.sheetOptionPressed]}
+              style={({ pressed }) => [
+                styles.sheetRecentRow,
+                pressed && { backgroundColor: C.divider },
+              ]}
               onPress={() => {
                 onSelectHistory(loc.latitude, loc.longitude, loc.name ?? '');
                 onClose();
               }}
             >
               <View style={styles.sheetRecentIconWrap}>
-                <MapPin size={12} color={C.muted} strokeWidth={2} />
+                <MapPin size={12} color={C.accent} strokeWidth={2} />
               </View>
               <Text style={styles.sheetRecentName} numberOfLines={1}>{loc.name}</Text>
+              <ChevronRight size={12} color={C.muted} strokeWidth={2} />
             </Pressable>
           ))}
         </View>
       )}
-
       <View style={{ height: 8 }} />
     </ScrollView>
   );
 
   const renderSearch = () => (
     <>
-      {/* Search header */}
       <View style={styles.sheetSearchHeader}>
         <Pressable onPress={handleBackToOptions} style={styles.sheetBackBtn} hitSlop={12}>
-          <ChevronLeft size={22} color={C.primary} strokeWidth={2.5} />
+          <ChevronLeft size={20} color={C.primary} strokeWidth={2.5} />
         </Pressable>
         <View style={styles.sheetSearchBar}>
           <Search size={15} color={C.muted} strokeWidth={2} />
           <TextInput
             ref={searchInputRef}
             style={styles.sheetSearchInput}
-            placeholder="Locality, landmark or city…"
-            placeholderTextColor={C.muted}
+            placeholder="Locality, landmark, or city…"
+            placeholderTextColor={C.placeholder}
             value={searchQuery}
             onChangeText={handleSearchChange}
             returnKeyType="search"
@@ -671,18 +794,14 @@ function ActiveLocationSheet({
               }}
               hitSlop={8}
             >
-              <X size={14} color={C.muted} strokeWidth={2.5} />
+              <View style={styles.searchClearCircle}>
+                <X size={10} color={C.surface} strokeWidth={3} />
+              </View>
             </Pressable>
           ) : null}
         </View>
       </View>
 
-      {/* Results
-          Render priority order:
-            1. Show existing results (even while a follow-up search is loading)
-            2. Full spinner only when loading with NO results yet
-            3. "No results" only in 'done' phase — never in 'waiting'
-            4. Neutral hint for 'idle' and 'waiting'                          */}
       <ScrollView
         style={styles.sheetSearchResults}
         keyboardShouldPersistTaps="handled"
@@ -693,16 +812,20 @@ function ActiveLocationSheet({
             {geoResults.map((r, i) => (
               <Pressable
                 key={i}
-                style={({ pressed }) => [styles.sheetGeoRow, pressed && styles.sheetOptionPressed]}
+                style={({ pressed }) => [
+                  styles.sheetGeoRow,
+                  pressed && { backgroundColor: C.divider },
+                ]}
                 onPress={() => handleSelectResult(r)}
               >
-                <View style={styles.sheetRecentIconWrap}>
-                  <MapPin size={12} color={C.accent} strokeWidth={2} />
+                <View style={styles.sheetGeoIconWrap}>
+                  <MapPin size={13} color={C.accent} strokeWidth={2} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.sheetGeoName}>{r.name}</Text>
                   <Text style={styles.sheetGeoSub} numberOfLines={1}>{r.displayName}</Text>
                 </View>
+                <ChevronRight size={12} color={C.muted} strokeWidth={2} />
               </Pressable>
             ))}
             {searchPhase === 'loading' ? (
@@ -723,10 +846,9 @@ function ActiveLocationSheet({
             <Text style={styles.sheetSearchStatusText}>Try a different name or spelling</Text>
           </View>
         ) : (
-          // 'idle' or 'waiting' — same neutral prompt, no premature "no results"
           <View style={styles.sheetSearchStatus}>
             <Text style={styles.sheetSearchStatusText}>
-              Type a locality, landmark, or city name
+              Type a locality, landmark, or city
             </Text>
           </View>
         )}
@@ -737,18 +859,11 @@ function ActiveLocationSheet({
   return (
     <Modal
       visible={visible}
-      animationType="slide"
+      animationType="none"
       transparent
       onRequestClose={onClose}
       statusBarTranslucent
     >
-      {/*
-        iOS: behavior="padding" pushes the KAV bottom up by the keyboard height,
-        lifting the sheet above the keyboard.
-        Android: KAV behavior is unreliable inside a Modal. Instead we track the
-        keyboard height via Keyboard.addListener and apply it as paddingBottom
-        directly on the KAV style — same net effect, no KAV internals involved.
-      */}
       <KeyboardAvoidingView
         style={[
           styles.sheetKAV,
@@ -756,16 +871,21 @@ function ActiveLocationSheet({
         ]}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <Pressable style={styles.sheetBackdrop} onPress={onClose} />
-        {/*
-          Single consistent sheet height for both views. The old conditional
-          maxHeight (75% → 90%) caused an instant layout snap when switching
-          from options to search — no animation, just a visible jump.
-        */}
-        <View style={styles.sheet}>
+        {/* Animated backdrop */}
+        <Animated.View
+          style={[styles.sheetBackdrop, { opacity: backdropOpacity }]}
+          pointerEvents="box-none"
+        >
+          <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        </Animated.View>
+
+        {/* Animated sheet */}
+        <Animated.View
+          style={[styles.sheet, { transform: [{ translateY: sheetTranslateY }] }]}
+        >
           <View style={styles.sheetHandle} />
           {view === 'options' ? renderOptions() : renderSearch()}
-        </View>
+        </Animated.View>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -785,7 +905,10 @@ export default function HomeScreen() {
   const [locationPickerVisible, setLocationPickerVisible] = useState(false);
   const [locationHistory, setLocationHistory] = useState<RecentLocation[]>([]);
 
+  const searchBarFocused = useRef(false);
+  const headerScale = useRef(new Animated.Value(1)).current;
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const handleQueryChange = useCallback((text: string) => {
     setQuery(text);
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -825,26 +948,19 @@ export default function HomeScreen() {
 
   const locationReady = locationStatus === 'ready' && !skipLocation;
   const isLocating =
-    locationStatus === 'checking' ||
-    locationStatus === 'requesting' ||
-    locationStatus === 'detecting' ||
-    locationStatus === 'updating';
+    locationStatus === 'checking' || locationStatus === 'requesting' ||
+    locationStatus === 'detecting' || locationStatus === 'updating';
   const isLocationReady = locationStatus === 'ready' && !!coords;
   const showPermissionBanner =
     !skipLocation &&
     (locationStatus === 'denied' || locationStatus === 'blocked' || locationStatus === 'error');
 
   const {
-    data: allStores,
-    isLoading: allLoading,
-    error: allError,
-    refetch: refetchAll,
+    data: allStores, isLoading: allLoading, error: allError, refetch: refetchAll,
   } = useAllStores();
 
   const {
-    data: nearbyStores,
-    isLoading: nearbyLoading,
-    error: nearbyError,
+    data: nearbyStores, isLoading: nearbyLoading, error: nearbyError,
   } = useNearbyStores({ enabled: locationReady });
 
   const isSearching = debouncedQuery.trim().length >= 2;
@@ -873,23 +989,27 @@ export default function HomeScreen() {
           </View>
         ) : isLocationReady ? (
           <Pressable
-            style={({ pressed }) => [styles.locationRow, pressed && styles.locationRowPressed]}
+            style={({ pressed }) => [styles.locationRow, pressed && { opacity: 0.6 }]}
             onPress={() => void openLocationPicker()}
             hitSlop={8}
           >
             <Text style={styles.locationName} numberOfLines={1}>
               {locationName ?? 'Current Location'}
             </Text>
-            <ChevronDown size={15} color={C.secondary} strokeWidth={2.5} />
+            <View style={styles.locationChevronWrap}>
+              <ChevronDown size={13} color={C.secondary} strokeWidth={2.5} />
+            </View>
           </Pressable>
         ) : (
           <Pressable
-            style={({ pressed }) => [styles.locationRow, pressed && styles.locationRowPressed]}
+            style={({ pressed }) => [styles.locationRow, pressed && { opacity: 0.6 }]}
             onPress={() => void openLocationPicker()}
             hitSlop={8}
           >
             <Text style={styles.locationEmpty}>Set browsing area</Text>
-            <ChevronDown size={15} color={C.muted} strokeWidth={2} />
+            <View style={styles.locationChevronWrap}>
+              <ChevronDown size={13} color={C.muted} strokeWidth={2} />
+            </View>
           </Pressable>
         )}
 
@@ -898,12 +1018,11 @@ export default function HomeScreen() {
         )}
       </View>
 
-      <Pressable
-        style={({ pressed }) => [styles.bellBtn, pressed && styles.bellBtnPressed]}
-        hitSlop={12}
-      >
-        <Bell size={20} color={C.primary} strokeWidth={1.7} />
-      </Pressable>
+      <ScalePressable style={styles.bellBtn}>
+        <Bell size={19} color={C.primary} strokeWidth={1.7} />
+        {/* Notification dot */}
+        <View style={styles.bellDot} />
+      </ScalePressable>
     </View>
   );
 
@@ -912,11 +1031,11 @@ export default function HomeScreen() {
   const renderSearchBar = () => (
     <View style={styles.searchWrap}>
       <View style={styles.searchBar}>
-        <Search size={16} color={C.secondary} strokeWidth={2} />
+        <Search size={15} color={query ? C.accent : C.muted} strokeWidth={2} />
         <TextInput
           style={styles.searchInput}
           placeholder="Search stores or categories"
-          placeholderTextColor={C.muted}
+          placeholderTextColor={C.placeholder}
           value={query}
           onChangeText={handleQueryChange}
           returnKeyType="search"
@@ -925,11 +1044,13 @@ export default function HomeScreen() {
           clearButtonMode="never"
         />
         {query.length > 0 ? (
-          <Pressable onPress={clearSearch} hitSlop={8} style={styles.searchClearBtn}>
+          <Pressable onPress={clearSearch} hitSlop={8}>
             {searchLoading ? (
               <ActivityIndicator size="small" color={C.accent} />
             ) : (
-              <X size={14} color={C.muted} strokeWidth={2.5} />
+              <View style={styles.searchClearCircle}>
+                <X size={10} color={C.surface} strokeWidth={3} />
+              </View>
             )}
           </Pressable>
         ) : null}
@@ -953,33 +1074,39 @@ export default function HomeScreen() {
     if (error) {
       return (
         <View style={styles.errorWrap}>
-          <AlertCircle size={18} color={C.muted} strokeWidth={1.5} />
+          <View style={styles.errorIconWrap}>
+            <AlertCircle size={20} color={C.muted} strokeWidth={1.5} />
+          </View>
           <Text style={styles.errorText}>
             {(error as Error)?.message ?? 'Failed to load stores.'}
           </Text>
-          <Pressable onPress={() => void refetchAll()} style={styles.retryBtn}>
+          <ScalePressable style={styles.retryBtn} onPress={() => void refetchAll()}>
             <RefreshCw size={13} color={C.accent} strokeWidth={2} />
             <Text style={styles.retryBtnText}>Try again</Text>
-          </Pressable>
+          </ScalePressable>
         </View>
       );
     }
     if (!stores || stores.length === 0) {
       return <EmptyState title={emptyTitle} subtitle={emptySub} />;
     }
-    return stores.map((s) => <StoreCard key={s.id} store={s} />);
+    return stores.map((s, i) => <StoreCard key={s.id} store={s} index={i} />);
   };
 
   // ── Search Results ─────────────────────────────────────────────────────────
 
   const renderSearchResults = () => (
     <View style={styles.section}>
-      <SectionHeader title="Search Results" count={searchResults?.length} />
+      <SectionHeader
+        title="Results"
+        count={searchResults?.length}
+        icon={<Search size={14} color={C.accent} strokeWidth={2} />}
+      />
       {searchLoading
         ? renderSkeletons(2)
         : !searchResults || searchResults.length === 0
-        ? <EmptyState title="No stores found" subtitle={`No results for "${debouncedQuery}"`} />
-        : searchResults.map((s) => <StoreCard key={s.id} store={s} />)
+        ? <EmptyState title="No stores found" subtitle={`Nothing matched "${debouncedQuery}"`} />
+        : searchResults.map((s, i) => <StoreCard key={s.id} store={s} index={i} />)
       }
     </View>
   );
@@ -1003,7 +1130,11 @@ export default function HomeScreen() {
 
         {locationReady && (
           <View style={styles.section}>
-            <SectionHeader title="Nearby" count={nearbyStores?.length} />
+            <SectionHeader
+              title="Nearby"
+              count={nearbyStores?.length}
+              icon={<MapPin size={14} color={C.accent} strokeWidth={2} />}
+            />
             {renderStoreList(
               nearbyStores,
               nearbyLoading,
@@ -1015,7 +1146,10 @@ export default function HomeScreen() {
         )}
 
         <View style={styles.section}>
-          <SectionHeader title="All Stores" count={allStores?.length} />
+          <SectionHeader
+            title="All stores"
+            count={allStores?.length}
+          />
           {renderStoreList(
             allStores,
             allLoading,
@@ -1082,8 +1216,8 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     backgroundColor: C.surface,
     paddingHorizontal: 20,
-    paddingTop: 10,
-    paddingBottom: 14,
+    paddingTop: 12,
+    paddingBottom: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: C.border,
   },
@@ -1091,65 +1225,84 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   greeting: {
-    fontSize: 11,
-    fontWeight: '400',
+    fontSize: 12,
+    fontWeight: '500',
     color: C.muted,
-    letterSpacing: 0.1,
-    marginBottom: 3,
+    letterSpacing: 0.2,
+    marginBottom: 5,
+    textTransform: 'uppercase',
   },
   locationRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
   },
-  locationRowPressed: { opacity: 0.6 },
   locationName: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '700',
     color: C.primary,
     flexShrink: 1,
-    letterSpacing: -0.6,
-    lineHeight: 24,
+    letterSpacing: -0.7,
+    lineHeight: 26,
   },
   locationLoading: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '600',
     color: C.secondary,
-    letterSpacing: -0.3,
+    letterSpacing: -0.4,
   },
   locationEmpty: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '600',
     color: C.secondary,
-    letterSpacing: -0.3,
+    letterSpacing: -0.4,
+  },
+  locationChevronWrap: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: C.bg,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   locationContext: {
     fontSize: 12,
     color: C.muted,
     fontWeight: '400',
-    marginTop: 3,
+    marginTop: 4,
     letterSpacing: 0.1,
   },
   bellBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 13,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     backgroundColor: C.bg,
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 14,
-    marginTop: 2,
+    marginTop: 4,
+    position: 'relative',
     ...Platform.select({
       ios: {
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.06,
+        shadowOpacity: 0.05,
         shadowRadius: 4,
       },
       android: { elevation: 1 },
     }),
   },
-  bellBtnPressed: { backgroundColor: C.border },
+  bellDot: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: C.accent,
+    borderWidth: 1.5,
+    borderColor: C.bg,
+  },
 
   // ── Search Bar ──
   searchWrap: {
@@ -1161,21 +1314,23 @@ const styles = StyleSheet.create({
     ...Platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.06,
-        shadowRadius: 6,
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.07,
+        shadowRadius: 8,
       },
-      android: { elevation: 3 },
+      android: { elevation: 4 },
     }),
   },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: C.bg,
-    borderRadius: 14,
-    height: 46,
+    borderRadius: 16,
+    height: 48,
     paddingHorizontal: 14,
     gap: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: C.border,
   },
   searchInput: {
     flex: 1,
@@ -1183,15 +1338,33 @@ const styles = StyleSheet.create({
     color: C.primary,
     paddingVertical: 0,
   },
-  searchClearBtn: { padding: 4 },
+  searchClearCircle: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: C.muted,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
 
   // ── Content ──
   content: { paddingBottom: 52 },
   section: { marginTop: 4 },
   sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 24,
-    paddingBottom: 12,
+    paddingTop: 26,
+    paddingBottom: 14,
+    gap: 8,
+  },
+  sectionIcon: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    backgroundColor: C.accentSoft,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   sectionTitle: {
     fontSize: 17,
@@ -1199,36 +1372,45 @@ const styles = StyleSheet.create({
     color: C.primary,
     letterSpacing: -0.4,
   },
-  sectionCountInline: {
-    fontSize: 13,
-    fontWeight: '400',
+  sectionCountPill: {
+    backgroundColor: C.bg,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: C.border,
+    minWidth: 26,
+    alignItems: 'center',
+  },
+  sectionCountText: {
+    fontSize: 12,
+    fontWeight: '600',
     color: C.muted,
-    letterSpacing: 0,
   },
 
   // ── Store Card ──
-  card: {
-    backgroundColor: C.surface,
+  cardWrapper: {
     marginHorizontal: 16,
     marginBottom: 16,
-    borderRadius: 18,
+  },
+  card: {
+    backgroundColor: C.surface,
+    borderRadius: 20,
     overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: C.border,
     ...Platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 3 },
-        shadowOpacity: 0.09,
-        shadowRadius: 14,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.08,
+        shadowRadius: 18,
       },
-      android: { elevation: 3 },
+      android: { elevation: 4 },
     }),
   },
-  cardPressed: {
-    opacity: 0.92,
-    transform: [{ scale: 0.985 }],
-  },
   banner: {
-    height: 180,
+    height: 188,
     position: 'relative',
     overflow: 'hidden',
   },
@@ -1236,28 +1418,31 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
+  },
+  bannerInitialCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   bannerFallbackInitial: {
-    fontSize: 52,
+    fontSize: 36,
     fontWeight: '700',
-    color: 'rgba(0,0,0,0.15)',
-    letterSpacing: -2,
-    lineHeight: 56,
+    letterSpacing: -1,
+    lineHeight: 40,
   },
   bannerFallbackLabel: {
     fontSize: 12,
     fontWeight: '500',
-    color: 'rgba(0,0,0,0.25)',
+    color: 'rgba(0,0,0,0.3)',
     letterSpacing: 0.3,
   },
   bannerPhotoScrim: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.04)',
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.06)',
   },
   statusChip: {
     position: 'absolute',
@@ -1273,8 +1458,8 @@ const styles = StyleSheet.create({
       ios: {
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 3,
+        shadowOpacity: 0.08,
+        shadowRadius: 4,
       },
     }),
   },
@@ -1290,6 +1475,32 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.1,
   },
+  distanceBadge: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 20,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.08,
+        shadowRadius: 4,
+      },
+    }),
+  },
+  distanceBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: C.primary,
+    letterSpacing: 0.1,
+  },
   cardBody: {
     paddingHorizontal: 16,
     paddingTop: 14,
@@ -1298,7 +1509,6 @@ const styles = StyleSheet.create({
   cardTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     marginBottom: 8,
   },
   cardName: {
@@ -1307,37 +1517,50 @@ const styles = StyleSheet.create({
     color: C.primary,
     letterSpacing: -0.4,
     flex: 1,
-    marginRight: 8,
-  },
-  distancePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-  },
-  distancePillText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: C.muted,
   },
   categoryTag: {
     alignSelf: 'flex-start',
-    backgroundColor: C.bg,
-    borderRadius: 6,
+    backgroundColor: C.accentSoft,
+    borderRadius: 7,
     paddingHorizontal: 8,
     paddingVertical: 3,
     marginBottom: 10,
   },
   categoryTagText: {
     fontSize: 11,
-    fontWeight: '500',
-    color: C.secondary,
+    fontWeight: '600',
+    color: C.accentDeep,
     textTransform: 'capitalize',
     letterSpacing: 0.2,
   },
   cardFooter: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
+    marginTop: 10,
+  },
+  cardMeta: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 6,
+    flexShrink: 1,
+    overflow: 'hidden',
+  },
+  cardDirectionsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FEF2EF',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    flexShrink: 0,
+  },
+  cardDirectionsBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#D63527',
   },
   metaItem: {
     flexDirection: 'row',
@@ -1348,9 +1571,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: C.secondary,
   },
-  metaDot: {
-    fontSize: 12,
-    color: C.border,
+  metaDistance: {
+    color: C.primary,
+    fontWeight: '600',
+  },
+  metaDivider: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: C.muted,
   },
   cardAddress: {
     fontSize: 12,
@@ -1364,21 +1593,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: C.surface,
-    marginHorizontal: 16,
-    marginTop: 20,
     padding: 16,
-    borderRadius: 16,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: C.border,
     gap: 12,
     ...Platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.04,
-        shadowRadius: 4,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 8,
       },
-      android: { elevation: 1 },
+      android: { elevation: 2 },
     }),
   },
   permissionLeft: {
@@ -1388,17 +1615,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   permissionIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: C.accentSoft,
+    width: 38,
+    height: 38,
+    borderRadius: 11,
     justifyContent: 'center',
     alignItems: 'center',
   },
   permissionText: { flex: 1, gap: 2 },
   permissionTitle: {
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: '700',
     color: C.primary,
   },
   permissionSub: {
@@ -1434,41 +1660,44 @@ const styles = StyleSheet.create({
   },
   sheetBackdrop: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: C.overlay,
   },
   sheet: {
-    flex: 1,  // required so children with flex:1 (the results ScrollView) have a parent dimension to fill
+    flex: 1,
     backgroundColor: C.surface,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     paddingTop: 12,
     paddingHorizontal: 20,
-    // Same height for both options and search views — no layout snap on switch.
-    // 88% gives enough room for the keyboard + results without the sheet
-    // dominating the whole screen when showing options.
     maxHeight: '88%',
     paddingBottom: Platform.OS === 'ios' ? 40 : 28,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 20,
+      },
+      android: { elevation: 12 },
+    }),
   },
   sheetHandle: {
-    width: 36,
+    width: 40,
     height: 4,
-    backgroundColor: '#C8C8CE',
+    backgroundColor: C.border,
     borderRadius: 2,
     alignSelf: 'center',
-    marginBottom: 20,
+    marginBottom: 22,
   },
   sheetTitleBlock: {
-    marginBottom: 20,
+    marginBottom: 22,
   },
   sheetTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '700',
     color: C.primary,
-    letterSpacing: -0.4,
+    letterSpacing: -0.5,
     marginBottom: 4,
   },
   sheetSubtitle: {
@@ -1478,9 +1707,11 @@ const styles = StyleSheet.create({
   },
   sheetOptionGroup: {
     backgroundColor: C.bg,
-    borderRadius: 16,
+    borderRadius: 18,
     overflow: 'hidden',
     marginBottom: 24,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: C.border,
   },
   sheetOptionRow: {
     flexDirection: 'row',
@@ -1489,18 +1720,15 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 16,
   },
-  sheetOptionPressed: {
-    backgroundColor: C.divider,
-  },
   sheetOptionDivider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: C.border,
-    marginLeft: 62,
+    marginLeft: 66,
   },
   sheetOptionIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 38,
+    height: 38,
+    borderRadius: 11,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1516,12 +1744,10 @@ const styles = StyleSheet.create({
     color: C.muted,
   },
   comingSoonBadge: {
-    backgroundColor: C.bg,
-    borderRadius: 6,
+    backgroundColor: C.divider,
+    borderRadius: 7,
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderWidth: 1,
-    borderColor: C.border,
   },
   comingSoonText: {
     fontSize: 11,
@@ -1533,9 +1759,9 @@ const styles = StyleSheet.create({
   },
   sheetSectionLabel: {
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: '700',
     color: C.muted,
-    letterSpacing: 0.8,
+    letterSpacing: 0.9,
     textTransform: 'uppercase',
     marginBottom: 8,
     marginLeft: 4,
@@ -1544,15 +1770,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingVertical: 11,
-    paddingHorizontal: 8,
-    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    borderRadius: 14,
   },
   sheetRecentIconWrap: {
-    width: 30,
-    height: 30,
-    borderRadius: 8,
-    backgroundColor: C.bg,
+    width: 32,
+    height: 32,
+    borderRadius: 9,
+    backgroundColor: C.accentSoft,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1571,22 +1797,26 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   sheetBackBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 38,
+    height: 38,
+    borderRadius: 11,
     backgroundColor: C.bg,
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: C.border,
   },
   sheetSearchBar: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: C.bg,
-    borderRadius: 12,
-    height: 44,
+    borderRadius: 14,
+    height: 46,
     paddingHorizontal: 12,
     gap: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: C.border,
   },
   sheetSearchInput: {
     flex: 1,
@@ -1603,8 +1833,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     paddingVertical: 12,
-    paddingHorizontal: 8,
-    borderRadius: 12,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+  },
+  sheetGeoIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 9,
+    backgroundColor: C.accentSoft,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   sheetGeoName: {
     fontSize: 14,
@@ -1617,7 +1855,7 @@ const styles = StyleSheet.create({
     color: C.muted,
   },
   sheetSearchStatus: {
-    paddingVertical: 32,
+    paddingVertical: 36,
     alignItems: 'center',
     gap: 6,
   },
@@ -1646,15 +1884,26 @@ const styles = StyleSheet.create({
   // ── Empty State ──
   emptyWrap: {
     alignItems: 'center',
-    paddingVertical: 32,
+    paddingVertical: 36,
     paddingHorizontal: 24,
+    gap: 10,
+  },
+  emptyIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: C.bg,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 2,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: C.border,
   },
   emptyTitle: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '600',
     color: C.secondary,
     textAlign: 'center',
-    marginBottom: 4,
   },
   emptySub: {
     fontSize: 13,
@@ -1666,9 +1915,17 @@ const styles = StyleSheet.create({
   // ── Error State ──
   errorWrap: {
     alignItems: 'center',
-    paddingVertical: 32,
+    paddingVertical: 36,
     paddingHorizontal: 24,
-    gap: 8,
+    gap: 10,
+  },
+  errorIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: C.dangerBg,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   errorText: {
     fontSize: 13,
@@ -1679,8 +1936,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 20,
-    height: 40,
+    paddingHorizontal: 22,
+    height: 42,
     borderRadius: 12,
     borderWidth: 1.5,
     borderColor: C.accent,

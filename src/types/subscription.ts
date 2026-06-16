@@ -1,60 +1,64 @@
-// Subscription (Card Service) DTOs — mirrors /api/subscriptions/* contracts.
+// Subscription DTOs — mirrors card-service SubscriptionResponse.
 //
-// A Subscription is a purchased Card instance tied to a specific store.
-// It tracks usage (usedBoxes / totalBoxes) and carries the QR + stamp data
-// needed to render the card detail screen.
+// A Subscription is a purchased CardDefinition instance tied to a specific store.
+// walletBalance decrements on each redemption.
+//
+// Status lifecycle: ACTIVE → EXPIRED (time) | EXHAUSTED (balance=0) | CANCELLED (manual)
+// The server auto-expires ACTIVE subscriptions whose expiresAt is in the past
+// when GET /api/subscriptions/my/active is called.
 
-import type { PaginationParams } from './api';
-import type { MenuCategory } from './store';
+import type { ItemType } from './store';
 
-export type SubscriptionStatus = 'active' | 'cancelled' | 'expired';
+export type SubscriptionStatus = 'ACTIVE' | 'EXPIRED' | 'EXHAUSTED' | 'CANCELLED';
 
 export interface Subscription {
-  id: string;
-  cardId: string;
-  cardName: string;         // 'Curry Card', 'All in one', etc.
-  cardType: string;
-  restaurantId: string;
-  restaurantName: string;
-  restaurantAddress: string;
-  totalBoxes: number;       // e.g. 32
-  usedBoxes: number;        // e.g. 20
+  id: number;
+  userId: number;
+  cardDefinitionId: number;
+  cardName: string;        // denormalized from CardDefinition at query time
+  storeId: number;
+  walletBalance: number;   // remaining balance (BigDecimal → number)
   status: SubscriptionStatus;
-  validTill: string;        // ISO 8601 date
-  daysLeft: number;
-  color: string;            // card widget background color
-  purchasedAt: string;      // ISO 8601
+  purchasedAt: string;     // ISO-8601 LocalDateTime
+  expiresAt: string;       // ISO-8601 LocalDateTime
+  createdAt: string;       // ISO-8601 LocalDateTime
 }
 
-export interface SubscriptionDetail extends Subscription {
-  qrData: string;           // raw data string to render as QR code
-  stampPattern: boolean[];  // length === totalBoxes; true = used stamp
-  termsAndConditions: string;
+// GET /api/subscriptions/my — paginated using Spring Page<T>
+export interface SubscriptionPage {
+  content: Subscription[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+  last: boolean;
 }
 
-// Returned by GET /api/subscriptions/{id}/menu.
-// Contains ONLY the categories and items the purchased card is eligible for.
-// The frontend MUST NOT use this to show a full menu — only for redemption flows.
+// GET /api/subscriptions/{id}/menu
+// Contains ONLY categories + items the purchased card is eligible for.
+// Used exclusively for the redemption flow — NOT a general store menu.
+export interface EligibleMenuItem {
+  itemId: number;
+  name: string;
+  price: number;             // BigDecimal → number
+  itemType: ItemType;
+  availabilityStatus: 'AVAILABLE';
+}
+
+export interface EligibleCategory {
+  categoryId: number;
+  categoryName: string;
+  items: EligibleMenuItem[];
+}
+
 export interface EligibleMenu {
-  subscriptionId: string;
-  categories: MenuCategory[];
+  subscriptionId: number;
+  cardName: string;
+  categories: EligibleCategory[];
 }
 
-export interface CreateSubscriptionRequest {
-  storeId: string;
-  cardId: string;
-  quantity: number;
-  couponCode?: string;
-}
-
-export interface BillSummary {
-  subtotal: number;
-  taxes: number;
-  platformCharges: number;
-  discount: number;
-  total: number;
-}
-
-export interface SubscriptionListParams extends PaginationParams {
-  status?: SubscriptionStatus;
+// POST /api/subscriptions request body
+export interface PurchaseSubscriptionRequest {
+  cardDefinitionId: number;
+  storeId: number;
 }

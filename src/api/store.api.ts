@@ -1,6 +1,6 @@
 import { apiClient } from './client';
 import { API_ENDPOINTS } from '@/constants/api';
-import type { Store } from '@/types/store';
+import type { Store, MenuCategory } from '@/types/store';
 
 export const storeApi = {
   // GET /api/user/stores — full catalogue, no location required
@@ -9,7 +9,7 @@ export const storeApi = {
     return data;
   },
 
-  // GET /api/user/stores/search?query=… — debounced text search
+  // GET /api/user/stores/search?q=… — debounced text search
   searchStores: async (query: string): Promise<Store[]> => {
     const { data } = await apiClient.get<Store[]>(API_ENDPOINTS.USER_STORES.SEARCH, {
       params: { q: query },
@@ -20,6 +20,18 @@ export const storeApi = {
   // GET /api/user/stores/nearby/me — backend uses the user's saved location
   getNearbyStores: async (): Promise<Store[]> => {
     const { data } = await apiClient.get<Store[]>(API_ENDPOINTS.USER_STORES.NEARBY);
+    return data;
+  },
+
+  // GET /api/user/stores/{id}
+  getStoreById: async (storeId: string | number): Promise<Store> => {
+    const { data } = await apiClient.get<Store>(API_ENDPOINTS.USER_STORES.DETAIL(storeId));
+    return data;
+  },
+
+  // GET /api/user/stores/{id}/menu → list of categories each containing their items
+  getStoreMenu: async (storeId: string | number): Promise<MenuCategory[]> => {
+    const { data } = await apiClient.get<MenuCategory[]>(API_ENDPOINTS.USER_STORES.MENU(storeId));
     return data;
   },
 };
