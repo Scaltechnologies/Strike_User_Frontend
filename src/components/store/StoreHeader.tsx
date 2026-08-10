@@ -1,8 +1,9 @@
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { MapPin, Navigation } from 'lucide-react-native';
 import { formatDistance, openDirections } from '@/utils/maps';
+import { useMediaSource, logMediaError } from '@/utils/media';
 import { C, BANNER_HEIGHT, storeFallbackColor } from './theme';
 import type { Store } from '@/types/store';
 
@@ -26,17 +27,25 @@ function StatusBadge({ status }: { status: Store['status'] }) {
 // ── Banner ────────────────────────────────────────────────────────────────────
 
 function Banner({ store }: { store: Store }) {
-  if (store.logoUrl) {
+  const [failed, setFailed] = useState(false);
+  const source = useMediaSource(store.logoUrl);
+
+  if (source && !failed) {
     return (
       <Image
-        source={{ uri: store.logoUrl }}
+        source={source}
         style={styles.banner}
         contentFit="cover"
         transition={300}
+        onError={(e) => {
+          logMediaError('store banner', source.uri, e.error);
+          setFailed(true);
+        }}
       />
     );
   }
   // Fallback: deterministic pastel background + store initials
+  // (also used when the image URL fails to load, not just when it's absent)
   const initials = store.name
     .split(' ')
     .slice(0, 2)

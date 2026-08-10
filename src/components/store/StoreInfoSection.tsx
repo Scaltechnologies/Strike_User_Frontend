@@ -2,6 +2,7 @@ import { memo, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { ChevronDown, ChevronUp, Clock } from 'lucide-react-native';
 import { C } from './theme';
+import { isStoreOpenNow } from '@/utils/storeTiming';
 import type { Store, StoreTiming } from '@/types/store';
 
 // ── Timing helpers ────────────────────────────────────────────────────────────
@@ -35,18 +36,19 @@ interface TodayStatus {
   color: string;
 }
 
-function getTodayStatus(timings: StoreTiming[]): TodayStatus | null {
+function getTodayStatus(store: Store): TodayStatus | null {
   const today = todayKey();
-  const t = timings.find((x) => x.dayOfWeek === today);
+  const t = store.timings.find((x) => x.dayOfWeek === today);
   if (!t) return null;
   if (t.isClosed) {
     return { label: 'Closed Today', hours: null, color: C.dangerText };
   }
   if (t.openTime && t.closeTime) {
+    const openNow = isStoreOpenNow(store);
     return {
-      label: 'Open Today',
+      label: openNow ? 'Open Now' : 'Closed Now',
       hours: `${fmtTime(t.openTime)} – ${fmtTime(t.closeTime)}`,
-      color: C.successText,
+      color: openNow ? C.successText : C.dangerText,
     };
   }
   return null;
@@ -113,7 +115,7 @@ export const StoreInfoSection = memo(function StoreInfoSection({ store }: Props)
 
   if (!hasTimings && !hasDesc) return null;
 
-  const todayStatus = hasTimings ? getTodayStatus(store.timings) : null;
+  const todayStatus = hasTimings ? getTodayStatus(store) : null;
 
   return (
     <View style={styles.card}>

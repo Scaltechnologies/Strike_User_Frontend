@@ -18,6 +18,10 @@ export interface Subscription {
   cardName: string;        // denormalized from CardDefinition at query time
   storeId: number;
   walletBalance: number;   // remaining balance (BigDecimal → number)
+  couponCode: string | null;
+  originalAmount: number | null;
+  discountApplied: number | null;
+  finalAmount: number | null;
   status: SubscriptionStatus;
   purchasedAt: string;     // ISO-8601 LocalDateTime
   expiresAt: string;       // ISO-8601 LocalDateTime
@@ -61,4 +65,5 @@ export interface EligibleMenu {
 export interface PurchaseSubscriptionRequest {
   cardDefinitionId: number;
   storeId: number;
+  couponCode?: string;
 }

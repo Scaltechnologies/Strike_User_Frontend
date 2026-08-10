@@ -1,3 +1,5 @@
+import axios from 'axios';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -11,14 +13,12 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import axios from 'axios';
 
 import { authApi } from '@/api/auth.api';
 import { useAuthStore } from '@/store/authStore';
 
 const OTP_LENGTH = 6;
-const RESEND_SECONDS = 30;
+const RESEND_SECONDS = 60;
 
 function formatPhone(phone: string): string {
   if (phone.length <= 5) return `+91 ${phone}`;
@@ -128,8 +128,7 @@ export default function OtpScreen() {
       setTokens(res.token, res.refreshToken, String(res.userId));
     } catch (err: unknown) {
       const msg = axios.isAxiosError(err)
-        ? ((err.response?.data as { message?: string })?.message ??
-            'Invalid OTP. Please try again.')
+        ? ((err.response?.data as { message?: string })?.message ?? 'Invalid OTP. Please try again.')
         : 'Something went wrong. Please try again.';
       setError(msg);
       // Clear boxes and re-focus first on error
@@ -151,12 +150,10 @@ export default function OtpScreen() {
       setCanResend(false);
       setTimeout(() => inputRefs.current[0]?.focus(), 100);
     } catch (err: unknown) {
-      setError(
-        axios.isAxiosError(err)
-          ? ((err.response?.data as { message?: string })?.message ??
-              'Failed to resend OTP.')
-          : 'Failed to resend. Please try again.',
-      );
+      const msg = axios.isAxiosError(err)
+        ? ((err.response?.data as { message?: string })?.message ?? 'Failed to resend OTP.')
+        : 'Failed to resend. Please try again.';
+      setError(msg);
     } finally {
       setResendLoading(false);
     }

@@ -15,7 +15,7 @@ import {
   Sparkles,
   X,
 } from 'lucide-react-native';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'expo-router';
 import {
   ActivityIndicator,
@@ -34,6 +34,7 @@ import {
   View,
 } from 'react-native';
 import { formatDistance, openDirections } from '@/utils/maps';
+import { useMediaSource, logMediaError } from '@/utils/media';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useLocation } from '@/hooks/useLocation';
@@ -41,6 +42,7 @@ import { useAllStores, useInvalidateStores, useNearbyStores, useSearchStores } f
 import type { RecentLocation } from '@/services/storageService';
 import { storageService } from '@/services/storageService';
 import { useAppStore } from '@/store/appStore';
+import { isStoreOpenNow } from '@/utils/storeTiming';
 import type { Store, StoreTiming } from '@/types/store';
 
 // ─── Design Tokens ─────────────────────────────────────────────────────────────
@@ -350,23 +352,30 @@ function StoreCardSkeleton() {
 
 function StoreCard({ store, index = 0 }: { store: Store; index?: number }) {
   const router = useRouter();
-  const isOpen = store.status === 'ACTIVE';
+  const isOpen = isStoreOpenNow(store);
   const timing = getTodayTiming(store.timings);
   const distance = store.distanceKm != null ? formatDistance(store.distanceKm) : null;
   const initial = store.name.charAt(0).toUpperCase();
   const fallbackBg = getStoreFallbackColor(store.name);
   const initialColor = getStoreInitialColor(store.name);
+  const [imgFailed, setImgFailed] = useState(false);
+  const bannerSource = useMediaSource(store.logoUrl);
+  const showPhoto = !!bannerSource && !imgFailed;
   return (
     <FadeIn delay={index * 60} style={styles.cardWrapper}>
       <ScalePressable style={styles.card} onPress={() => router.push(`/store/${store.id}` as never)}>
         {/* ── Banner ─────────────────────────────────── */}
         <View style={styles.banner}>
-          {store.logoUrl ? (
+          {showPhoto && bannerSource ? (
             <Image
-              source={{ uri: store.logoUrl }}
+              source={bannerSource}
               style={StyleSheet.absoluteFill}
               contentFit="cover"
               transition={300}
+              onError={(e) => {
+                logMediaError('store card banner', bannerSource.uri, e.error);
+                setImgFailed(true);
+              }}
             />
           ) : (
             <View style={[styles.bannerFallback, { backgroundColor: fallbackBg }]}>
@@ -382,7 +391,7 @@ function StoreCard({ store, index = 0 }: { store: Store; index?: number }) {
           )}
 
           {/* Subtle scrim for photos */}
-          {store.logoUrl ? <View style={styles.bannerPhotoScrim} /> : null}
+          {showPhoto ? <View style={styles.bannerPhotoScrim} /> : null}
 
           {/* Status chip */}
           <View style={[styles.statusChip, isOpen ? styles.statusChipOpen : styles.statusChipClosed]}>
@@ -960,11 +969,20 @@ export default function HomeScreen() {
   } = useAllStores();
 
   const {
-    data: nearbyStores, isLoading: nearbyLoading, error: nearbyError,
+    data: nearbyStores, isLoading: nearbyLoading, error: nearbyError, refetch: refetchNearby,
   } = useNearbyStores({ enabled: locationReady });
 
   const isSearching = debouncedQuery.trim().length >= 2;
   const { data: searchResults, isLoading: searchLoading } = useSearchStores(debouncedQuery);
+
+  // "All stores" is every store in the catalogue, which always includes
+  // whatever's in "Nearby" — filter those out so a store doesn't render
+  // twice on the home screen.
+  const otherStores = useMemo(() => {
+    if (!locationReady || !nearbyStores?.length) return allStores;
+    const nearbyIds = new Set(nearbyStores.map((s) => s.id));
+    return (allStores ?? []).filter((s) => !nearbyIds.has(s.id));
+  }, [allStores, nearbyStores, locationReady]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -1069,6 +1087,7 @@ export default function HomeScreen() {
     error: unknown,
     emptyTitle: string,
     emptySub?: string,
+    onRetry?: () => void,
   ) => {
     if (loading) return <>{renderSkeletons()}</>;
     if (error) {
@@ -1080,7 +1099,7 @@ export default function HomeScreen() {
           <Text style={styles.errorText}>
             {(error as Error)?.message ?? 'Failed to load stores.'}
           </Text>
-          <ScalePressable style={styles.retryBtn} onPress={() => void refetchAll()}>
+          <ScalePressable style={styles.retryBtn} onPress={() => void (onRetry ?? refetchAll)()}>
             <RefreshCw size={13} color={C.accent} strokeWidth={2} />
             <Text style={styles.retryBtnText}>Try again</Text>
           </ScalePressable>
@@ -1141,6 +1160,7 @@ export default function HomeScreen() {
               nearbyError,
               'No stores nearby',
               'Try searching an area or browse all stores below',
+              () => void refetchNearby(),
             )}
           </View>
         )}
@@ -1148,14 +1168,15 @@ export default function HomeScreen() {
         <View style={styles.section}>
           <SectionHeader
             title="All stores"
-            count={allStores?.length}
+            count={otherStores?.length}
           />
           {renderStoreList(
-            allStores,
+            otherStores,
             allLoading,
             allError,
             'No stores available',
             'Check back soon — new stores are added regularly',
+            () => void refetchAll(),
           )}
         </View>
       </>

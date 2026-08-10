@@ -3,7 +3,22 @@
 const P = '/api';
 
 export const API_ENDPOINTS = {
+  // PROVISIONAL — path + response shape not yet confirmed against the
+  // backend. Meant to be a public (no-auth) endpoint the app can poll on
+  // launch to learn about maintenance mode before a user is logged in.
+  // Update once the real contract is confirmed. See maintenanceStore.ts.
+  APP: {
+    STATUS: `${P}/app/status`,
+  },
+
   AUTH: {
+    // Verifies the Firebase ID token (via Firebase Admin SDK) and issues the
+    // app's own token pair. Currently unused — see SEND_OTP/VERIFY_OTP below.
+    FIREBASE_VERIFY: `${P}/auth/user/firebase-verify`,
+    // TEMPORARY — legacy mock-OTP flow (fixed code 123456, OTP_PROVIDER=mock
+    // on the backend) used in place of Firebase phone auth while testing on
+    // a development APK. Switch back to FIREBASE_VERIFY once Firebase native
+    // auth works reliably on dev builds.
     SEND_OTP: `${P}/auth/user/send-otp`,
     VERIFY_OTP: `${P}/auth/user/verify-otp`,
     REFRESH: `${P}/auth/refresh`,
@@ -12,6 +27,7 @@ export const API_ENDPOINTS = {
 
   USER: {
     PROFILE: `${P}/user/profile`,
+    AVATAR:  `${P}/user/me/avatar`,
     PUSH_TOKEN: `${P}/user/push-token`,
     LOCATION: `${P}/user/me/location`,
   },
@@ -51,8 +67,15 @@ export const API_ENDPOINTS = {
   },
 
   REDEMPTIONS: {
-    CREATE: `${P}/redemptions`,
-    DETAIL: (id: string) => `${P}/redemptions/${id}`,
+    // User-initiated flow (Phase 5)
+    REQUEST:         `${P}/redemptions/request`,
+    DETAIL:          (id: string | number)      => `${P}/redemptions/${id}`,
+    APPROVE:         (id: string | number)      => `${P}/redemptions/${id}/approve`,
+    REJECT:          (id: string | number)      => `${P}/redemptions/${id}/reject`,
+    STORE_QUEUE:     (storeId: string | number) => `${P}/redemptions/store/${storeId}/queue`,
+    // History
+    BY_USER:         (userId: string | number)  => `${P}/redemptions/user/${userId}`,
+    BY_SUBSCRIPTION: (subId: string | number)   => `${P}/redemptions/subscription/${subId}`,
   },
 
   LEDGER: {
@@ -61,6 +84,6 @@ export const API_ENDPOINTS = {
   },
 
   COUPONS: {
-    VALIDATE: `${P}/coupons/validate`,
+    VALIDATE: `${P}/subscriptions/coupons/validate`,
   },
 } as const;

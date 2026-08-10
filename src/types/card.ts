@@ -14,12 +14,13 @@ export interface CardDefinition {
   storeId: number;
   name: string;
   description: string | null;
-  cardPrice: number;       // what the user pays (BigDecimal → number)
-  walletAmount: number;    // credit loaded to wallet (BigDecimal → number)
-  bonusAmount: number;     // max(walletAmount - cardPrice, 0) — server-computed
+  cardPrice: number;               // what the user pays (BigDecimal → number)
+  walletAmount: number;            // credit loaded to wallet (BigDecimal → number)
+  bonusAmount: number;             // max(walletAmount - cardPrice, 0) — server-computed
   validityInDays: number;
   imageUrl: string | null;
   isActive: boolean;
-  categoryIds: number[];   // which MenuCategory IDs this card covers
-  createdAt: string;       // ISO-8601 LocalDateTime
+  categoryIds: number[];           // which MenuCategory IDs this card covers
+  eligibleMenuItemIds?: number[];  // specific items covered; absent on legacy cards
+  createdAt: string;               // ISO-8601 LocalDateTime
 }

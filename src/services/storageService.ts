@@ -119,4 +119,13 @@ export const storageService = {
     const updated = [entry, ...deduped].slice(0, MAX_HISTORY);
     await SecureStore.setItemAsync(STORAGE_KEYS.LOCATION_HISTORY, JSON.stringify(updated));
   },
+
+  // --- Notifications toggle (device-local intent, synced to OS permission on read) ---
+  async getNotificationsEnabled(): Promise<boolean> {
+    const val = await SecureStore.getItemAsync(STORAGE_KEYS.NOTIFICATIONS_ENABLED);
+    return val === 'true';
+  },
+  setNotificationsEnabled(enabled: boolean): Promise<void> {
+    return SecureStore.setItemAsync(STORAGE_KEYS.NOTIFICATIONS_ENABLED, String(enabled));
+  },
 };

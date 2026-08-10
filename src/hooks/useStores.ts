@@ -1,5 +1,5 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { storeApi } from '@/api/store.api';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 // Hierarchical query key factory — used for targeted invalidation.
 export const storeKeys = {
@@ -25,10 +25,20 @@ export function useAllStores() {
 export function useNearbyStores(opts: { enabled: boolean }) {
   return useQuery({
     queryKey: storeKeys.nearby(),
-    queryFn: storeApi.getNearbyStores,
+    queryFn: async () => {
+      console.log("🚀 Nearby query started");
+
+      try {
+        const result = await storeApi.getNearbyStores();
+        console.log("✅ Nearby success:", result);
+        return result;
+      } catch (error) {
+        console.log("❌ Nearby failed:", error);
+        throw error;
+      }
+    },
     enabled: opts.enabled,
     staleTime: 2 * 60 * 1000,
-    // 400 from backend means location not saved yet — treat as empty, not error.
     retry: (failureCount, error: unknown) => {
       const status = (error as { response?: { status?: number } })?.response?.status;
       if (status === 400) return false;

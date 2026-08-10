@@ -12,8 +12,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { AlertCircle, ArrowLeft } from 'lucide-react-native';
 import { useStoreDetail, useStoreMenu } from '@/hooks/useStores';
+import { useStoreCards } from '@/hooks/useCards';
 import { StoreHeader } from '@/components/store/StoreHeader';
 import { StoreInfoSection } from '@/components/store/StoreInfoSection';
+import { AvailableCardsSection } from '@/components/store/AvailableCardsSection';
 import { CategoryTabs } from '@/components/store/CategoryTabs';
 import { MenuItemCard } from '@/components/store/MenuItemCard';
 import { StoreSkeleton } from '@/components/store/StoreSkeleton';
@@ -142,13 +144,24 @@ export default function StoreDetailScreen() {
     refetch: refetchMenu,
   } = useStoreMenu(id ?? '');
 
+  const {
+    data: storeCards,
+    isLoading: cardsLoading,
+    refetch: refetchCards,
+  } = useStoreCards(id ?? '');
+
   const isLoading = storeLoading || menuLoading;
+
+  // Show the cards section while loading OR when there are active cards.
+  // This keeps stickyHeaderIndices stable during the loading phase.
+  const activeCards = (storeCards ?? []).filter((c) => c.isActive);
+  const showCardsSection = cardsLoading || activeCards.length > 0;
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
-    await Promise.all([refetchStore(), refetchMenu()]);
+    await Promise.all([refetchStore(), refetchMenu(), refetchCards()]);
     setIsRefreshing(false);
-  }, [refetchStore, refetchMenu]);
+  }, [refetchStore, refetchMenu, refetchCards]);
 
   const handleBack = useCallback(() => {
     if (router.canGoBack()) router.back();
@@ -207,9 +220,9 @@ export default function StoreDetailScreen() {
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
-        // stickyHeaderIndices: [2] is always CategoryTabs.
-        // StoreInfoSection is wrapped in a View at [1] so the index never shifts.
-        stickyHeaderIndices={cats.length > 0 ? [2] : undefined}
+        // AvailableCardsSection is at [2] when visible, pushing CategoryTabs to [3].
+        // Without it, CategoryTabs stays at [2]. Index must match actual child count.
+        stickyHeaderIndices={cats.length > 0 ? [showCardsSection ? 3 : 2] : undefined}
         onScroll={Animated.event(
           [{ nativeEvent: { contentOffset: { y: scrollY } } }],
           { useNativeDriver: true },
@@ -227,12 +240,17 @@ export default function StoreDetailScreen() {
         {/* [0] Banner + name + status + address + directions */}
         <StoreHeader store={store} />
 
-        {/* [1] Timings + description + phone — wrapped in View so [2] is stable */}
+        {/* [1] Timings + description + phone — wrapped in View so next index is stable */}
         <View>
           <StoreInfoSection store={store} />
         </View>
 
-        {/* [2] Category tabs — sticky */}
+        {/* [2] Available cards discovery strip — conditional */}
+        {showCardsSection ? (
+          <AvailableCardsSection storeId={id ?? ''} categories={cats} />
+        ) : null}
+
+        {/* [2 or 3] Category tabs — sticky (index depends on showCardsSection) */}
         <CategoryTabs
           categories={cats}
           selectedId={selectedCategoryId}

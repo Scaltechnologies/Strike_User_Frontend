@@ -20,6 +20,11 @@ export interface UpdateLocationRequest {
   longitude: number;
 }
 
+export interface RegisterPushTokenRequest {
+  token: string;
+  platform: 'ios' | 'android';
+}
+
 export interface UpdateLocationResponse {
   userId: number;
   name: string | null;

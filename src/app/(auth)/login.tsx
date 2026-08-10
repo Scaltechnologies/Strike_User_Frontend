@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+
 import axios from 'axios';
 
 import { authApi } from '@/api/auth.api';
@@ -46,14 +47,10 @@ export default function LoginScreen() {
         params: { phone },
       });
     } catch (err: unknown) {
-      if (axios.isAxiosError(err)) {
-        setError(
-          (err.response?.data as { message?: string })?.message ??
-            'Failed to send OTP. Please try again.',
-        );
-      } else {
-        setError('Something went wrong. Please try again.');
-      }
+      const msg = axios.isAxiosError(err)
+        ? ((err.response?.data as { message?: string })?.message ?? 'Failed to send OTP. Please try again.')
+        : 'Something went wrong. Please try again.';
+      setError(msg);
     } finally {
       setLoading(false);
     }

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "611814845586",
+    "project_id": "strike-86c79",
+    "storage_bucket": "strike-86c79.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:611814845586:android:09bb3ae27a25c832dbca4b",
+        "android_client_info": {
+          "package_name": "com.strike.userapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCUuz0-l7jiZ6shbBG7h6EzNcvPqJtwQh8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

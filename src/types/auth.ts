@@ -1,12 +1,11 @@
 // Auth Service DTOs — mirrors the strike-gateway /api/auth/* contracts.
 
-export interface SendOtpRequest {
-  mobileNumber: string;
+export interface FirebaseVerifyRequest {
+  idToken: string;
 }
 
-export interface SendOtpResponse {
-  message: string;
-  expiresIn: number; // seconds until OTP expires
+export interface SendOtpRequest {
+  mobileNumber: string;
 }
 
 export interface VerifyOtpRequest {

@@ -20,9 +20,23 @@ export interface Coords {
   longitude: number;
 }
 
+// Mirrors LocationPermission/LocationStatus — same idle → checking/requesting →
+// ready|denied|blocked shape drives the Notifications settings screen.
+export type NotificationPermission = 'granted' | 'denied' | 'blocked' | 'not-asked';
+export type NotificationStatus =
+  | 'idle'
+  | 'checking'
+  | 'requesting'
+  | 'ready'
+  | 'denied'
+  | 'blocked'
+  | 'error';
+
 interface AppState {
   hasSeenOnboarding: boolean;
   notificationsEnabled: boolean;
+  notificationPermission: NotificationPermission;
+  notificationStatus: NotificationStatus;
   locationPermission: LocationPermission;
   locationStatus: LocationStatus;
   coords: Coords | null;
@@ -33,6 +47,8 @@ interface AppState {
 interface AppActions {
   setOnboardingSeen: () => void;
   setNotificationsEnabled: (enabled: boolean) => void;
+  setNotificationPermission: (status: NotificationPermission) => void;
+  setNotificationStatus: (status: NotificationStatus) => void;
   setLocationPermission: (status: LocationPermission) => void;
   setLocationStatus: (status: LocationStatus) => void;
   setCoords: (coords: Coords | null, updatedAt?: string) => void;
@@ -44,6 +60,8 @@ export const useAppStore = create<AppState & AppActions>()(
   (set) => ({
     hasSeenOnboarding: false,
     notificationsEnabled: false,
+    notificationPermission: 'not-asked',
+    notificationStatus: 'idle',
     locationPermission: 'not-asked',
     locationStatus: 'idle',
     coords: null,
@@ -52,6 +70,8 @@ export const useAppStore = create<AppState & AppActions>()(
 
     setOnboardingSeen: () => set({ hasSeenOnboarding: true }),
     setNotificationsEnabled: (enabled) => set({ notificationsEnabled: enabled }),
+    setNotificationPermission: (status) => set({ notificationPermission: status }),
+    setNotificationStatus: (status) => set({ notificationStatus: status }),
     setLocationPermission: (status) => set({ locationPermission: status }),
     setLocationStatus: (status) => set({ locationStatus: status }),
     setCoords: (coords, updatedAt) =>

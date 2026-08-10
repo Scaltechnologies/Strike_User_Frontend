@@ -1,6 +1,7 @@
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { Platform, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
+import { useMediaSource, logMediaError } from '@/utils/media';
 import { C, formatPrice } from './theme';
 import type { MenuItem } from '@/types/store';
 
@@ -21,6 +22,8 @@ interface Props {
 
 export const MenuItemCard = memo(function MenuItemCard({ item, isLast }: Props) {
   const unavailable = item.availabilityStatus === 'OUT_OF_STOCK';
+  const [imgFailed, setImgFailed] = useState(false);
+  const imgSource = useMediaSource(item.imageUrl);
 
   return (
     <View style={[styles.row, !isLast && styles.rowDivider, unavailable && styles.dimmed]}>
@@ -44,13 +47,17 @@ export const MenuItemCard = memo(function MenuItemCard({ item, isLast }: Props) 
       </View>
 
       {/* Right: item image */}
-      {item.imageUrl ? (
+      {imgSource && !imgFailed ? (
         <View style={styles.imgWrap}>
           <Image
-            source={{ uri: item.imageUrl }}
+            source={imgSource}
             style={styles.img}
             contentFit="cover"
             transition={200}
+            onError={(e) => {
+              logMediaError('menu item image', imgSource.uri, e.error);
+              setImgFailed(true);
+            }}
           />
         </View>
       ) : null}

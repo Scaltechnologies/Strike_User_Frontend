@@ -6,6 +6,8 @@
 //   GestureHandlerRootView  — must be outermost for gesture-handler to work
 //   ThemeProvider           — react-navigation theme (dark/light)
 //   QueryProvider           — TanStack Query client
+//   MaintenanceProvider     — renders MaintenanceScreen in place of everything
+//                             below it while maintenance mode is on
 //   AuthProvider            — bootstraps tokens, guards routes
 //     Stack                 — root navigator (headerShown: false globally)
 
@@ -14,6 +16,8 @@ import { useColorScheme } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { AuthProvider } from '@/providers/AuthProvider';
+import { MaintenanceProvider } from '@/providers/MaintenanceProvider';
+import { NotificationProvider } from '@/providers/NotificationProvider';
 import { QueryProvider } from '@/providers/QueryProvider';
 
 export default function RootLayout() {
@@ -25,9 +29,13 @@ export default function RootLayout() {
         value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}
       >
         <QueryProvider>
-          <AuthProvider>
-            <Stack screenOptions={{ headerShown: false }} />
-          </AuthProvider>
+          <MaintenanceProvider>
+            <AuthProvider>
+              <NotificationProvider>
+                <Stack screenOptions={{ headerShown: false }} />
+              </NotificationProvider>
+            </AuthProvider>
+          </MaintenanceProvider>
         </QueryProvider>
       </ThemeProvider>
     </GestureHandlerRootView>

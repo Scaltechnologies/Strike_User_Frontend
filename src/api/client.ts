@@ -17,6 +17,7 @@ import axios, {
 import ENV from '@/config/env';
 import { API_ENDPOINTS } from '@/constants/api';
 import { useAuthStore } from '@/store/authStore';
+import { useMaintenanceStore } from '@/store/maintenanceStore';
 import type { ApiSuccessResponse } from '@/types/api';
 import type { RefreshTokenResponse } from '@/types/auth';
 
@@ -72,6 +73,14 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
+    // Backend-wide maintenance mode — surface it regardless of which request
+    // triggered it. See MaintenanceProvider for the cold-start equivalent.
+    if (error.response?.status === 503) {
+      const body = error.response.data as { message?: string } | undefined;
+      useMaintenanceStore.getState().setMaintenance(true, body?.message);
+      return Promise.reject(error);
+    }
+
     const originalRequest = error.config as RetryableConfig | undefined;
 
     if (

@@ -11,6 +11,7 @@ export const STORAGE_KEYS = {
   LOCATION_UPDATED_AT: 'strike_location_updated_at',
   LOCATION_NAME: 'strike_location_name',
   LOCATION_HISTORY: 'strike_location_history',
+  NOTIFICATIONS_ENABLED: 'strike_notifications_enabled',
 } as const;
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS];
