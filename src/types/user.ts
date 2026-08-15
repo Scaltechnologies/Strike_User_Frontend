@@ -10,6 +10,22 @@ export interface UserProfile {
   updatedAt: string;
 }
 
+// Raw shape returned by user-service's GET/PUT /api/user/me and POST /api/user/me/avatar
+// (UserProfileResponse.java) — field names differ from UserProfile above, so user.api.ts
+// maps this onto UserProfile rather than trusting it directly.
+export interface UserProfileDto {
+  userId: number;
+  name: string | null;
+  email: string | null;
+  mobileNumber: string;
+  profilePicUrl: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  lastLocationAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface UpdateProfileRequest {
   name?: string;
   email?: string;
@@ -20,9 +36,11 @@ export interface UpdateLocationRequest {
   longitude: number;
 }
 
+// Backend contract: notification-service's DeviceRegisterRequest
+// (platform must be uppercase ANDROID|IOS|WEB).
 export interface RegisterPushTokenRequest {
-  token: string;
-  platform: 'ios' | 'android';
+  platform: 'ANDROID' | 'IOS' | 'WEB';
+  deviceToken: string;
 }
 
 export interface UpdateLocationResponse {

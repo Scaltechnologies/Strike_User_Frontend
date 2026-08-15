@@ -26,9 +26,10 @@ export const API_ENDPOINTS = {
   },
 
   USER: {
-    PROFILE: `${P}/user/profile`,
+    PROFILE: `${P}/user/me`,
     AVATAR:  `${P}/user/me/avatar`,
-    PUSH_TOKEN: `${P}/user/push-token`,
+    // Backend device registration lives in notification-service, not user-service.
+    PUSH_TOKEN: `${P}/notifications/me/devices`,
     LOCATION: `${P}/user/me/location`,
   },
 
@@ -41,8 +42,8 @@ export const API_ENDPOINTS = {
   },
 
   SAVED_STORES: {
-    LIST: `${P}/user/saved-stores`,
-    TOGGLE: (storeId: string) => `${P}/user/saved-stores/${storeId}`,
+    LIST: `${P}/user/me/saved-stores`,
+    TOGGLE: (storeId: string) => `${P}/user/me/saved-stores/${storeId}`,
   },
 
   // Card-service: GET /api/cards/store/{storeId} and GET /api/cards/{id}
@@ -79,8 +80,8 @@ export const API_ENDPOINTS = {
   },
 
   LEDGER: {
-    TRANSACTIONS: `${P}/ledger/transactions`,
-    REDEMPTIONS: `${P}/ledger/redemptions`,
+    TRANSACTIONS: `${P}/user/me/transactions`,
+    REDEMPTIONS: `${P}/user/me/redemptions`,
   },
 
   COUPONS: {
