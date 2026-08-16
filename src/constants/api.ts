@@ -87,4 +87,16 @@ export const API_ENDPOINTS = {
   COUPONS: {
     VALIDATE: `${P}/subscriptions/coupons/validate`,
   },
+
+  // Card-service payment domain. A payment is the only way a USER can turn
+  // real money into a wallet-credited subscription — POST /api/subscriptions
+  // (see SUBSCRIPTIONS.PURCHASE above) is ADMIN-only now, used solely for
+  // no-payment promo/gift issuance.
+  PAYMENTS: {
+    CREATE: `${P}/payments`,
+    DETAIL: (id: string | number) => `${P}/payments/${id}`,
+    VERIFY: (id: string | number) => `${P}/payments/${id}/verify`,
+    CANCEL: (id: string | number) => `${P}/payments/${id}/cancel`,
+    RETRY:  (id: string | number) => `${P}/payments/${id}/retry`,
+  },
 } as const;

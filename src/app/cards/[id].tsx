@@ -5,10 +5,8 @@ import { buildRoute } from '@/constants/routes';
 import { useCardDetail } from '@/hooks/useCards';
 import { useStoreDetail, useStoreMenu } from '@/hooks/useStores';
 import { useMyActiveSubscriptions } from '@/hooks/useSubscriptions';
-import { notify } from '@/services/notificationService';
 import type { CardDefinition } from '@/types/card';
 import type { MenuCategory, MenuItem } from '@/types/store';
-import type { Subscription } from '@/types/subscription';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   AlertCircle,
@@ -506,24 +504,6 @@ export default function CardDetailScreen() {
     ? (activeSubscriptions ?? []).find((s) => s.cardDefinitionId === card.id)
     : undefined;
 
-  function handleActivationSuccess(sub: Subscription) {
-    setSheetVisible(false);
-    notify({
-      type: 'success',
-      title: 'Membership Activated',
-      message: `${sub.cardName} — wallet loaded with ${formatCardPrice(sub.walletBalance)}`,
-    });
-    router.push({
-      pathname: '/subscriptions/success',
-      params: {
-        subId:         String(sub.id),
-        cardName:      sub.cardName,
-        walletBalance: String(sub.walletBalance),
-        expiresAt:     sub.expiresAt,
-      },
-    } as never);
-  }
-
   if (cardLoading) return <LoadingState onBack={handleBack} />;
 
   if (isError || !card) {
@@ -602,7 +582,6 @@ export default function CardDetailScreen() {
           card={card}
           storeName={store?.name}
           menuCategories={cats}
-          onSuccess={handleActivationSuccess}
         />
       )}
     </SafeAreaView>

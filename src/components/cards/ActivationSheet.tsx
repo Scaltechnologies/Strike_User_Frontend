@@ -13,33 +13,18 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { Check, ChevronDown, Info, Tag, X } from 'lucide-react-native';
-import { usePurchaseSubscription } from '@/hooks/useSubscriptions';
 import { useValidateCoupon } from '@/hooks/useCoupons';
 import { cardBgColor, formatCardPrice, CC } from './theme';
 import type { CardDefinition } from '@/types/card';
 import type { MenuCategory } from '@/types/store';
-import type { Subscription } from '@/types/subscription';
 import type { ValidateCouponResponse } from '@/types/coupon';
 
 const DISCOUNT_GREEN = '#1F8A4C';
 const DISCOUNT_GREEN_SOFT = '#EAF7EF';
 
 const C = CC;
-
-function extractApiError(err: unknown): string {
-  const resp = (err as { response?: { data?: { message?: string } } })?.response;
-  if (resp?.data?.message) return resp.data.message;
-  const code = (err as { code?: string })?.code;
-  if (code === 'ERR_NETWORK' || code === 'NETWORK_ERROR') {
-    return 'Network error. Check your connection and try again.';
-  }
-  const status = (err as { response?: { status?: number } })?.response?.status;
-  if (status === 409) return 'You already have an active membership for this card.';
-  if (status === 400) return 'This membership plan is no longer available.';
-  if (status === 401) return 'Session expired. Please log in again.';
-  return 'Something went wrong. Please try again.';
-}
 
 // Coupon validation gets its own extractor: 400/409/422 map to "bad code"
 // wording, and unclassified/5xx errors don't leak raw backend text (e.g.
@@ -106,7 +91,6 @@ export interface ActivationSheetProps {
   card: CardDefinition;
   storeName: string | undefined;
   menuCategories: MenuCategory[];
-  onSuccess: (sub: Subscription) => void;
 }
 
 export function ActivationSheet({
@@ -115,10 +99,8 @@ export function ActivationSheet({
   card,
   storeName,
   menuCategories,
-  onSuccess,
 }: ActivationSheetProps) {
-  const [error, setError] = useState<string | null>(null);
-  const { mutateAsync, isPending } = usePurchaseSubscription();
+  const router = useRouter();
   const { mutateAsync: validateCoupon, isPending: validatingCoupon } = useValidateCoupon();
   const slideAnim = useRef(new Animated.Value(0)).current;
   const scrollRef = useRef<ScrollView>(null);
@@ -130,7 +112,6 @@ export function ActivationSheet({
 
   useEffect(() => {
     if (visible) {
-      setError(null);
       setShowCouponInput(false);
       setCouponCode('');
       setAppliedCoupon(null);
@@ -177,18 +158,16 @@ export function ActivationSheet({
     setCouponError(null);
   }
 
-  async function handleActivate() {
-    setError(null);
-    try {
-      const sub = await mutateAsync({
-        cardDefinitionId: card.id,
-        storeId: card.storeId,
-        ...(appliedCoupon && { couponCode: appliedCoupon.code }),
-      });
-      onSuccess(sub);
-    } catch (err) {
-      setError(extractApiError(err));
-    }
+  function handleContinueToPayment() {
+    onClose();
+    router.push({
+      pathname: '/checkout',
+      params: {
+        cardDefinitionId: String(card.id),
+        storeId: String(card.storeId),
+        ...(appliedCoupon ? { couponCode: appliedCoupon.code } : {}),
+      },
+    } as never);
   }
 
   const translateY = slideAnim.interpolate({
@@ -202,7 +181,7 @@ export function ActivationSheet({
       transparent
       animationType="fade"
       statusBarTranslucent
-      onRequestClose={!isPending ? onClose : undefined}
+      onRequestClose={onClose}
     >
       <KeyboardAvoidingView
         style={styles.overlay}
@@ -210,7 +189,7 @@ export function ActivationSheet({
       >
         <Pressable
           style={StyleSheet.absoluteFill}
-          onPress={!isPending ? onClose : undefined}
+          onPress={onClose}
         />
 
         <Animated.View
@@ -222,11 +201,9 @@ export function ActivationSheet({
           {/* Header */}
           <View style={styles.sheetHeader}>
             <Text style={styles.sheetTitle}>Activate Membership</Text>
-            {!isPending && (
-              <Pressable style={styles.closeBtn} onPress={onClose} hitSlop={12}>
-                <X size={18} color={C.secondary} strokeWidth={2.5} />
-              </Pressable>
-            )}
+            <Pressable style={styles.closeBtn} onPress={onClose} hitSlop={12}>
+              <X size={18} color={C.secondary} strokeWidth={2.5} />
+            </Pressable>
           </View>
 
           {/* Scrollable body */}
@@ -395,39 +372,22 @@ export function ActivationSheet({
             <View style={styles.termsNote}>
               <Info size={13} color={C.muted} strokeWidth={2} />
               <Text style={styles.termsText}>
-                You are about to activate this membership. Your wallet will be
-                loaded with {formatCardPrice(card.walletAmount)} valid for{' '}
-                {card.validityInDays} days. No payment gateway integration —
-                activation is instant.
+                You'll be taken to a secure payment screen next. Once your payment is
+                confirmed, your wallet will be loaded with {formatCardPrice(card.walletAmount)}{' '}
+                valid for {card.validityInDays} days.
               </Text>
             </View>
 
-            {/* Error */}
-            {error ? (
-              <View style={styles.errorBanner}>
-                <Text style={styles.errorBannerText}>{error}</Text>
-              </View>
-            ) : null}
           </ScrollView>
 
           {/* Action buttons */}
           <SafeAreaView edges={['bottom']} style={styles.sheetActions}>
-            <Pressable
-              style={[styles.activateBtn, isPending && styles.activateBtnLoading]}
-              onPress={() => void handleActivate()}
-              disabled={isPending}
-            >
-              {isPending ? (
-                <ActivityIndicator color="#FFF" size="small" />
-              ) : (
-                <Text style={styles.activateBtnText}>Activate Membership</Text>
-              )}
+            <Pressable style={styles.activateBtn} onPress={handleContinueToPayment}>
+              <Text style={styles.activateBtnText}>Continue to Payment</Text>
             </Pressable>
-            {!isPending && (
-              <Pressable style={styles.cancelBtn} onPress={onClose}>
-                <Text style={styles.cancelBtnText}>Cancel</Text>
-              </Pressable>
-            )}
+            <Pressable style={styles.cancelBtn} onPress={onClose}>
+              <Text style={styles.cancelBtnText}>Cancel</Text>
+            </Pressable>
           </SafeAreaView>
         </Animated.View>
       </KeyboardAvoidingView>
@@ -715,21 +675,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
 
-  // Error
-  errorBanner: {
-    backgroundColor: '#FEF0EE',
-    borderRadius: 12,
-    padding: 14,
-    borderLeftWidth: 3,
-    borderLeftColor: C.accent,
-  },
-  errorBannerText: {
-    fontSize: 13,
-    color: '#C0261A',
-    fontWeight: '500',
-    lineHeight: 18,
-  },
-
   // Actions
   sheetActions: {
     paddingHorizontal: 20,
@@ -754,7 +699,6 @@ const styles = StyleSheet.create({
       android: { elevation: 6 },
     }),
   },
-  activateBtnLoading: { opacity: 0.80 },
   activateBtnText: {
     color: '#FFF',
     fontSize: 16,
