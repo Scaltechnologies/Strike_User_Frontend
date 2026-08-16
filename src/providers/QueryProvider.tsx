@@ -6,7 +6,12 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-const queryClient = new QueryClient({
+// Exported (not just used internally) so authStore.clearAuth() can wipe every cached query on
+// logout — see the comment there for why that matters: query keys like ['subscriptions','my',
+// 'active'] or ['profile'] aren't scoped by user id, so without this a second account signing in
+// on the same device would see the first account's cached data until each query happened to
+// naturally refetch (which, within its staleTime window, might not happen at all).
+export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       // 5 minutes before data is considered stale. Feature-specific screens

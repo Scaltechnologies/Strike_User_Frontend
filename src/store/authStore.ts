@@ -7,6 +7,7 @@
 
 import { create } from 'zustand';
 
+import { queryClient } from '@/providers/QueryProvider';
 import { storageService } from '@/services/storageService';
 
 interface AuthState {
@@ -63,6 +64,13 @@ export const useAuthStore = create<AuthState & AuthActions>()(
         isAuthenticated: false,
       });
       void storageService.clearAuth();
+      // Without this, every cached query (subscriptions, cards, profile, redemption history,
+      // ledger transactions...) stays in memory keyed by endpoint only, not by user — so the
+      // next account to log in on this device would see the previous account's data rendered
+      // immediately from cache, correct or not depending on whether/when each query happened
+      // to refetch. This is the single choke point both explicit "Sign out" and a failed silent
+      // token refresh go through, so it covers both ways a session actually ends.
+      queryClient.clear();
     },
 
     bootstrapAuth: async () => {
