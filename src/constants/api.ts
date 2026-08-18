@@ -87,4 +87,14 @@ export const API_ENDPOINTS = {
   COUPONS: {
     VALIDATE: `${P}/subscriptions/coupons/validate`,
   },
+
+  // CONFIRMED against admin-service source (Strike_Backend repo): this exact
+  // path is explicitly carved out as public in both the gateway's
+  // JwtAuthFilter.PUBLIC_PATHS and admin-service's own SecurityConfig/
+  // AdminJwtFilter/method-level @PreAuthorize override — reachable with no
+  // token, matching AdminBannerController.getForToday()'s semantics (active
+  // banners whose validFrom/validUntil currently include today).
+  BANNERS: {
+    ACTIVE: `${P}/admin/banners/today`,
+  },
 } as const;
