@@ -9,6 +9,7 @@ export type RedemptionStatus =
   | 'PENDING'    // user-initiated, waiting for vendor action
   | 'APPROVED'   // vendor approved, balance deducted
   | 'REJECTED'   // vendor rejected, no balance change
+  | 'CANCELLED'  // user withdrew the request before vendor action
   | 'COMPLETED'  // legacy vendor-initiated flow
   | 'FAILED'     // legacy — validation or deduction failure
   | 'REVERSED';  // refund applied

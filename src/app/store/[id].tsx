@@ -4,26 +4,32 @@ import {
   Platform,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { AlertCircle, ArrowLeft } from 'lucide-react-native';
+import { AlertCircle, ArrowLeft, UtensilsCrossed } from 'lucide-react-native';
+import { EmptyState } from '@/components/common/EmptyState';
 import { useStoreDetail, useStoreMenu } from '@/hooks/useStores';
 import { useStoreCards } from '@/hooks/useCards';
 import { StoreHeader } from '@/components/store/StoreHeader';
 import { StoreInfoSection } from '@/components/store/StoreInfoSection';
 import { AvailableCardsSection } from '@/components/store/AvailableCardsSection';
 import { CategoryTabs } from '@/components/store/CategoryTabs';
+import { StoreTabs, type StoreTab } from '@/components/store/StoreTabs';
+import { MenuFab } from '@/components/store/MenuFab';
+import { MenuCategoriesSheet } from '@/components/store/MenuCategoriesSheet';
 import { MenuItemCard } from '@/components/store/MenuItemCard';
-import { StoreSkeleton } from '@/components/store/StoreSkeleton';
-import { C, BANNER_HEIGHT } from '@/components/store/theme';
+import { MenuItemsSkeleton, StoreSkeleton } from '@/components/store/StoreSkeleton';
+import { C, HEADER_FADE_OFFSET } from '@/components/store/theme';
+import { ManropeWeights } from '@/constants/theme';
 import type { MenuCategory } from '@/types/store';
 
 // ── Top bar ───────────────────────────────────────────────────────────────────
-// Title fades in after the user scrolls past the banner.
+// Title fades in after the user scrolls past the header card.
 // Back button is always visible.
 
 interface TopBarProps {
@@ -83,9 +89,10 @@ function MenuSection({
 
   if (!hasItems) {
     return (
-      <View style={styles.menuEmpty}>
-        <Text style={styles.menuEmptyText}>No items in this category</Text>
-      </View>
+      <EmptyState
+        icon={<UtensilsCrossed size={20} color={C.muted} strokeWidth={1.5} />}
+        title="No items in this category"
+      />
     );
   }
 
@@ -120,14 +127,28 @@ export default function StoreDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [activeTab, setActiveTab] = useState<StoreTab>('cards');
+  const [menuSheetVisible, setMenuSheetVisible] = useState(false);
 
   // Scroll-aware top bar
   const scrollY = useRef(new Animated.Value(0)).current;
   const titleOpacity = scrollY.interpolate({
-    inputRange: [BANNER_HEIGHT - 60, BANNER_HEIGHT - 10],
+    inputRange: [HEADER_FADE_OFFSET - 40, HEADER_FADE_OFFSET + 10],
     outputRange: [0, 1],
     extrapolate: 'clamp',
   });
+
+  // Jump-to-category: MenuCategoriesSheet selects a category, then scrolls
+  // back up to the tab strip so the pick is visible immediately.
+  const scrollRef = useRef<ScrollView>(null);
+  const tabsY = useRef(0);
+  const handleTabsLayout = useCallback((e: { nativeEvent: { layout: { y: number } } }) => {
+    tabsY.current = e.nativeEvent.layout.y;
+  }, []);
+  const handleSelectFromSheet = useCallback((categoryId: number | null) => {
+    setSelectedCategoryId(categoryId);
+    scrollRef.current?.scrollTo({ y: tabsY.current, animated: true });
+  }, []);
 
   const {
     data: store,
@@ -144,18 +165,13 @@ export default function StoreDetailScreen() {
     refetch: refetchMenu,
   } = useStoreMenu(id ?? '');
 
-  const {
-    data: storeCards,
-    isLoading: cardsLoading,
-    refetch: refetchCards,
-  } = useStoreCards(id ?? '');
+  const { refetch: refetchCards } = useStoreCards(id ?? '');
 
-  const isLoading = storeLoading || menuLoading;
-
-  // Show the cards section while loading OR when there are active cards.
-  // This keeps stickyHeaderIndices stable during the loading phase.
-  const activeCards = (storeCards ?? []).filter((c) => c.isActive);
-  const showCardsSection = cardsLoading || activeCards.length > 0;
+  // Only the store query gates the whole screen — header/info only need
+  // `store`, so they shouldn't wait on the menu query too. The menu query's
+  // own loading/error/empty states are handled independently within the
+  // Menu tab content below.
+  const isLoading = storeLoading;
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -217,12 +233,12 @@ export default function StoreDetailScreen() {
       />
 
       <Animated.ScrollView
+        ref={scrollRef}
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
-        // AvailableCardsSection is at [2] when visible, pushing CategoryTabs to [3].
-        // Without it, CategoryTabs stays at [2]. Index must match actual child count.
-        stickyHeaderIndices={cats.length > 0 ? [showCardsSection ? 3 : 2] : undefined}
+        // [0] StoreHeader, [1] StoreInfoSection, [2] StoreTabs — sticky.
+        stickyHeaderIndices={[2]}
         onScroll={Animated.event(
           [{ nativeEvent: { contentOffset: { y: scrollY } } }],
           { useNativeDriver: true },
@@ -237,7 +253,7 @@ export default function StoreDetailScreen() {
           />
         }
       >
-        {/* [0] Banner + name + status + address + directions */}
+        {/* [0] Name + status/category + clear map + address (no photo banner) */}
         <StoreHeader store={store} />
 
         {/* [1] Timings + description + phone — wrapped in View so next index is stable */}
@@ -245,36 +261,57 @@ export default function StoreDetailScreen() {
           <StoreInfoSection store={store} />
         </View>
 
-        {/* [2] Available cards discovery strip — conditional */}
-        {showCardsSection ? (
+        {/* [2] Cards / Menu switcher — sticky */}
+        <View onLayout={handleTabsLayout}>
+          <StoreTabs active={activeTab} onChange={setActiveTab} />
+        </View>
+
+        {/* [3] Tab content */}
+        {activeTab === 'cards' ? (
           <AvailableCardsSection storeId={id ?? ''} categories={cats} />
-        ) : null}
-
-        {/* [2 or 3] Category tabs — sticky (index depends on showCardsSection) */}
-        <CategoryTabs
-          categories={cats}
-          selectedId={selectedCategoryId}
-          onSelect={setSelectedCategoryId}
-        />
-
-        {/* [3] Menu */}
-        {menuError ? (
-          <View style={styles.menuErrorWrap}>
-            <Text style={styles.menuErrorText}>Could not load menu</Text>
-            <Pressable onPress={() => void refetchMenu()}>
-              <Text style={styles.menuErrorRetry}>Retry</Text>
-            </Pressable>
-          </View>
-        ) : cats.length === 0 ? (
-          <View style={styles.menuEmpty}>
-            <Text style={styles.menuEmptyText}>No menu available</Text>
-          </View>
         ) : (
-          <MenuSection categories={cats} selectedId={selectedCategoryId} />
+          <>
+            <CategoryTabs
+              categories={cats}
+              selectedId={selectedCategoryId}
+              onSelect={setSelectedCategoryId}
+            />
+
+            {menuLoading ? (
+              <MenuItemsSkeleton />
+            ) : menuError ? (
+              <View style={styles.menuErrorWrap}>
+                <Text style={styles.menuErrorText}>Could not load menu</Text>
+                <Pressable onPress={() => void refetchMenu()}>
+                  <Text style={styles.menuErrorRetry}>Retry</Text>
+                </Pressable>
+              </View>
+            ) : cats.length === 0 ? (
+              <EmptyState
+                icon={<UtensilsCrossed size={20} color={C.muted} strokeWidth={1.5} />}
+                title="No menu available"
+                subtitle="This store hasn't added their menu yet"
+              />
+            ) : (
+              <MenuSection categories={cats} selectedId={selectedCategoryId} />
+            )}
+          </>
         )}
 
         <View style={styles.bottomPad} />
       </Animated.ScrollView>
+
+      {/* Floating "Menu" button — only while browsing the Menu tab */}
+      {activeTab === 'menu' ? (
+        <MenuFab categories={cats} onPress={() => setMenuSheetVisible(true)} />
+      ) : null}
+
+      <MenuCategoriesSheet
+        visible={menuSheetVisible}
+        categories={cats}
+        onClose={() => setMenuSheetVisible(false)}
+        onSelect={handleSelectFromSheet}
+      />
     </SafeAreaView>
   );
 }
@@ -313,6 +350,7 @@ const styles = StyleSheet.create({
   topBarTitle: {
     fontSize: 16,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.primary,
     flex: 1,
     letterSpacing: -0.2,
@@ -337,6 +375,7 @@ const styles = StyleSheet.create({
   errorTitle: {
     fontSize: 16,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.primary,
     marginTop: 8,
   },
@@ -345,6 +384,7 @@ const styles = StyleSheet.create({
     color: C.secondary,
     textAlign: 'center',
     lineHeight: 20,
+    fontFamily: ManropeWeights.regular,
   },
   retryBtn: {
     marginTop: 10,
@@ -357,12 +397,14 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 14,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
   },
 
   // Menu
   catHeading: {
     fontSize: 14,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: C.primary,
     marginHorizontal: 16,
     marginTop: 20,
@@ -380,14 +422,6 @@ const styles = StyleSheet.create({
       android: { elevation: 2 },
     }),
   },
-  menuEmpty: {
-    alignItems: 'center',
-    paddingVertical: 48,
-  },
-  menuEmptyText: {
-    fontSize: 14,
-    color: C.muted,
-  },
   menuErrorWrap: {
     alignItems: 'center',
     paddingVertical: 36,
@@ -396,10 +430,12 @@ const styles = StyleSheet.create({
   menuErrorText: {
     fontSize: 14,
     color: C.secondary,
+    fontFamily: ManropeWeights.regular,
   },
   menuErrorRetry: {
     fontSize: 14,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.accent,
   },
   bottomPad: {

@@ -16,6 +16,7 @@ import { useSubscriptionDetail } from '@/hooks/useSubscriptions';
 import { useStoreDetail } from '@/hooks/useStores';
 import { notify } from '@/services/notificationService';
 import { buildRoute } from '@/constants/routes';
+import { ManropeWeights } from '@/constants/theme';
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
 
@@ -200,16 +201,16 @@ const styles = StyleSheet.create({
   // Heading
   headWrap: { alignItems: 'center', gap: 8, marginBottom: 32 },
   heading: {
-    fontSize: 26, fontWeight: '800', color: C.primary, letterSpacing: -0.8,
+    fontSize: 26, fontFamily: ManropeWeights.extraBold, color: C.primary, letterSpacing: -0.8,
   },
   subheading: {
-    fontSize: 15, color: C.secondary, fontWeight: '500',
+    fontSize: 15, color: C.secondary, fontFamily: ManropeWeights.medium,
   },
 
   // Block (labeled section)
   block: { width: '100%', marginBottom: 16 },
   blockLabel: {
-    fontSize: 11, fontWeight: '700',
+    fontSize: 11, fontFamily: ManropeWeights.bold,
     color: 'rgba(255,255,255,0.35)',
     letterSpacing: 0.8, textTransform: 'uppercase',
     marginBottom: 8,
@@ -231,10 +232,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border,
   },
   itemName: {
-    flex: 1, fontSize: 14, fontWeight: '500', color: C.primary, lineHeight: 20,
+    flex: 1, fontSize: 14, fontFamily: ManropeWeights.medium, color: C.primary, lineHeight: 20,
   },
   itemPrice: {
-    fontSize: 14, fontWeight: '700', color: C.secondary, flexShrink: 0,
+    fontSize: 14, fontFamily: ManropeWeights.bold, color: C.secondary, flexShrink: 0,
   },
 
   // Amount chips
@@ -247,12 +248,12 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth, borderColor: C.border,
   },
   chipLabel: {
-    fontSize: 10, fontWeight: '600',
+    fontSize: 10, fontFamily: ManropeWeights.semiBold,
     color: 'rgba(255,255,255,0.35)',
     textTransform: 'uppercase', letterSpacing: 0.5,
   },
   chipValue: {
-    fontSize: 17, fontWeight: '800', color: C.primary, letterSpacing: -0.4,
+    fontSize: 17, fontFamily: ManropeWeights.extraBold, color: C.primary, letterSpacing: -0.4,
   },
   chipValueDeduct: { color: '#FF9B9B' },
 
@@ -261,9 +262,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: 16, paddingVertical: 14, gap: 12,
   },
-  detailLabel: { fontSize: 13, color: C.secondary, fontWeight: '500' },
+  detailLabel: { fontSize: 13, color: C.secondary, fontFamily: ManropeWeights.medium },
   detailValue: {
-    fontSize: 13, fontWeight: '700', color: C.primary,
+    fontSize: 13, fontFamily: ManropeWeights.bold, color: C.primary,
     textAlign: 'right', flex: 1,
   },
 
@@ -282,6 +283,6 @@ const styles = StyleSheet.create({
     }),
   },
   primaryBtnText: {
-    color: '#FFF', fontSize: 16, fontWeight: '700', letterSpacing: -0.2,
+    color: '#FFF', fontSize: 16, fontFamily: ManropeWeights.bold, letterSpacing: -0.2,
   },
 });

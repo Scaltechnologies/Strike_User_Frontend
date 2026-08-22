@@ -1,8 +1,8 @@
-// Auth group Stack — Phase 2 will add screen-specific options (no header,
-// custom transitions) once login and OTP screens are implemented.
+// Auth group Stack — no header, consistent slide transition matching the
+// root Stack's (login → OTP is a linear forward flow).
 
 import { Stack } from 'expo-router';
 
 export default function AuthLayout() {
-  return <Stack screenOptions={{ headerShown: false }} />;
+  return <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }} />;
 }

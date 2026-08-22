@@ -1,7 +1,6 @@
-import { memo, useState } from 'react';
-import { Platform, StyleSheet, Text, View } from 'react-native';
-import { Image } from 'expo-image';
-import { useMediaSource, logMediaError } from '@/utils/media';
+import { memo } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+import { ManropeWeights } from '@/constants/theme';
 import { C, formatPrice } from './theme';
 import type { MenuItem } from '@/types/store';
 
@@ -22,43 +21,24 @@ interface Props {
 
 export const MenuItemCard = memo(function MenuItemCard({ item, isLast }: Props) {
   const unavailable = item.availabilityStatus === 'OUT_OF_STOCK';
-  const [imgFailed, setImgFailed] = useState(false);
-  const imgSource = useMediaSource(item.imageUrl);
 
   return (
     <View style={[styles.row, !isLast && styles.rowDivider, unavailable && styles.dimmed]}>
-      {/* Left: indicator + text */}
-      <View style={styles.body}>
+      <View style={styles.titleRow}>
         <VegIndicator type={item.itemType} />
         <Text style={styles.name} numberOfLines={2}>{item.name}</Text>
-        {item.description ? (
-          <Text style={styles.desc} numberOfLines={2}>{item.description}</Text>
-        ) : null}
-        <View style={styles.priceRow}>
-          <Text style={[styles.price, unavailable && styles.priceDimmed]}>
-            {formatPrice(item.price)}
-          </Text>
-          {unavailable ? (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>Out of stock</Text>
-            </View>
-          ) : null}
-        </View>
+        <Text style={[styles.price, unavailable && styles.priceDimmed]}>
+          {formatPrice(item.price)}
+        </Text>
       </View>
 
-      {/* Right: item image */}
-      {imgSource && !imgFailed ? (
-        <View style={styles.imgWrap}>
-          <Image
-            source={imgSource}
-            style={styles.img}
-            contentFit="cover"
-            transition={200}
-            onError={(e) => {
-              logMediaError('menu item image', imgSource.uri, e.error);
-              setImgFailed(true);
-            }}
-          />
+      {item.description ? (
+        <Text style={styles.desc} numberOfLines={2}>{item.description}</Text>
+      ) : null}
+
+      {unavailable ? (
+        <View style={styles.badge}>
+          <Text style={styles.badgeText}>Out of stock</Text>
         </View>
       ) : null}
     </View>
@@ -67,10 +47,8 @@ export const MenuItemCard = memo(function MenuItemCard({ item, isLast }: Props) 
 
 const styles = StyleSheet.create({
   row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 14,
+    gap: 4,
+    paddingVertical: 16,
     paddingHorizontal: 16,
   },
   rowDivider: {
@@ -80,9 +58,10 @@ const styles = StyleSheet.create({
   dimmed: {
     opacity: 0.5,
   },
-  body: {
-    flex: 1,
-    gap: 3,
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
   },
   vegBox: {
     width: 14,
@@ -91,7 +70,8 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 5,
+    marginTop: 3,
+    flexShrink: 0,
   },
   vegDot: {
     width: 6,
@@ -99,51 +79,43 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
   name: {
-    fontSize: 14,
+    flex: 1,
+    fontSize: 14.5,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.primary,
     lineHeight: 20,
+    letterSpacing: -0.1,
   },
   desc: {
-    fontSize: 12,
+    fontSize: 12.5,
+    fontFamily: ManropeWeights.regular,
     color: C.secondary,
-    lineHeight: 17,
-  },
-  priceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 6,
+    lineHeight: 18,
   },
   price: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
-    color: C.primary,
+    fontFamily: ManropeWeights.bold,
+    color: C.accentDeep,
+    letterSpacing: -0.2,
+    flexShrink: 0,
   },
   priceDimmed: {
     color: C.muted,
   },
   badge: {
-    backgroundColor: C.bg,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 4,
+    alignSelf: 'flex-start',
+    backgroundColor: C.dangerBg,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    marginTop: 2,
   },
   badgeText: {
-    fontSize: 10,
-    fontWeight: '500',
-    color: C.muted,
-  },
-  imgWrap: {
-    width: 80,
-    height: 80,
-    borderRadius: 10,
-    overflow: 'hidden',
-    flexShrink: 0,
-    backgroundColor: C.skeleton,
-  },
-  img: {
-    width: 80,
-    height: 80,
+    fontSize: 10.5,
+    fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
+    color: C.dangerText,
   },
 });

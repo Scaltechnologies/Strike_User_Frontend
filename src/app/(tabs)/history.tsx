@@ -17,8 +17,8 @@ import { useUserRedemptions, redemptionKeys } from '@/hooks/useRedemptions';
 import { useMySubscriptions } from '@/hooks/useSubscriptions';
 import { useAllStores } from '@/hooks/useStores';
 import { RedemptionDetailSheet } from '@/components/history/RedemptionDetailSheet';
+import { ManropeWeights } from '@/constants/theme';
 import type { Redemption, RedemptionStatus } from '@/types/redemption';
-
 // ── Design tokens ──────────────────────────────────────────────────────────────
 
 const C = {
@@ -54,6 +54,7 @@ const STATUS_CFG: Record<RedemptionStatus, {
   REVERSED:  { label: 'Reversed',  color: C.muted,       bg: C.bg,          amtPrefix: '+', Icon: Clock       },
   FAILED:    { label: 'Failed',    color: C.dangerDark,  bg: C.dangerSoft,  amtPrefix: '−', Icon: XCircle     },
   REJECTED:  { label: 'Rejected',  color: C.dangerDark,  bg: C.dangerSoft,  amtPrefix: '−', Icon: XCircle     },
+  CANCELLED: { label: 'Cancelled', color: C.muted,       bg: C.bg,          amtPrefix: '−', Icon: XCircle     },
   PENDING:   { label: 'Pending',   color: '#7A4500',     bg: '#FFF5E0',     amtPrefix: '−', Icon: Clock       },
 };
 
@@ -63,17 +64,25 @@ function fmt(n: number): string {
   return n % 1 === 0 ? `₹${n}` : `₹${n.toFixed(2)}`;
 }
 
-function toUtc(iso: string): string {
-  return iso.endsWith('Z') || iso.includes('+') ? iso : iso + 'Z';
+// Some redemption-service records (mainly older/legacy ones) have no
+// remainingBalance recorded — omit the row rather than show "₹null".
+function fmtBalance(n: number | null | undefined): string | null {
+  return n == null ? null : fmt(n);
 }
 
+// redemption-service now returns createdAt with an explicit trailing 'Z'
+// (the backend JVM runs in UTC), so `new Date(iso)` parses it as UTC and
+// this renders it in the device's own local time via toLocaleTimeString —
+// no manual offset math needed. (Older backend responses without the 'Z'
+// were misparsed as local time, showing timestamps hours off — see
+// getRedemptionCreatedAtMs in useRedemptions.ts for the same fix.)
 function dayStart(iso: string): number {
-  const d = new Date(toUtc(iso));
+  const d = new Date(iso);
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 }
 
 function fmtTime(iso: string): string {
-  const d       = new Date(toUtc(iso));
+  const d       = new Date(iso);
   const now     = new Date();
   const today   = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const yest    = today - 86_400_000;
@@ -186,8 +195,9 @@ function RedemptionCard({
     .map((i) => (i.quantity > 1 ? `${i.menuItemName} ×${i.quantity}` : i.menuItemName))
     .join(', ');
 
+  const balanceText = fmtBalance(redemption.remainingBalance);
   const showBalance =
-    redemption.status === 'APPROVED' || redemption.status === 'COMPLETED';
+    (redemption.status === 'APPROVED' || redemption.status === 'COMPLETED') && balanceText != null;
 
   return (
     <Pressable
@@ -225,7 +235,7 @@ function RedemptionCard({
         </View>
         {showBalance ? (
           <Text style={styles.cardBalanceAfter}>
-            {fmt(redemption.remainingBalance)} remaining
+            {balanceText} remaining
           </Text>
         ) : null}
       </View>
@@ -311,7 +321,7 @@ export default function HistoryScreen() {
       >
         {isLoading ? (
           <LoadingSkeleton />
-        ) : isError ? (
+        ) : isError && sorted.length === 0 ? (
           <View style={styles.emptyWrap}>
             <View style={styles.emptyIconWrap}>
               <ShoppingBag size={28} color={C.muted} strokeWidth={1.4} />
@@ -324,7 +334,18 @@ export default function HistoryScreen() {
         ) : sorted.length === 0 ? (
           <EmptyState />
         ) : (
-          groups.map(({ label, items }) => (
+          <>
+            {/* A background refetch (pull-to-refresh, focus-refetch) failed —
+                keep the last-known-good list visible instead of replacing it. */}
+            {isError && (
+              <View style={styles.inlineErrorBanner}>
+                <Text style={styles.inlineErrorText}>Couldn't refresh — showing saved activity</Text>
+                <Pressable onPress={() => void refetch()} hitSlop={8}>
+                  <Text style={styles.inlineErrorRetry}>Retry</Text>
+                </Pressable>
+              </View>
+            )}
+            {groups.map(({ label, items }) => (
             <View key={label} style={styles.group}>
               <Text style={styles.groupLabel}>{label}</Text>
               {items.map((r) => {
@@ -342,7 +363,8 @@ export default function HistoryScreen() {
                 );
               })}
             </View>
-          ))
+            ))}
+          </>
         )}
 
         <View style={styles.bottomPad} />
@@ -380,11 +402,11 @@ const styles = StyleSheet.create({
     }),
   },
   title: {
-    fontSize: 24, fontWeight: '800',
+    fontSize: 24, fontFamily: ManropeWeights.extraBold,
     color: C.primary, letterSpacing: -0.6,
   },
   headerCount: {
-    fontSize: 13, color: C.muted, fontWeight: '500',
+    fontSize: 13, color: C.muted, fontFamily: ManropeWeights.medium,
   },
 
   scroll:        { flex: 1 },
@@ -396,7 +418,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   groupLabel: {
-    fontSize: 13, fontWeight: '700',
+    fontSize: 13, fontFamily: ManropeWeights.bold,
     color: C.muted, letterSpacing: 0.5,
     textTransform: 'uppercase',
     marginBottom: 10,
@@ -423,13 +445,13 @@ const styles = StyleSheet.create({
   cardTopLeft:  { flex: 1, gap: 3 },
   cardTopRight: { alignItems: 'flex-end', gap: 5, flexShrink: 0 },
   cardItems: {
-    fontSize: 15, fontWeight: '600', color: C.primary, lineHeight: 22,
+    fontSize: 15, fontFamily: ManropeWeights.semiBold, color: C.primary, lineHeight: 22,
   },
   cardMembership: {
-    fontSize: 12, color: C.muted, fontWeight: '500',
+    fontSize: 12, color: C.muted, fontFamily: ManropeWeights.medium,
   },
   cardAmount: {
-    fontSize: 17, fontWeight: '800', color: C.primary, letterSpacing: -0.4,
+    fontSize: 17, fontFamily: ManropeWeights.extraBold, color: C.primary, letterSpacing: -0.4,
   },
   cardAmountCredit: { color: C.success },
 
@@ -439,7 +461,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8,
   },
   statusPillText: {
-    fontSize: 11, fontWeight: '600', letterSpacing: 0.1,
+    fontSize: 11, fontFamily: ManropeWeights.semiBold, letterSpacing: 0.1,
   },
 
   cardBottom: {
@@ -454,10 +476,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 5,
   },
   cardTime: {
-    fontSize: 12, color: C.muted, fontWeight: '500',
+    fontSize: 12, color: C.muted, fontFamily: ManropeWeights.medium,
   },
   cardBalanceAfter: {
-    fontSize: 12, color: C.secondary, fontWeight: '500',
+    fontSize: 12, color: C.secondary, fontFamily: ManropeWeights.medium,
+  },
+
+  // Non-blocking background-refresh-failed banner (cached list stays visible)
+  inlineErrorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: C.dangerSoft,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    gap: 10,
+  },
+  inlineErrorText: {
+    flex: 1,
+    fontSize: 12.5,
+    color: C.dangerDark,
+    fontFamily: ManropeWeights.medium,
+  },
+  inlineErrorRetry: {
+    fontSize: 12.5,
+    color: C.dangerDark,
+    fontFamily: ManropeWeights.bold,
   },
 
   // Empty / error
@@ -475,14 +522,14 @@ const styles = StyleSheet.create({
     }),
   },
   emptyHeading: {
-    fontSize: 17, fontWeight: '700', color: C.primary,
+    fontSize: 17, fontFamily: ManropeWeights.bold, color: C.primary,
   },
   emptySub: {
-    fontSize: 14, color: C.secondary,
+    fontFamily: ManropeWeights.regular, fontSize: 14, color: C.secondary,
     textAlign: 'center', lineHeight: 22,
   },
   retryText: {
-    fontSize: 14, fontWeight: '600', color: C.accent, marginTop: 4,
+    fontSize: 14, fontFamily: ManropeWeights.semiBold, color: C.accent, marginTop: 4,
   },
 
   // Skeleton

@@ -13,10 +13,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 
-import axios from 'axios';
-
-import { authApi } from '@/api/auth.api';
+import { authService, getFirebaseAuthErrorMessage, toIndianE164 } from '@/services/authService';
 import { ROUTES } from '@/constants/routes';
+import { ManropeWeights } from '@/constants/theme';
 
 const INDIA_PHONE_RE = /^[6-9]\d{9}$/;
 
@@ -34,6 +33,9 @@ export default function LoginScreen() {
   };
 
   const handleGetOtp = async () => {
+    // TEMPORARY — proves the button press is actually reaching this handler and, separately,
+    // that it's actually calling authService.sendOtp (vs. e.g. bailing out on the isValid guard).
+    console.log('[OTP-DIAG] handleGetOtp() pressed. isValid =', isValid);
     if (!isValid) {
       setError('Enter a valid 10-digit Indian mobile number.');
       return;
@@ -41,16 +43,16 @@ export default function LoginScreen() {
     setLoading(true);
     setError('');
     try {
-      await authApi.sendOtp(phone);
+      console.log('[OTP-DIAG] calling authService.sendOtp()');
+      await authService.sendOtp(toIndianE164(phone));
+      console.log('[OTP-DIAG] authService.sendOtp() returned without throwing');
       router.push({
         pathname: ROUTES.AUTH.OTP,
         params: { phone },
       });
     } catch (err: unknown) {
-      const msg = axios.isAxiosError(err)
-        ? ((err.response?.data as { message?: string })?.message ?? 'Failed to send OTP. Please try again.')
-        : 'Something went wrong. Please try again.';
-      setError(msg);
+      console.log('[OTP-DIAG] authService.sendOtp() threw:', err instanceof Error ? err.message : String(err));
+      setError(getFirebaseAuthErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -67,6 +69,14 @@ export default function LoginScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
+          {/* TEMPORARY — unmissable on-screen proof of which JS bundle is running.
+              Remove alongside the other [OTP-DIAG] diagnostics. */}
+          <View style={{ backgroundColor: '#FF00FF', padding: 8, marginBottom: 12 }}>
+            <Text style={{ color: '#FFFFFF', fontWeight: '900', textAlign: 'center' }}>
+              BUNDLE-VERIFY-1 (login.tsx / Front_End)
+            </Text>
+          </View>
+
           {/* Logo */}
           <View style={styles.logoRow}>
             <View style={styles.badge}>
@@ -157,17 +167,20 @@ const styles = StyleSheet.create({
   badgeText: {
     fontSize: 22,
     fontWeight: '800',
+    fontFamily: ManropeWeights.extraBold,
     color: '#FFFFFF',
   },
   appName: {
     fontSize: 18,
     fontWeight: '800',
+    fontFamily: ManropeWeights.extraBold,
     color: '#1A1A1A',
     letterSpacing: 4,
   },
   heading: {
     fontSize: 28,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: '#1A1A1A',
     marginBottom: 8,
   },
@@ -176,6 +189,7 @@ const styles = StyleSheet.create({
     color: '#666666',
     marginBottom: 36,
     lineHeight: 22,
+    fontFamily: ManropeWeights.regular,
   },
   inputRow: {
     flexDirection: 'row',
@@ -199,6 +213,7 @@ const styles = StyleSheet.create({
   countryCodeText: {
     fontSize: 15,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: '#1A1A1A',
   },
   divider: {
@@ -213,6 +228,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     fontSize: 17,
     fontWeight: '500',
+    fontFamily: ManropeWeights.medium,
     color: '#1A1A1A',
   },
   errorText: {
@@ -220,6 +236,7 @@ const styles = StyleSheet.create({
     color: '#E74C3C',
     marginBottom: 16,
     marginLeft: 4,
+    fontFamily: ManropeWeights.regular,
   },
   button: {
     backgroundColor: '#C0392B',
@@ -236,6 +253,7 @@ const styles = StyleSheet.create({
   buttonText: {
     fontSize: 16,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: '#FFFFFF',
     letterSpacing: 0.5,
   },
@@ -244,9 +262,11 @@ const styles = StyleSheet.create({
     color: '#999999',
     textAlign: 'center',
     lineHeight: 18,
+    fontFamily: ManropeWeights.regular,
   },
   disclaimerLink: {
     color: '#C0392B',
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
   },
 });

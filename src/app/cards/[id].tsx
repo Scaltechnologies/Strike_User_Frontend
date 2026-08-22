@@ -2,6 +2,7 @@ import { ActivationSheet } from '@/components/cards/ActivationSheet';
 import { CardDetailHeroSkeleton } from '@/components/cards/CardSkeleton';
 import { cardBgColor, CC, formatCardPrice } from '@/components/cards/theme';
 import { buildRoute } from '@/constants/routes';
+import { ManropeWeights } from '@/constants/theme';
 import { useCardDetail } from '@/hooks/useCards';
 import { useStoreDetail, useStoreMenu } from '@/hooks/useStores';
 import { useMyActiveSubscriptions } from '@/hooks/useSubscriptions';
@@ -26,6 +27,7 @@ import {
   Animated,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -498,8 +500,15 @@ export default function CardDetailScreen() {
   const { data: activeSubscriptions } = useMyActiveSubscriptions();
 
   // Both queries below use the card's storeId — already cached from Store Detail.
-  const { data: store } = useStoreDetail(card?.storeId ?? 0);
-  const { data: menuCategories } = useStoreMenu(card?.storeId ?? 0);
+  const { data: store, refetch: refetchStore } = useStoreDetail(card?.storeId ?? 0);
+  const { data: menuCategories, refetch: refetchMenu } = useStoreMenu(card?.storeId ?? 0);
+
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    await Promise.all([refetch(), refetchStore(), refetchMenu()]);
+    setIsRefreshing(false);
+  }, [refetch, refetchStore, refetchMenu]);
 
   // Detect ownership: find an ACTIVE sub for this specific card definition.
   const activeSub = card
@@ -547,6 +556,14 @@ export default function CardDetailScreen() {
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={() => void handleRefresh()}
+            tintColor={C.accent}
+            colors={[C.accent]}
+          />
+        }
       >
         {/* Premium card hero */}
         <CardHero card={card} />
@@ -650,6 +667,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: 16,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.primary,
     letterSpacing: -0.2,
   },
@@ -688,6 +706,7 @@ const styles = StyleSheet.create({
   heroBrand: {
     fontSize: 11,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: 'rgba(255,255,255,0.40)',
     letterSpacing: 2,
     textTransform: 'uppercase',
@@ -696,6 +715,7 @@ const styles = StyleSheet.create({
   heroName: {
     fontSize: 22,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: '#FFFFFF',
     letterSpacing: -0.5,
     maxWidth: 220,
@@ -715,6 +735,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: 'rgba(255,255,255,0.48)',
     fontWeight: '500',
+    fontFamily: ManropeWeights.medium,
     letterSpacing: 0.4,
     marginBottom: 4,
     textTransform: 'uppercase',
@@ -722,6 +743,7 @@ const styles = StyleSheet.create({
   heroWalletAmount: {
     fontSize: 38,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: '#FFFFFF',
     letterSpacing: -1.5,
   },
@@ -736,6 +758,7 @@ const styles = StyleSheet.create({
   heroBonusText: {
     fontSize: 11,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: '#FFD580',
     letterSpacing: 0.2,
   },
@@ -756,6 +779,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: 'rgba(255,255,255,0.40)',
     fontWeight: '500',
+    fontFamily: ManropeWeights.medium,
     letterSpacing: 0.4,
     marginBottom: 3,
     textTransform: 'uppercase',
@@ -763,6 +787,7 @@ const styles = StyleSheet.create({
   heroMetaValue: {
     fontSize: 15,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: 'rgba(255,255,255,0.90)',
     letterSpacing: -0.3,
   },
@@ -805,6 +830,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 13,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.muted,
     letterSpacing: 0.5,
     textTransform: 'uppercase',
@@ -854,10 +880,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: C.primary,
     fontWeight: '500',
+    fontFamily: ManropeWeights.medium,
   },
   benefitValue: {
     fontSize: 15,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: C.primary,
     letterSpacing: -0.3,
   },
@@ -884,6 +912,7 @@ const styles = StyleSheet.create({
   catChipText: {
     fontSize: 13,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.accent,
   },
 
@@ -906,10 +935,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: C.primary,
     fontWeight: '500',
+    fontFamily: ManropeWeights.medium,
   },
   eligItemPrice: {
     fontSize: 13,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.secondary,
   },
 
@@ -925,6 +956,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: C.secondary,
     lineHeight: 20,
+    fontFamily: ManropeWeights.regular,
   },
 
   // ── About ──────────────────────────────────────────────────────────────────
@@ -933,6 +965,7 @@ const styles = StyleSheet.create({
     color: C.secondary,
     lineHeight: 22,
     padding: 16,
+    fontFamily: ManropeWeights.regular,
   },
 
   // ── Store row ──────────────────────────────────────────────────────────────
@@ -955,6 +988,7 @@ const styles = StyleSheet.create({
   storeName: {
     fontSize: 15,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.primary,
     flex: 1,
   },
@@ -970,6 +1004,7 @@ const styles = StyleSheet.create({
   errorTitle: {
     fontSize: 17,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: C.primary,
     marginTop: 8,
   },
@@ -978,6 +1013,7 @@ const styles = StyleSheet.create({
     color: C.secondary,
     textAlign: 'center',
     lineHeight: 21,
+    fontFamily: ManropeWeights.regular,
   },
   retryBtn: {
     marginTop: 10,
@@ -990,6 +1026,7 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 14,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
   },
 
   // ── Loading skeleton bones ─────────────────────────────────────────────────
@@ -1034,6 +1071,7 @@ const styles = StyleSheet.create({
   activeBannerLabel: {
     fontSize: 11,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: '#1A7A35',
     letterSpacing: 0.8,
     textTransform: 'uppercase',
@@ -1057,11 +1095,13 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: C.muted,
     fontWeight: '500',
+    fontFamily: ManropeWeights.medium,
     letterSpacing: 0.2,
   },
   activeBannerStatValue: {
     fontSize: 16,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: C.primary,
     letterSpacing: -0.3,
   },
@@ -1107,6 +1147,7 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 16,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     letterSpacing: -0.2,
   },
   viewMembershipBtn: {
@@ -1123,6 +1164,7 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 16,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     letterSpacing: -0.2,
   },
 });

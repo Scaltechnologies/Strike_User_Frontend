@@ -1,6 +1,5 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
-  Animated,
   Platform,
   Pressable,
   RefreshControl,
@@ -11,22 +10,42 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated, {
+  Easing,
+  FadeIn,
+  FadeOut,
+  LinearTransition,
+  interpolate,
+  runOnJS,
+  useAnimatedReaction,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import {
+  AlertCircle,
+  Clock,
   ChevronDown,
-  ChevronUp,
   CreditCard,
   Wallet,
 } from 'lucide-react-native';
 import { useMyActiveSubscriptions, useMySubscriptions } from '@/hooks/useSubscriptions';
 import { useAllStores } from '@/hooks/useStores';
 import { buildRoute } from '@/constants/routes';
+import { ManropeWeights } from '@/constants/theme';
 import { getEffectiveStatus } from '@/utils/subscription';
+import { EmptyState } from '@/components/common/EmptyState';
+import { PremiumSubscriptionCard } from '@/components/cards/PremiumSubscriptionCard';
+import type { Store } from '@/types/store';
 import type { Subscription, SubscriptionStatus } from '@/types/subscription';
 
-// ── Design tokens ──────────────────────────────────────────────────────────────
+// ── Design tokens (shared brand palette with Home) ──────────────────────────────
 
 const C = {
   accent:      '#D63527',
+  accentDeep:  '#8E1F15',
+  accentLight: '#FF8A75',
   accentSoft:  '#FEF2EF',
   bg:          '#F2F2F7',
   surface:     '#FFFFFF',
@@ -44,21 +63,25 @@ const C = {
   dangerSoft:  '#FEF0EE',
   dangerDark:  '#C0261A',
   skeleton:    '#E5E5EA',
-  heroSurface: '#111119',
-  heroMuted:   'rgba(255,255,255,0.40)',
-  heroSub:     'rgba(255,255,255,0.60)',
+  heroSurface: '#160604',
+  heroMuted:   'rgba(255,255,255,0.55)',
+  heroSub:     'rgba(255,255,255,0.72)',
 } as const;
 
-// ── Card backgrounds ───────────────────────────────────────────────────────────
+// ── Card face gradients + accent glows ───────────────────────────────────────────
 
-const CARD_DARKS = [
-  '#1C1C2E', '#0A2342', '#1A1A2E',
-  '#0D1B2A', '#1B1B2F', '#0F2027', '#16213E',
-] as const;
+const CARD_GRADIENTS: readonly [string, string][] = [
+  ['#160821', '#3B1264'],
+  ['#03101F', '#0B3D66'],
+  ['#0A0A1F', '#241E5E'],
+  ['#1F0705', '#5C1810'],
+  ['#02140F', '#0A4D38'],
+  ['#0E0A21', '#3B1466'],
+  ['#1A0F04', '#5A2E0A'],
+];
 
-function cardBg(name: string): string {
-  const idx = name.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % CARD_DARKS.length;
-  return CARD_DARKS[idx];
+function cardVariant(name: string): number {
+  return name.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % CARD_GRADIENTS.length;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -94,89 +117,6 @@ const STATUS_CFG: Record<SubscriptionStatus, { label: string; color: string; bg:
   CANCELLED: { label: 'Cancelled', color: C.dangerDark,  bg: C.dangerSoft  },
 };
 
-// ── Premium card widget ────────────────────────────────────────────────────────
-
-interface CardWidgetProps {
-  sub: Subscription;
-  storeName: string | undefined;
-  onPress: () => void;
-  urgency?: boolean;
-}
-
-function SubscriptionCard({ sub, storeName, onPress, urgency }: CardWidgetProps) {
-  const scale = useRef(new Animated.Value(1)).current;
-  const days  = daysLeft(sub.expiresAt);
-  const bg    = cardBg(sub.cardName);
-
-  const onPressIn = useCallback(() => {
-    Animated.spring(scale, {
-      toValue: 0.97, useNativeDriver: true, speed: 50, bounciness: 0,
-    }).start();
-  }, [scale]);
-
-  const onPressOut = useCallback(() => {
-    Animated.spring(scale, {
-      toValue: 1, useNativeDriver: true, speed: 20, bounciness: 2,
-    }).start();
-  }, [scale]);
-
-  return (
-    <Pressable
-      onPressIn={onPressIn}
-      onPressOut={onPressOut}
-      onPress={onPress}
-      style={styles.cardPressable}
-    >
-      <Animated.View style={[styles.cardWidget, { backgroundColor: bg, transform: [{ scale }] }]}>
-        {/* Urgency accent bar */}
-        {urgency && <View style={styles.urgencyBar} />}
-
-        {/* Top: store name + chip */}
-        <View style={styles.cardTop}>
-          <View style={styles.cardTopLeft}>
-            {storeName ? (
-              <Text style={styles.cardStoreName} numberOfLines={1}>{storeName}</Text>
-            ) : null}
-            <Text style={styles.cardName} numberOfLines={1}>{sub.cardName}</Text>
-          </View>
-          <View style={styles.cardChip}>
-            <CreditCard size={17} color="rgba(255,255,255,0.55)" strokeWidth={1.5} />
-          </View>
-        </View>
-
-        {/* Middle: remaining balance — the hero number */}
-        <View style={styles.cardMid}>
-          <Text style={styles.cardBalanceLabel}>Remaining Balance</Text>
-          <Text style={styles.cardBalance}>{fmt(sub.walletBalance)}</Text>
-        </View>
-
-        {/* Bottom: expiry + days left */}
-        <View style={styles.cardBottom}>
-          <View>
-            <Text style={styles.cardExpLabel}>Expires</Text>
-            <Text style={styles.cardExpDate}>{fmtDate(sub.expiresAt)}</Text>
-          </View>
-          {urgency ? (
-            <View style={styles.urgencyPill}>
-              <Text style={styles.urgencyPillText}>
-                {days === 0 ? 'Today' : `${days}d left`}
-              </Text>
-            </View>
-          ) : (
-            <View style={styles.daysPill}>
-              <Text style={styles.daysPillText}>{days}d left</Text>
-            </View>
-          )}
-        </View>
-
-        {/* Decorative circles */}
-        <View style={styles.decCircle1} pointerEvents="none" />
-        <View style={styles.decCircle2} pointerEvents="none" />
-      </Animated.View>
-    </Pressable>
-  );
-}
-
 // ── Compact past-subscription row ──────────────────────────────────────────────
 
 function SubscriptionRow({
@@ -191,6 +131,7 @@ function SubscriptionRow({
   onPress: () => void;
 }) {
   const { label, color, bg } = STATUS_CFG[sub.status];
+  const [gradFrom, gradTo] = CARD_GRADIENTS[cardVariant(sub.cardName)];
 
   return (
     <Pressable
@@ -202,9 +143,14 @@ function SubscriptionRow({
       onPress={onPress}
     >
       {/* Colored icon */}
-      <View style={[styles.pastIconWrap, { backgroundColor: cardBg(sub.cardName) }]}>
-        <CreditCard size={15} color="rgba(255,255,255,0.80)" strokeWidth={1.5} />
-      </View>
+      <LinearGradient
+        colors={[gradFrom, gradTo]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.pastIconWrap}
+      >
+        <CreditCard size={15} color="rgba(255,255,255,0.85)" strokeWidth={1.5} />
+      </LinearGradient>
 
       {/* Name + meta */}
       <View style={styles.pastBody}>
@@ -241,10 +187,20 @@ interface CollapsibleSectionProps {
 function CollapsibleSection({
   title, count, expanded, onToggle, children, accent,
 }: CollapsibleSectionProps) {
+  const rotate = useSharedValue(expanded ? 1 : 0);
+
+  useEffect(() => {
+    rotate.value = withTiming(expanded ? 1 : 0, { duration: 260, easing: Easing.out(Easing.cubic) });
+  }, [expanded, rotate]);
+
+  const chevronStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${interpolate(rotate.value, [0, 1], [0, 180])}deg` }],
+  }));
+
   if (count === 0) return null;
 
   return (
-    <View style={styles.collapsible}>
+    <Animated.View style={styles.collapsible} layout={LinearTransition.springify().damping(20).stiffness(200)}>
       <Pressable
         style={({ pressed }) => [styles.collapsibleHeader, pressed && styles.collapsibleHeaderPressed]}
         onPress={onToggle}
@@ -255,18 +211,34 @@ function CollapsibleSection({
             <Text style={[styles.countBadgeText, accent ? { color: accent } : null]}>{count}</Text>
           </View>
         </View>
-        {expanded
-          ? <ChevronUp size={16} color={C.muted} strokeWidth={2} />
-          : <ChevronDown size={16} color={C.muted} strokeWidth={2} />
-        }
+        <Animated.View style={chevronStyle}>
+          <ChevronDown size={16} color={C.muted} strokeWidth={2} />
+        </Animated.View>
       </Pressable>
 
       {expanded && (
-        <View style={styles.collapsibleBody}>
+        <Animated.View
+          style={styles.collapsibleBody}
+          entering={FadeIn.duration(220)}
+          exiting={FadeOut.duration(160)}
+          layout={LinearTransition.springify().damping(20).stiffness(200)}
+        >
           {children}
-        </View>
+        </Animated.View>
       )}
-    </View>
+    </Animated.View>
+  );
+}
+
+// ── Section label with accent bar ────────────────────────────────────────────────
+
+function SectionLabel({ title, count }: { title: string; count?: number }) {
+  return (
+    <Animated.View entering={FadeIn.duration(320)} style={styles.sectionLabelRow}>
+      <View style={styles.sectionLabelBar} />
+      <Text style={styles.sectionLabel}>{title}</Text>
+      {!!count && <Text style={styles.sectionCount}>{count}</Text>}
+    </Animated.View>
   );
 }
 
@@ -281,35 +253,68 @@ function WalletHero({
   activeCount: number;
   expiringSoon: number;
 }) {
+  const balanceAnim = useSharedValue(0);
+  const [balanceText, setBalanceText] = useState(fmt(0));
+
+  useEffect(() => {
+    balanceAnim.value = withTiming(total, { duration: 900, easing: Easing.out(Easing.cubic) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [total]);
+
+  const updateBalanceText = useCallback((val: number) => {
+    setBalanceText(fmt(val));
+  }, []);
+
+  useAnimatedReaction(
+    () => Math.round(balanceAnim.value),
+    (val, prevVal) => {
+      if (val !== prevVal) runOnJS(updateBalanceText)(val);
+    }
+  );
+
   return (
-    <View style={styles.hero}>
-      {/* Label row */}
-      <View style={styles.heroTopRow}>
-        <View style={styles.heroLabelWrap}>
-          <Wallet size={14} color={C.heroMuted} strokeWidth={2} />
-          <Text style={styles.heroLabel}>MY WALLET</Text>
-        </View>
-        {expiringSoon > 0 && (
-          <View style={styles.expiringSoonBadge}>
-            <Text style={styles.expiringSoonText}>
-              {expiringSoon} expiring soon
-            </Text>
+    <Animated.View entering={FadeIn.duration(420)}>
+      <LinearGradient
+        colors={[C.accent, C.accentDeep, '#1C0805']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.hero}
+      >
+        {/* Decorative blobs */}
+        <View style={styles.heroBlob1} pointerEvents="none" />
+        <View style={styles.heroBlob2} pointerEvents="none" />
+
+        {/* Label row */}
+        <View style={styles.heroTopRow}>
+          <View style={styles.heroLabelWrap}>
+            <View style={styles.heroIconBadge}>
+              <Wallet size={15} color="#FFFFFF" strokeWidth={2} />
+            </View>
+            <Text style={styles.heroLabel}>TOTAL AVAILABLE CREDIT</Text>
           </View>
-        )}
-      </View>
+          {expiringSoon > 0 && (
+            <View style={styles.expiringSoonBadge}>
+              <Clock size={11} color="#FFE1D9" strokeWidth={2.2} />
+              <Text style={styles.expiringSoonText}>
+                {expiringSoon} expiring soon
+              </Text>
+            </View>
+          )}
+        </View>
 
-      {/* Big balance */}
-      <Text style={styles.heroBalance}>{fmt(total)}</Text>
-      <Text style={styles.heroSub}>
-        {activeCount === 0
-          ? 'No active memberships'
-          : `Remaining across ${activeCount} active ${activeCount === 1 ? 'membership' : 'memberships'}`
-        }
-      </Text>
+        {/* Big balance */}
+        <Text style={styles.heroBalance}>{balanceText}</Text>
+        <Text style={styles.heroSub}>
+          {activeCount === 0
+            ? 'No active memberships'
+            : `Remaining across ${activeCount} active ${activeCount === 1 ? 'membership' : 'memberships'}`
+          }
+        </Text>
 
-      {/* Bottom divider row */}
-      <View style={styles.heroRule} />
-    </View>
+        {/* Bottom divider row */}
+        <View style={styles.heroRule} />
+      </LinearGradient>
+    </Animated.View>
   );
 }
 
@@ -354,9 +359,14 @@ function WalletSkeleton() {
 function EmptyWallet({ onExplore }: { onExplore: () => void }) {
   return (
     <View style={styles.emptyWrap}>
-      <View style={styles.emptyIconWrap}>
-        <CreditCard size={26} color={C.muted} strokeWidth={1.4} />
-      </View>
+      <LinearGradient
+        colors={[C.accentSoft, '#FFFFFF']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.emptyIconWrap}
+      >
+        <CreditCard size={26} color={C.accent} strokeWidth={1.6} />
+      </LinearGradient>
       <Text style={styles.emptyTitle}>No Active Memberships</Text>
       <Text style={styles.emptySub}>
         Purchase a membership from a participating store to start redeeming benefits.
@@ -380,20 +390,21 @@ export default function CardsScreen() {
     new Set(['active', 'expiring'])
   );
 
-  const { data: activeRaw = [], isLoading: loadingActive, refetch: refetchActive } =
-    useMyActiveSubscriptions();
+  const {
+    data: activeRaw = [], isLoading: loadingActive, isError: activeIsError,
+    refetch: refetchActive,
+  } = useMyActiveSubscriptions();
   // Guards against a stale cached ACTIVE status past expiresAt — the server only
   // recomputes status on this endpoint's next fetch, not on every read within staleTime.
   const active = activeRaw.filter((s) => getEffectiveStatus(s) === 'ACTIVE');
 
-  const { data: allPage, isLoading: loadingAll, refetch: refetchAll } =
-    useMySubscriptions(0);
+  const {
+    data: allPage, isLoading: loadingAll, isError: allIsError, refetch: refetchAll,
+  } = useMySubscriptions(0);
 
   const { data: allStores = [] } = useAllStores();
 
-  const isLoading = loadingActive || loadingAll;
-
-  const storeMap = Object.fromEntries(allStores.map((s) => [s.id, s.name])) as Record<number, string>;
+  const storesById = Object.fromEntries(allStores.map((s) => [s.id, s])) as Record<number, Store>;
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -447,9 +458,17 @@ export default function CardsScreen() {
           />
         }
       >
-        {/* ── Loading skeleton ─────────────────────────────────── */}
-        {isLoading ? (
+        {/* ── Active cards (own loading/error, independent of Past) ── */}
+        {loadingActive ? (
           <WalletSkeleton />
+        ) : activeIsError && active.length === 0 ? (
+          <EmptyState
+            icon={<AlertCircle size={24} color={C.muted} strokeWidth={1.5} />}
+            title="Couldn't load your cards"
+            subtitle="Check your connection and try again"
+            actionLabel="Try again"
+            onAction={() => void refetchActive()}
+          />
         ) : (
           <>
             {/* ── Wallet hero ───────────────────────────────────── */}
@@ -461,12 +480,7 @@ export default function CardsScreen() {
 
             {/* ── Active cards ──────────────────────────────────── */}
             <View style={styles.section}>
-              <View style={styles.sectionLabelRow}>
-                <Text style={styles.sectionLabel}>Active Cards</Text>
-                {notExpiring.length > 0 && (
-                  <Text style={styles.sectionCount}>{notExpiring.length}</Text>
-                )}
-              </View>
+              <SectionLabel title="Active Cards" count={notExpiring.length || undefined} />
 
               {active.length === 0 ? (
                 <EmptyWallet onExplore={() => router.replace('/')} />
@@ -477,12 +491,15 @@ export default function CardsScreen() {
                   </Text>
                 </View>
               ) : (
-                notExpiring.map((sub) => (
-                  <SubscriptionCard
+                notExpiring.map((sub, i) => (
+                  <PremiumSubscriptionCard
                     key={sub.id}
                     sub={sub}
-                    storeName={storeMap[sub.storeId]}
+                    store={storesById[sub.storeId]}
                     onPress={() => navToSub(sub.id)}
+                    index={i}
+                    showExpiry
+                    showDirections
                   />
                 ))
               )}
@@ -498,81 +515,88 @@ export default function CardsScreen() {
                   onToggle={() => toggleSection('expiring')}
                   accent={C.danger}
                 >
-                  {expiringSoon.map((sub) => (
-                    <SubscriptionCard
+                  {expiringSoon.map((sub, i) => (
+                    <PremiumSubscriptionCard
                       key={sub.id}
                       sub={sub}
-                      storeName={storeMap[sub.storeId]}
+                      store={storesById[sub.storeId]}
                       onPress={() => navToSub(sub.id)}
                       urgency
+                      index={i}
+                      showExpiry
+                      showDirections
                     />
                   ))}
                 </CollapsibleSection>
               </View>
             )}
 
-            {/* ── Past sections ─────────────────────────────────── */}
-            {hasAnyPast && (
-              <View style={styles.section}>
-                <Text style={styles.sectionLabel}>Past Memberships</Text>
-                <View style={styles.pastCard}>
-
-                  <CollapsibleSection
-                    title="Exhausted"
-                    count={exhausted.length}
-                    expanded={expandedSections.has('exhausted')}
-                    onToggle={() => toggleSection('exhausted')}
-                    accent={C.warning}
-                  >
-                    {exhausted.map((sub, idx) => (
-                      <SubscriptionRow
-                        key={sub.id}
-                        sub={sub}
-                        storeName={storeMap[sub.storeId]}
-                        isLast={idx === exhausted.length - 1 && expired.length === 0 && cancelled.length === 0}
-                        onPress={() => navToSub(sub.id)}
-                      />
-                    ))}
-                  </CollapsibleSection>
-
-                  <CollapsibleSection
-                    title="Expired"
-                    count={expired.length}
-                    expanded={expandedSections.has('expired')}
-                    onToggle={() => toggleSection('expired')}
-                  >
-                    {expired.map((sub, idx) => (
-                      <SubscriptionRow
-                        key={sub.id}
-                        sub={sub}
-                        storeName={storeMap[sub.storeId]}
-                        isLast={idx === expired.length - 1 && cancelled.length === 0}
-                        onPress={() => navToSub(sub.id)}
-                      />
-                    ))}
-                  </CollapsibleSection>
-
-                  <CollapsibleSection
-                    title="Cancelled"
-                    count={cancelled.length}
-                    expanded={expandedSections.has('cancelled')}
-                    onToggle={() => toggleSection('cancelled')}
-                  >
-                    {cancelled.map((sub, idx) => (
-                      <SubscriptionRow
-                        key={sub.id}
-                        sub={sub}
-                        storeName={storeMap[sub.storeId]}
-                        isLast={idx === cancelled.length - 1}
-                        onPress={() => navToSub(sub.id)}
-                      />
-                    ))}
-                  </CollapsibleSection>
-
-                </View>
-              </View>
-            )}
           </>
+        )}
+
+        {/* ── Past sections — own loading state, independent of Active ── */}
+        {/* Collapsed by default and secondary to Active Cards, so no
+            skeleton/error UI here — just don't show it until it's ready,
+            rather than blocking the section above on this slower fetch. */}
+        {!loadingAll && !allIsError && hasAnyPast && (
+          <View style={styles.section}>
+            <SectionLabel title="Past Memberships" />
+            <View style={styles.pastCard}>
+
+              <CollapsibleSection
+                title="Exhausted"
+                count={exhausted.length}
+                expanded={expandedSections.has('exhausted')}
+                onToggle={() => toggleSection('exhausted')}
+                accent={C.warning}
+              >
+                {exhausted.map((sub, idx) => (
+                  <SubscriptionRow
+                    key={sub.id}
+                    sub={sub}
+                    storeName={storesById[sub.storeId]?.name}
+                    isLast={idx === exhausted.length - 1 && expired.length === 0 && cancelled.length === 0}
+                    onPress={() => navToSub(sub.id)}
+                  />
+                ))}
+              </CollapsibleSection>
+
+              <CollapsibleSection
+                title="Expired"
+                count={expired.length}
+                expanded={expandedSections.has('expired')}
+                onToggle={() => toggleSection('expired')}
+              >
+                {expired.map((sub, idx) => (
+                  <SubscriptionRow
+                    key={sub.id}
+                    sub={sub}
+                    storeName={storesById[sub.storeId]?.name}
+                    isLast={idx === expired.length - 1 && cancelled.length === 0}
+                    onPress={() => navToSub(sub.id)}
+                  />
+                ))}
+              </CollapsibleSection>
+
+              <CollapsibleSection
+                title="Cancelled"
+                count={cancelled.length}
+                expanded={expandedSections.has('cancelled')}
+                onToggle={() => toggleSection('cancelled')}
+              >
+                {cancelled.map((sub, idx) => (
+                  <SubscriptionRow
+                    key={sub.id}
+                    sub={sub}
+                    storeName={storesById[sub.storeId]?.name}
+                    isLast={idx === cancelled.length - 1}
+                    onPress={() => navToSub(sub.id)}
+                  />
+                ))}
+              </CollapsibleSection>
+
+            </View>
+          </View>
         )}
 
         <View style={styles.bottomPad} />
@@ -601,6 +625,7 @@ const styles = StyleSheet.create({
   topBarTitle: {
     fontSize: 24,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: C.primary,
     letterSpacing: -0.5,
   },
@@ -610,44 +635,74 @@ const styles = StyleSheet.create({
 
   // ── Wallet hero ────────────────────────────────────────────────────────────
   hero: {
-    backgroundColor: C.heroSurface,
     paddingHorizontal: 22,
     paddingTop: 28,
     paddingBottom: 24,
+    overflow: 'hidden',
+    ...Platform.select({
+      ios: { shadowColor: C.accentDeep, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.28, shadowRadius: 20 },
+      android: { elevation: 8 },
+    }),
+  },
+  heroBlob1: {
+    position: 'absolute', width: 220, height: 220, borderRadius: 110,
+    backgroundColor: 'rgba(255,255,255,0.06)', top: -90, right: -60,
+  },
+  heroBlob2: {
+    position: 'absolute', width: 140, height: 140, borderRadius: 70,
+    backgroundColor: 'rgba(0,0,0,0.12)', bottom: -60, left: -30,
   },
   heroTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 14,
+    marginBottom: 18,
   },
   heroLabelWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
+    flexShrink: 1,
+  },
+  heroIconBadge: {
+    width: 26,
+    height: 26,
+    borderRadius: 9,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   heroLabel: {
     fontSize: 11,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: C.heroMuted,
     letterSpacing: 1.8,
     textTransform: 'uppercase',
+    flexShrink: 1,
   },
   expiringSoonBadge: {
-    backgroundColor: 'rgba(255,59,48,0.18)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(0,0,0,0.22)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.18)',
     paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingVertical: 5,
     borderRadius: 20,
   },
   expiringSoonText: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#FF9B9B',
+    fontFamily: ManropeWeights.semiBold,
+    color: '#FFE1D9',
     letterSpacing: 0.2,
   },
   heroBalance: {
     fontSize: 44,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: '#FFFFFF',
     letterSpacing: -2,
     marginBottom: 6,
@@ -656,12 +711,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: C.heroSub,
     fontWeight: '500',
+    fontFamily: ManropeWeights.medium,
     letterSpacing: 0.1,
   },
   heroRule: {
     marginTop: 22,
     height: StyleSheet.hairlineWidth,
-    backgroundColor: 'rgba(255,255,255,0.10)',
+    backgroundColor: 'rgba(255,255,255,0.16)',
   },
 
   // ── Section ────────────────────────────────────────────────────────────────
@@ -675,6 +731,12 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 12,
   },
+  sectionLabelBar: {
+    width: 3,
+    height: 13,
+    borderRadius: 2,
+    backgroundColor: C.accent,
+  },
   sectionLabelArea: {
     marginTop: 24,
     paddingHorizontal: 16,
@@ -682,20 +744,23 @@ const styles = StyleSheet.create({
   },
   sectionLabel: {
     fontSize: 13,
-    fontWeight: '600',
-    color: C.muted,
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
+    fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
+    color: C.primary,
+    letterSpacing: 0.3,
   },
   sectionCount: {
     fontSize: 12,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: C.muted,
   },
   allExpiringNote: {
     backgroundColor: C.surface,
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 14,
+    borderWidth: 1,
+    borderColor: C.border,
     ...Platform.select({
       ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4 },
       android: { elevation: 1 },
@@ -705,122 +770,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: C.secondary,
     lineHeight: 19,
-  },
-
-  // ── Card widget ────────────────────────────────────────────────────────────
-  cardPressable: {
-    marginBottom: 14,
-  },
-  cardWidget: {
-    borderRadius: 20,
-    padding: 22,
-    minHeight: 190,
-    justifyContent: 'space-between',
-    overflow: 'hidden',
-    ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.18, shadowRadius: 16 },
-      android: { elevation: 6 },
-    }),
-  },
-  urgencyBar: {
-    position: 'absolute',
-    top: 0, left: 0, right: 0,
-    height: 3,
-    backgroundColor: C.danger,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-  },
-  cardTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-  cardTopLeft: { flex: 1, gap: 3, paddingRight: 12 },
-  cardStoreName: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: 'rgba(255,255,255,0.45)',
-    letterSpacing: 0.3,
-    textTransform: 'uppercase',
-  },
-  cardName: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: -0.3,
-  },
-  cardChip: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.10)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    flexShrink: 0,
-  },
-  cardMid: { marginTop: 14 },
-  cardBalanceLabel: {
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.50)',
-    fontWeight: '500',
-    letterSpacing: 0.3,
-    marginBottom: 4,
-    textTransform: 'uppercase',
-  },
-  cardBalance: {
-    fontSize: 34,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: -1.2,
-  },
-  cardBottom: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-    marginTop: 14,
-  },
-  cardExpLabel: {
-    fontSize: 10,
-    color: 'rgba(255,255,255,0.40)',
-    fontWeight: '500',
-    letterSpacing: 0.4,
-    marginBottom: 3,
-    textTransform: 'uppercase',
-  },
-  cardExpDate: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: 'rgba(255,255,255,0.82)',
-  },
-  daysPill: {
-    backgroundColor: 'rgba(255,255,255,0.14)',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 20,
-  },
-  daysPillText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: 'rgba(255,255,255,0.82)',
-  },
-  urgencyPill: {
-    backgroundColor: 'rgba(255,59,48,0.28)',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 20,
-  },
-  urgencyPillText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#FF9B9B',
-  },
-  decCircle1: {
-    position: 'absolute', width: 150, height: 150, borderRadius: 75,
-    backgroundColor: 'rgba(255,255,255,0.035)', top: -36, right: -36,
-  },
-  decCircle2: {
-    position: 'absolute', width: 96, height: 96, borderRadius: 48,
-    backgroundColor: 'rgba(255,255,255,0.03)', bottom: 18, right: 88,
+    fontFamily: ManropeWeights.regular,
   },
 
   // ── Collapsible section ────────────────────────────────────────────────────
@@ -838,6 +788,7 @@ const styles = StyleSheet.create({
   collapsibleTitle: {
     fontSize: 14,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.secondary,
   },
   countBadge: {
@@ -849,6 +800,7 @@ const styles = StyleSheet.create({
   countBadgeText: {
     fontSize: 11,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: C.muted,
   },
   collapsibleBody: { marginTop: 2 },
@@ -856,10 +808,12 @@ const styles = StyleSheet.create({
   // ── Past card container ────────────────────────────────────────────────────
   pastCard: {
     backgroundColor: C.surface,
-    borderRadius: 16,
+    borderRadius: 18,
     overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: C.border,
     ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8 },
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8 },
       android: { elevation: 2 },
     }),
   },
@@ -886,10 +840,10 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   pastBody: { flex: 1, gap: 3 },
-  pastName: { fontSize: 14, fontWeight: '600', color: C.primary },
-  pastMeta: { fontSize: 12, color: C.muted },
+  pastName: { fontSize: 14, fontWeight: '600', fontFamily: ManropeWeights.semiBold, color: C.primary },
+  pastMeta: { fontSize: 12, color: C.muted, fontFamily: ManropeWeights.regular },
   pastRight: { alignItems: 'flex-end', gap: 5 },
-  pastBalance: { fontSize: 14, fontWeight: '700', color: C.primary },
+  pastBalance: { fontSize: 14, fontWeight: '700', fontFamily: ManropeWeights.bold, color: C.primary },
 
   // ── Status pill ────────────────────────────────────────────────────────────
   statusPill: {
@@ -900,6 +854,7 @@ const styles = StyleSheet.create({
   statusPillText: {
     fontSize: 11,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     letterSpacing: 0.1,
   },
 
@@ -919,10 +874,10 @@ const styles = StyleSheet.create({
   cardSkeletonWrap: {
     marginHorizontal: 16,
     marginBottom: 14,
-    borderRadius: 20,
+    borderRadius: 22,
     backgroundColor: '#1A1A2A',
     padding: 22,
-    minHeight: 190,
+    minHeight: 192,
     justifyContent: 'flex-end',
   },
 
@@ -933,13 +888,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 36,
   },
   emptyIconWrap: {
-    width: 60,
-    height: 60,
-    borderRadius: 18,
-    backgroundColor: C.surface,
+    width: 64,
+    height: 64,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 18,
+    borderWidth: 1,
+    borderColor: C.border,
     ...Platform.select({
       ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8 },
       android: { elevation: 2 },
@@ -948,6 +904,7 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 17,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: C.primary,
     marginBottom: 8,
     letterSpacing: -0.3,
@@ -958,17 +915,23 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 21,
     marginBottom: 24,
+    fontFamily: ManropeWeights.regular,
   },
   emptyBtn: {
     backgroundColor: C.accent,
     paddingHorizontal: 26,
     paddingVertical: 13,
     borderRadius: 24,
+    ...Platform.select({
+      ios: { shadowColor: C.accent, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.28, shadowRadius: 12 },
+      android: { elevation: 3 },
+    }),
   },
   emptyBtnPressed: { opacity: 0.88 },
   emptyBtnText: {
     fontSize: 15,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: '#FFFFFF',
     letterSpacing: -0.1,
   },

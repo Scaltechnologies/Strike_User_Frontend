@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { userApi } from '@/api/user.api';
+import { notify } from '@/services/notificationService';
 import type { UserProfile, UpdateProfileRequest } from '@/types/user';
 
 export const profileKeys = {
@@ -59,19 +60,33 @@ export function useUploadAvatar() {
       userApi.uploadAvatar(uri, mimeType),
     onMutate: async ({ uri }) => {
       await qc.cancelQueries({ queryKey: profileKeys.all });
+      const snapshot = qc.getQueryData<UserProfile>(profileKeys.all);
+
       // Show local image immediately — works even if profile wasn't loaded yet
       qc.setQueryData<UserProfile>(profileKeys.all, (prev) =>
         prev
           ? { ...prev, avatarUrl: uri }
           : { id: '', name: '', phone: '', email: null, avatarUrl: uri, createdAt: '', updatedAt: '' },
       );
+
+      return { snapshot };
     },
     onSuccess: (updated) => {
       // Replace with authoritative server URL
       qc.setQueryData(profileKeys.all, updated);
     },
-    // onError intentionally absent: keep the local URI visible for this session.
-    // The photo is already shown; a silent backend failure is less disruptive than
-    // a rollback that makes the image disappear with no explanation.
+    // On failure the local URI is a dead end (it's never persisted, so it won't
+    // survive a refetch/app restart) — roll back to the real photo and tell the
+    // user, instead of leaving a photo on screen that silently isn't saved.
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.snapshot) {
+        qc.setQueryData(profileKeys.all, ctx.snapshot);
+      }
+      notify({
+        title: 'Upload failed',
+        message: "We couldn't update your profile photo. Please try again.",
+        type: 'error',
+      });
+    },
   });
 }

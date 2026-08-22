@@ -12,6 +12,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { XCircle } from 'lucide-react-native';
 import { notify } from '@/services/notificationService';
 import { buildRoute } from '@/constants/routes';
+import { ManropeWeights } from '@/constants/theme';
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
 
@@ -155,11 +156,12 @@ const styles = StyleSheet.create({
   headWrap: { alignItems: 'center', gap: 8 },
   heading: {
     fontSize: 26, fontWeight: '800',
+    fontFamily: ManropeWeights.extraBold,
     color: C.primary, letterSpacing: -0.8,
   },
   subheading: {
     fontSize: 14, color: C.secondary,
-    fontWeight: '500', textAlign: 'center', lineHeight: 21,
+    fontWeight: '500', fontFamily: ManropeWeights.medium, textAlign: 'center', lineHeight: 21,
   },
 
   // Reason card
@@ -172,18 +174,21 @@ const styles = StyleSheet.create({
   },
   reasonLabel: {
     fontSize: 10, fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: 'rgba(255,255,255,0.30)',
     textTransform: 'uppercase', letterSpacing: 0.8,
   },
   reasonText: {
     fontSize: 14, color: C.secondary,
     lineHeight: 21, fontWeight: '400',
+    fontFamily: ManropeWeights.regular,
   },
 
   // Info text
   infoText: {
     fontSize: 13, color: C.muted,
     textAlign: 'center', lineHeight: 20,
+    fontFamily: ManropeWeights.regular,
   },
 
   // CTAs
@@ -202,12 +207,12 @@ const styles = StyleSheet.create({
     }),
   },
   primaryBtnText: {
-    color: '#FFF', fontSize: 16, fontWeight: '700', letterSpacing: -0.2,
+    color: '#FFF', fontSize: 16, fontWeight: '700', fontFamily: ManropeWeights.bold, letterSpacing: -0.2,
   },
   secondaryBtn: {
     borderRadius: 16, paddingVertical: 14, alignItems: 'center',
   },
   secondaryBtnText: {
-    color: C.secondary, fontSize: 15, fontWeight: '600',
+    color: C.secondary, fontSize: 15, fontWeight: '600', fontFamily: ManropeWeights.semiBold,
   },
 });

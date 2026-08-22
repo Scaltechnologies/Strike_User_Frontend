@@ -13,6 +13,7 @@ import { useStoreCards } from '@/hooks/useCards';
 import { useMyActiveSubscriptions } from '@/hooks/useSubscriptions';
 import { CardListItem } from '@/components/cards/CardListItem';
 import { CardListSkeleton } from '@/components/cards/CardSkeleton';
+import { ManropeWeights } from '@/constants/theme';
 import { C } from './theme';
 import type { MenuCategory } from '@/types/store';
 import type { CardDefinition } from '@/types/card';
@@ -73,6 +74,7 @@ export function AvailableCardsSection({ storeId, categories }: Props) {
         card={item}
         categories={categories}
         isOwned={ownedCardIds.has(item.id)}
+        layout="list"
         onPress={() => router.push(`/cards/${item.id}` as never)}
       />
     ),
@@ -85,13 +87,18 @@ export function AvailableCardsSection({ storeId, categories }: Props) {
       <View style={styles.header}>
         <CreditCard size={15} color={C.accent} strokeWidth={2.2} />
         <Text style={styles.headerTitle}>Available Cards</Text>
+        {activeCards.length > 0 ? (
+          <View style={styles.countPill}>
+            <Text style={styles.countPillText}>{activeCards.length}</Text>
+          </View>
+        ) : null}
       </View>
 
       {/* Content area */}
       {isLoading ? (
-        <View style={styles.skeletonRow}>
-          <CardListSkeleton />
-          <CardListSkeleton />
+        <View style={styles.skeletonList}>
+          <CardListSkeleton layout="list" />
+          <CardListSkeleton layout="list" />
         </View>
       ) : isError ? (
         <CardsErrorState onRetry={() => void refetch()} />
@@ -102,18 +109,11 @@ export function AvailableCardsSection({ storeId, categories }: Props) {
           data={activeCards}
           keyExtractor={(item) => String(item.id)}
           renderItem={renderCard}
-          horizontal
-          showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
-          // Snap so cards feel deliberate, not chaotic
-          snapToInterval={232}
-          decelerationRate="fast"
+          scrollEnabled={false}
           removeClippedSubviews={false}
         />
       )}
-
-      {/* Divider toward menu */}
-      <View style={styles.divider} />
     </View>
   );
 }
@@ -121,7 +121,7 @@ export function AvailableCardsSection({ storeId, categories }: Props) {
 const styles = StyleSheet.create({
   root: {
     backgroundColor: C.bg,
-    paddingTop: 20,
+    paddingTop: 18,
   },
 
   header: {
@@ -134,21 +134,38 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 16,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: C.primary,
     letterSpacing: -0.3,
   },
+  countPill: {
+    backgroundColor: C.surface,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginLeft: -2,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 3 },
+      android: { elevation: 1 },
+    }),
+  },
+  countPillText: {
+    fontSize: 11.5,
+    fontFamily: ManropeWeights.bold,
+    color: C.secondary,
+  },
 
-  // Horizontal list padding so first/last cards align with screen edge
+  // Vertical list padding
   listContent: {
     paddingHorizontal: 16,
     paddingBottom: 4,
   },
 
-  // Skeleton row (before FlatList renders)
-  skeletonRow: {
-    flexDirection: 'row',
+  // Skeleton stack (before FlatList renders)
+  skeletonList: {
     paddingHorizontal: 16,
     paddingBottom: 4,
+    gap: 14,
   },
 
   // Empty / error states
@@ -159,20 +176,14 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 13,
+    fontFamily: ManropeWeights.regular,
     color: C.muted,
     lineHeight: 19,
   },
   retryText: {
     fontSize: 13,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.accent,
-  },
-
-  // Visual separator before the menu tabs
-  divider: {
-    marginTop: 20,
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: C.border,
-    marginHorizontal: 16,
   },
 });

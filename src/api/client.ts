@@ -18,7 +18,6 @@ import ENV from '@/config/env';
 import { API_ENDPOINTS } from '@/constants/api';
 import { useAuthStore } from '@/store/authStore';
 import { useMaintenanceStore } from '@/store/maintenanceStore';
-import type { ApiSuccessResponse } from '@/types/api';
 import type { RefreshTokenResponse } from '@/types/auth';
 
 // Augment config so we can mark a request as already-retried.
@@ -114,11 +113,16 @@ apiClient.interceptors.response.use(
     }
 
     try {
-      const { data } = await refreshClient.post<
-        ApiSuccessResponse<RefreshTokenResponse>
-      >(API_ENDPOINTS.AUTH.REFRESH, { refreshToken });
+      // Unlike most endpoints, auth-service's /api/auth/refresh returns a flat
+      // body ({ accessToken, refreshToken, ... }), not the app's usual
+      // { success, data } envelope — matches how the login response is read
+      // in otp.tsx. Reading this as ApiSuccessResponse<RefreshTokenResponse>
+      // made `data.data` undefined, so destructuring it threw on every single
+      // refresh attempt and force-logged-out the user on the first stray 401.
+      const { data } = await refreshClient.post<RefreshTokenResponse>(
+        API_ENDPOINTS.AUTH.REFRESH, { refreshToken });
 
-      const { accessToken, refreshToken: newRefreshToken } = data.data;
+      const { accessToken, refreshToken: newRefreshToken } = data;
 
       setTokens(accessToken, newRefreshToken);
       flushQueue(null, accessToken);

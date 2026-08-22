@@ -28,17 +28,14 @@ export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
 
 export const Fonts = Platform.select({
   ios: {
-    /** iOS `UIFontDescriptorSystemDesignDefault` */
-    sans: 'system-ui',
-    /** iOS `UIFontDescriptorSystemDesignSerif` */
+    sans: 'Manrope_400Regular',
     serif: 'ui-serif',
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
     rounded: 'ui-rounded',
     /** iOS `UIFontDescriptorSystemDesignMonospaced` */
     mono: 'ui-monospace',
   },
   default: {
-    sans: 'normal',
+    sans: 'Manrope_400Regular',
     serif: 'serif',
     rounded: 'normal',
     mono: 'monospace',
@@ -50,6 +47,21 @@ export const Fonts = Platform.select({
     mono: 'var(--font-mono)',
   },
 });
+
+/**
+ * Manrope weight → registered font-family name, as loaded by `useFonts` in
+ * the root layout. Use these (instead of numeric `fontWeight`) wherever text
+ * needs a specific weight, since RN can't synthesize weights for a custom
+ * font the way it does for system fonts.
+ */
+export const ManropeWeights = {
+  light: 'Manrope_300Light',
+  regular: 'Manrope_400Regular',
+  medium: 'Manrope_500Medium',
+  semiBold: 'Manrope_600SemiBold',
+  bold: 'Manrope_700Bold',
+  extraBold: 'Manrope_800ExtraBold',
+} as const;
 
 export const Spacing = {
   half: 2,

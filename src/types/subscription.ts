@@ -60,10 +60,3 @@ export interface EligibleMenu {
   cardName: string;
   categories: EligibleCategory[];
 }
-
-// POST /api/subscriptions request body
-export interface PurchaseSubscriptionRequest {
-  cardDefinitionId: number;
-  storeId: number;
-  couponCode?: string;
-}

@@ -18,6 +18,7 @@ export function useLocation() {
     setLocationStatus,
     setCoords,
     setLocationName,
+    setLocationSynced,
   } = useAppStore();
 
   const queryClient = useQueryClient();
@@ -45,11 +46,16 @@ export function useLocation() {
 
       // PATCH backend — best-effort. Nearby stores rely on this, but a failure
       // here must not roll back the GPS-ready state already shown to the user.
+      // locationSynced only flips once this settles (success or failure) —
+      // that's the signal useNearbyStores actually waits on, so its first
+      // fetch never races this PATCH and 400s for a brand-new account.
       try {
         await userApi.updateLocation(latitude, longitude);
         void queryClient.invalidateQueries({ queryKey: storeKeys.nearby() });
       } catch {
         // Silent — backend will receive the location on next successful request.
+      } finally {
+        setLocationSynced(true);
       }
 
       // Reverse-geocode to populate the locality name shown in the header.
@@ -77,7 +83,7 @@ export function useLocation() {
     } catch {
       setLocationStatus('error');
     }
-  }, [queryClient, setCoords, setLocationName, setLocationStatus]);
+  }, [queryClient, setCoords, setLocationName, setLocationStatus, setLocationSynced]);
 
   // Step 1: Check current OS permission state, request if needed, then detect.
   const requestPermissionAndLocate = useCallback(async () => {
@@ -121,12 +127,15 @@ export function useLocation() {
     if (stored) {
       setCoords({ latitude: stored.latitude, longitude: stored.longitude }, stored.updatedAt);
       setLocationStatus('ready');
+      // A cached location implies a prior session already PATCHed it to the
+      // backend — safe to let nearby-stores fetch immediately.
+      setLocationSynced(true);
       const name = await storageService.getLocationName();
       setLocationName(name);
       return;
     }
     await requestPermissionAndLocate();
-  }, [requestPermissionAndLocate, setCoords, setLocationName, setLocationStatus]);
+  }, [requestPermissionAndLocate, setCoords, setLocationName, setLocationStatus, setLocationSynced]);
 
   // Optimistically apply a location from history — updates UI instantly, then
   // PATCHes the backend and invalidates nearby cache in the background.
@@ -142,9 +151,11 @@ export function useLocation() {
         void queryClient.invalidateQueries({ queryKey: storeKeys.nearby() });
       } catch {
         // Silent fail — the UI already reflects the new location name
+      } finally {
+        setLocationSynced(true);
       }
     },
-    [queryClient, setCoords, setLocationName],
+    [queryClient, setCoords, setLocationName, setLocationSynced],
   );
 
   // Manual refresh: re-detect GPS and re-PATCH backend.

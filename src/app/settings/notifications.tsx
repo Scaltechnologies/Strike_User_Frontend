@@ -24,6 +24,7 @@ import {
 import { useNotifications } from '@/hooks/useNotifications';
 import { useAppStore } from '@/store/appStore';
 import { notify } from '@/services/notificationService';
+import { ManropeWeights } from '@/constants/theme';
 
 // ── Design tokens — matches profile.tsx ────────────────────────────────────────
 
@@ -306,6 +307,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: 16,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: C.primary,
     letterSpacing: -0.2,
   },
@@ -336,8 +338,8 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   heroBody: { flex: 1, gap: 3 },
-  heroTitle: { fontSize: 15.5, fontWeight: '700', color: C.primary, letterSpacing: -0.2 },
-  heroSub: { fontSize: 12.5, color: C.muted, fontWeight: '500' },
+  heroTitle: { fontSize: 15.5, fontWeight: '700', fontFamily: ManropeWeights.bold, color: C.primary, letterSpacing: -0.2 },
+  heroSub: { fontSize: 12.5, color: C.muted, fontWeight: '500', fontFamily: ManropeWeights.medium },
 
   // ── Toggle ──
   toggleTrack: {
@@ -370,7 +372,7 @@ const styles = StyleSheet.create({
     borderColor: C.warnBorder,
     gap: 8,
   },
-  warnText: { fontSize: 12.5, color: C.warnText, fontWeight: '500', lineHeight: 18 },
+  warnText: { fontSize: 12.5, color: C.warnText, fontWeight: '500', fontFamily: ManropeWeights.medium, lineHeight: 18 },
   warnBtn: {
     alignSelf: 'flex-start',
     backgroundColor: C.warnText,
@@ -379,12 +381,13 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     marginTop: 2,
   },
-  warnBtnText: { fontSize: 12.5, fontWeight: '700', color: '#FFF' },
+  warnBtnText: { fontSize: 12.5, fontWeight: '700', fontFamily: ManropeWeights.bold, color: '#FFF' },
 
   // ── Info section ──
   sectionLabel: {
     fontSize: 11,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: C.muted,
     letterSpacing: 0.9,
     textTransform: 'uppercase',
@@ -418,8 +421,8 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   infoBody: { flex: 1, gap: 2 },
-  infoLabel: { fontSize: 13.5, fontWeight: '600', color: C.primary },
-  infoSub: { fontSize: 11.5, color: C.muted },
+  infoLabel: { fontSize: 13.5, fontWeight: '600', fontFamily: ManropeWeights.semiBold, color: C.primary },
+  infoSub: { fontSize: 11.5, color: C.muted, fontFamily: ManropeWeights.regular },
   infoDivider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: C.border,
@@ -433,5 +436,6 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     marginTop: 20,
     marginHorizontal: 8,
+    fontFamily: ManropeWeights.regular,
   },
 });

@@ -14,13 +14,17 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Check, ChevronDown, Info, Tag, X } from 'lucide-react-native';
-import { usePurchaseSubscription } from '@/hooks/useSubscriptions';
+import { subscriptionApi } from '@/api/subscription.api';
+import { useCreatePayment, useVerifyPayment, useCancelPayment } from '@/hooks/usePayments';
 import { useValidateCoupon } from '@/hooks/useCoupons';
+import { RazorpayCheckout } from './RazorpayCheckout';
 import { cardBgColor, formatCardPrice, CC } from './theme';
+import { ManropeWeights } from '@/constants/theme';
 import type { CardDefinition } from '@/types/card';
 import type { MenuCategory } from '@/types/store';
 import type { Subscription } from '@/types/subscription';
 import type { ValidateCouponResponse } from '@/types/coupon';
+import type { PaymentResponse, RazorpayCheckoutResult } from '@/types/payment';
 
 const DISCOUNT_GREEN = '#1F8A4C';
 const DISCOUNT_GREEN_SOFT = '#EAF7EF';
@@ -118,8 +122,14 @@ export function ActivationSheet({
   onSuccess,
 }: ActivationSheetProps) {
   const [error, setError] = useState<string | null>(null);
-  const { mutateAsync, isPending } = usePurchaseSubscription();
+  const [payment, setPayment] = useState<PaymentResponse | null>(null);
+  const [checkoutVisible, setCheckoutVisible] = useState(false);
+  const [finalizing, setFinalizing] = useState(false);
+  const { mutateAsync: createPayment, isPending: creatingPayment } = useCreatePayment();
+  const { mutateAsync: verifyPayment } = useVerifyPayment();
+  const { mutateAsync: cancelPayment } = useCancelPayment();
   const { mutateAsync: validateCoupon, isPending: validatingCoupon } = useValidateCoupon();
+  const busy = creatingPayment || finalizing;
   const slideAnim = useRef(new Animated.Value(0)).current;
   const scrollRef = useRef<ScrollView>(null);
 
@@ -135,6 +145,9 @@ export function ActivationSheet({
       setCouponCode('');
       setAppliedCoupon(null);
       setCouponError(null);
+      setPayment(null);
+      setCheckoutVisible(false);
+      setFinalizing(false);
       Animated.spring(slideAnim, {
         toValue: 1,
         tension: 65,
@@ -151,6 +164,7 @@ export function ActivationSheet({
     (card.categoryIds ?? []).includes(cat.id),
   );
   const itemCount = card.eligibleMenuItemIds?.length ?? 0;
+  const payAmount = appliedCoupon ? appliedCoupon.finalAmount : card.cardPrice;
 
   async function handleApplyCoupon() {
     const code = couponCode.trim().toUpperCase();
@@ -177,18 +191,94 @@ export function ActivationSheet({
     setCouponError(null);
   }
 
-  async function handleActivate() {
+  // Opens Razorpay checkout for a fresh gateway order. The subscription is
+  // only ever minted server-side after handleCheckoutSuccess's verify call
+  // is cryptographically confirmed — this call never activates anything.
+  async function handlePay() {
     setError(null);
     try {
-      const sub = await mutateAsync({
-        cardDefinitionId: card.id,
-        storeId: card.storeId,
-        ...(appliedCoupon && { couponCode: appliedCoupon.code }),
+      const result = await createPayment({
+        body: {
+          cardDefinitionId: card.id,
+          storeId: card.storeId,
+          ...(appliedCoupon && { couponCode: appliedCoupon.code }),
+        },
+        idempotencyKey: `${card.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       });
-      onSuccess(sub);
+
+      if (result.status === 'SUCCESS' && result.subscriptionId) {
+        // Idempotent replay of an already-completed payment — nothing left to pay.
+        await finalizeSuccess(result.subscriptionId);
+        return;
+      }
+
+      if (!result.gatewayOrderId || !result.gatewayKeyId) {
+        setError('Could not start checkout. Please try again.');
+        return;
+      }
+
+      setPayment(result);
+      setCheckoutVisible(true);
     } catch (err) {
+      const axiosErr = err as { response?: { status?: number; data?: unknown }; message?: string };
+      console.log('❌ Payment creation failed:', {
+        status: axiosErr.response?.status,
+        data: axiosErr.response?.data,
+        message: axiosErr.message,
+      });
       setError(extractApiError(err));
     }
+  }
+
+  async function finalizeSuccess(subscriptionId: number) {
+    try {
+      const sub = await subscriptionApi.getById(subscriptionId);
+      onSuccess(sub);
+    } catch {
+      setError(
+        'Payment succeeded but we couldn’t load your membership. Check My Cards — it should already be there.',
+      );
+    }
+  }
+
+  async function handleCheckoutSuccess(result: RazorpayCheckoutResult) {
+    setCheckoutVisible(false);
+    if (!payment) return;
+    setFinalizing(true);
+    try {
+      const verified = await verifyPayment({
+        paymentId: payment.paymentId,
+        body: {
+          gatewayOrderId: result.razorpay_order_id,
+          gatewayPaymentId: result.razorpay_payment_id,
+          gatewaySignature: result.razorpay_signature,
+        },
+      });
+      if (verified.status === 'SUCCESS' && verified.subscriptionId) {
+        await finalizeSuccess(verified.subscriptionId);
+      } else {
+        setError('Your payment is still being confirmed. Check My Cards in a moment.');
+      }
+    } catch (err) {
+      console.log('❌ Payment verification failed:', err);
+      setError(extractApiError(err));
+    } finally {
+      setFinalizing(false);
+      setPayment(null);
+    }
+  }
+
+  function handleCheckoutFailed(reason: string) {
+    setCheckoutVisible(false);
+    setError(reason);
+    if (payment) void cancelPayment(payment.paymentId).catch(() => {});
+    setPayment(null);
+  }
+
+  function handleCheckoutDismiss() {
+    setCheckoutVisible(false);
+    if (payment) void cancelPayment(payment.paymentId).catch(() => {});
+    setPayment(null);
   }
 
   const translateY = slideAnim.interpolate({
@@ -197,12 +287,13 @@ export function ActivationSheet({
   });
 
   return (
+    <>
     <Modal
       visible={visible}
       transparent
       animationType="fade"
       statusBarTranslucent
-      onRequestClose={!isPending ? onClose : undefined}
+      onRequestClose={!busy ? onClose : undefined}
     >
       <KeyboardAvoidingView
         style={styles.overlay}
@@ -210,7 +301,7 @@ export function ActivationSheet({
       >
         <Pressable
           style={StyleSheet.absoluteFill}
-          onPress={!isPending ? onClose : undefined}
+          onPress={!busy ? onClose : undefined}
         />
 
         <Animated.View
@@ -222,7 +313,7 @@ export function ActivationSheet({
           {/* Header */}
           <View style={styles.sheetHeader}>
             <Text style={styles.sheetTitle}>Activate Membership</Text>
-            {!isPending && (
+            {!busy && (
               <Pressable style={styles.closeBtn} onPress={onClose} hitSlop={12}>
                 <X size={18} color={C.secondary} strokeWidth={2.5} />
               </Pressable>
@@ -395,10 +486,10 @@ export function ActivationSheet({
             <View style={styles.termsNote}>
               <Info size={13} color={C.muted} strokeWidth={2} />
               <Text style={styles.termsText}>
-                You are about to activate this membership. Your wallet will be
-                loaded with {formatCardPrice(card.walletAmount)} valid for{' '}
-                {card.validityInDays} days. No payment gateway integration —
-                activation is instant.
+                You are about to pay {formatCardPrice(payAmount)} for this
+                membership. Your wallet will be loaded with{' '}
+                {formatCardPrice(card.walletAmount)} valid for{' '}
+                {card.validityInDays} days.
               </Text>
             </View>
 
@@ -413,17 +504,17 @@ export function ActivationSheet({
           {/* Action buttons */}
           <SafeAreaView edges={['bottom']} style={styles.sheetActions}>
             <Pressable
-              style={[styles.activateBtn, isPending && styles.activateBtnLoading]}
-              onPress={() => void handleActivate()}
-              disabled={isPending}
+              style={[styles.activateBtn, busy && styles.activateBtnLoading]}
+              onPress={() => void handlePay()}
+              disabled={busy}
             >
-              {isPending ? (
+              {busy ? (
                 <ActivityIndicator color="#FFF" size="small" />
               ) : (
-                <Text style={styles.activateBtnText}>Activate Membership</Text>
+                <Text style={styles.activateBtnText}>Pay {formatCardPrice(payAmount)}</Text>
               )}
             </Pressable>
-            {!isPending && (
+            {!busy && (
               <Pressable style={styles.cancelBtn} onPress={onClose}>
                 <Text style={styles.cancelBtnText}>Cancel</Text>
               </Pressable>
@@ -432,6 +523,22 @@ export function ActivationSheet({
         </Animated.View>
       </KeyboardAvoidingView>
     </Modal>
+
+    {payment && (
+      <RazorpayCheckout
+        visible={checkoutVisible}
+        keyId={payment.gatewayKeyId ?? ''}
+        orderId={payment.gatewayOrderId ?? ''}
+        amount={payment.amount}
+        currency={payment.currency}
+        name={card.name}
+        description={storeName ? `${card.name} — ${storeName}` : card.name}
+        onSuccess={(result) => void handleCheckoutSuccess(result)}
+        onFailed={handleCheckoutFailed}
+        onDismiss={handleCheckoutDismiss}
+      />
+    )}
+    </>
   );
 }
 
@@ -480,7 +587,7 @@ const styles = StyleSheet.create({
   sheetTitle: {
     flex: 1,
     fontSize: 18,
-    fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: C.primary,
     letterSpacing: -0.4,
   },
@@ -506,14 +613,14 @@ const styles = StyleSheet.create({
   },
   miniCardStore: {
     fontSize: 11,
-    fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: 'rgba(255,255,255,0.45)',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   miniCardName: {
     fontSize: 19,
-    fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: '#FFF',
     letterSpacing: -0.4,
   },
@@ -526,14 +633,14 @@ const styles = StyleSheet.create({
   miniCardMetaLabel: {
     fontSize: 10,
     color: 'rgba(255,255,255,0.40)',
-    fontWeight: '500',
+    fontFamily: ManropeWeights.medium,
     letterSpacing: 0.4,
     marginBottom: 3,
     textTransform: 'uppercase',
   },
   miniCardBalance: {
     fontSize: 30,
-    fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: '#FFF',
     letterSpacing: -1,
   },
@@ -545,7 +652,7 @@ const styles = StyleSheet.create({
   },
   miniCardBonusText: {
     fontSize: 12,
-    fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: '#FFD580',
   },
   miniCircle1: {
@@ -598,11 +705,11 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     color: C.secondary,
-    fontWeight: '500',
+    fontFamily: ManropeWeights.medium,
   },
   summaryValue: {
     fontSize: 14,
-    fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.primary,
     textAlign: 'right',
     flexShrink: 1,
@@ -611,7 +718,7 @@ const styles = StyleSheet.create({
   summaryValueAccent: { color: C.accent },
   summaryValueGold: { color: CC.gold },
   summaryValueDiscount: { color: DISCOUNT_GREEN },
-  summaryValueWrap: { textAlign: 'right', fontSize: 13 },
+  summaryValueWrap: { textAlign: 'right', fontFamily: ManropeWeights.regular, fontSize: 13 },
 
   // Coupon
   couponToggle: {
@@ -626,7 +733,7 @@ const styles = StyleSheet.create({
   couponToggleText: {
     flex: 1,
     fontSize: 13.5,
-    fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.primary,
   },
   couponInputCard: {
@@ -647,7 +754,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 14,
-    fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     letterSpacing: 0.5,
     color: C.primary,
   },
@@ -662,12 +769,12 @@ const styles = StyleSheet.create({
   couponApplyBtnText: {
     color: '#FFF',
     fontSize: 13.5,
-    fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
   },
   couponErrorText: {
     fontSize: 12,
     color: C.accent,
-    fontWeight: '500',
+    fontFamily: ManropeWeights.medium,
   },
   couponApplied: {
     flexDirection: 'row',
@@ -689,12 +796,12 @@ const styles = StyleSheet.create({
   couponAppliedTextWrap: { flex: 1 },
   couponAppliedCode: {
     fontSize: 13.5,
-    fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: DISCOUNT_GREEN,
     letterSpacing: 0.3,
   },
   couponAppliedSavings: {
-    fontSize: 12,
+    fontFamily: ManropeWeights.regular, fontSize: 12,
     color: C.secondary,
     marginTop: 1,
   },
@@ -710,7 +817,7 @@ const styles = StyleSheet.create({
   },
   termsText: {
     flex: 1,
-    fontSize: 12,
+    fontFamily: ManropeWeights.regular, fontSize: 12,
     color: C.secondary,
     lineHeight: 18,
   },
@@ -726,7 +833,7 @@ const styles = StyleSheet.create({
   errorBannerText: {
     fontSize: 13,
     color: '#C0261A',
-    fontWeight: '500',
+    fontFamily: ManropeWeights.medium,
     lineHeight: 18,
   },
 
@@ -758,7 +865,7 @@ const styles = StyleSheet.create({
   activateBtnText: {
     color: '#FFF',
     fontSize: 16,
-    fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     letterSpacing: -0.2,
   },
   cancelBtn: {
@@ -769,6 +876,6 @@ const styles = StyleSheet.create({
   cancelBtnText: {
     color: C.secondary,
     fontSize: 15,
-    fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
   },
 });

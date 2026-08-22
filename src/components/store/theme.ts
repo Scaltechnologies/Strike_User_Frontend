@@ -3,6 +3,7 @@
 
 export const C = {
   accent:      '#D63527',
+  accentDeep:  '#8E1F15',
   accentSoft:  '#FEF2EF',
   bg:          '#F2F2F7',
   surface:     '#FFFFFF',
@@ -23,18 +24,13 @@ export const C = {
   warningText: '#92540A',
 } as const;
 
-export const BANNER_HEIGHT = 200;
+// No photo banner — header is a plain text block. This is how far the user
+// scrolls past it before the top-bar title fades in.
+export const HEADER_FADE_OFFSET = 96;
 
-// Fallback banner colours derived deterministically from the store name.
-const FALLBACK_PALETTE = [
-  '#E8EDF5', '#E5EFF5', '#EDF5E8',
-  '#F5EEE8', '#EEE8F5', '#E8F2F5', '#F5EDE8',
-] as const;
-
-export function storeFallbackColor(name: string): string {
-  const idx = name.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % FALLBACK_PALETTE.length;
-  return FALLBACK_PALETTE[idx];
-}
+// Size of the small square map thumbnail beside the store name — a compact
+// preview, not a banner.
+export const MAP_THUMB_SIZE = 92;
 
 export function formatPrice(price: number): string {
   return price % 1 === 0 ? `₹${price}` : `₹${price.toFixed(2)}`;

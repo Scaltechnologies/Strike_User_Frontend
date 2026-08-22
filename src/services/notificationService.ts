@@ -18,6 +18,7 @@ import { isRunningInExpoGo } from 'expo';
 import Constants from 'expo-constants';
 import type * as NotificationsNamespace from 'expo-notifications';
 import { useNotificationStore, type NotificationType } from '@/store/notificationStore';
+import { useNotificationHistoryStore } from '@/store/notificationHistoryStore';
 
 export interface NotifyOptions {
   title: string;
@@ -107,6 +108,7 @@ export async function getExpoPushToken(): Promise<string | null> {
 export function notify({ title, message, type = 'info', duration = 3500 }: NotifyOptions) {
   const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   useNotificationStore.getState().push({ id, title, message, type, duration });
+  useNotificationHistoryStore.getState().add({ title, message, type });
 
   const modPromise = loadNotifications();
   if (!modPromise) return;

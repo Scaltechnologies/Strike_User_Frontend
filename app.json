@@ -52,6 +52,12 @@
           "locationWhenInUsePermission": "Strike needs your location to show nearby meal card stores."
         }
       ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Strike needs access to your photos so you can set a profile picture."
+        }
+      ],
       "expo-web-browser",
       "@react-native-firebase/app",
       "@react-native-firebase/auth"

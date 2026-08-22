@@ -1,19 +1,24 @@
 import { StyleSheet, View } from 'react-native';
+import { Skeleton } from '@/components/ui/Skeleton';
 import { CC } from './theme';
 
-// Skeleton placeholder for a single card in the horizontal discovery list.
-export function CardListSkeleton() {
+const BONE_COLOR = 'rgba(0,0,0,0.10)';
+
+// Skeleton placeholder for a single card in the discovery list.
+// 'list' spans the full width to match the vertical Cards tab; 'grid' keeps
+// the original fixed-width widget for horizontal strips.
+export function CardListSkeleton({ layout = 'grid' }: { layout?: 'grid' | 'list' }) {
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, layout === 'list' && styles.cardList]}>
       <View style={styles.topRow}>
-        <View style={[styles.bone, { width: 36 }]} />
-        <View style={styles.chip} />
+        <Skeleton width={36} height={12} color={BONE_COLOR} />
+        <Skeleton width={32} height={32} radius={10} color={BONE_COLOR} />
       </View>
-      <View style={[styles.bone, { width: '75%', height: 18, marginTop: 'auto' as unknown as number }]} />
-      <View style={[styles.bone, { width: '45%', marginTop: 8 }]} />
+      <Skeleton width="75%" height={18} color={BONE_COLOR} style={{ marginTop: 'auto' }} />
+      <Skeleton width="45%" height={12} color={BONE_COLOR} style={{ marginTop: 8 }} />
       <View style={styles.bottomRow}>
-        <View style={[styles.bone, { width: 56 }]} />
-        <View style={[styles.bone, { width: 32, height: 26, borderRadius: 13 }]} />
+        <Skeleton width={56} height={12} color={BONE_COLOR} />
+        <Skeleton width={32} height={26} radius={13} color={BONE_COLOR} />
       </View>
     </View>
   );
@@ -23,12 +28,12 @@ export function CardListSkeleton() {
 export function CardDetailHeroSkeleton() {
   return (
     <View style={styles.hero}>
-      <View style={[styles.bone, { width: 44 }]} />
-      <View style={[styles.bone, { width: '65%', height: 22, marginTop: 'auto' as unknown as number }]} />
-      <View style={[styles.bone, { width: '35%', height: 32, marginTop: 8 }]} />
+      <Skeleton width={44} height={12} color={BONE_COLOR} />
+      <Skeleton width="65%" height={22} color={BONE_COLOR} style={{ marginTop: 'auto' }} />
+      <Skeleton width="35%" height={32} color={BONE_COLOR} style={{ marginTop: 8 }} />
       <View style={styles.heroBottom}>
-        <View style={[styles.bone, { width: 60 }]} />
-        <View style={[styles.bone, { width: 50 }]} />
+        <Skeleton width={60} height={12} color={BONE_COLOR} />
+        <Skeleton width={50} height={12} color={BONE_COLOR} />
       </View>
     </View>
   );
@@ -44,6 +49,12 @@ const styles = StyleSheet.create({
     padding: 18,
     justifyContent: 'space-between',
   },
+  cardList: {
+    width: '100%',
+    height: 168,
+    padding: 20,
+    marginRight: 0,
+  },
   topRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -53,18 +64,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-end',
   },
-  bone: {
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: 'rgba(0,0,0,0.10)',
-  },
-  chip: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: 'rgba(0,0,0,0.10)',
-  },
-
   // Hero skeleton for Card Detail
   hero: {
     marginHorizontal: 16,

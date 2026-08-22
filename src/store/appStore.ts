@@ -42,6 +42,12 @@ interface AppState {
   coords: Coords | null;
   locationUpdatedAt: string | null;
   locationName: string | null;  // reverse-geocoded locality name
+  // True once we know the BACKEND has a location on file — either restored
+  // from a prior session's already-synced coords, or a fresh PATCH just
+  // settled (success or failure). locationStatus flips to 'ready' as soon as
+  // GPS resolves, before that PATCH — nearby-stores must wait for this flag
+  // too, or a brand-new account's first-ever fetch races the PATCH and 400s.
+  locationSynced: boolean;
 }
 
 interface AppActions {
@@ -53,6 +59,7 @@ interface AppActions {
   setLocationStatus: (status: LocationStatus) => void;
   setCoords: (coords: Coords | null, updatedAt?: string) => void;
   setLocationName: (name: string | null) => void;
+  setLocationSynced: (synced: boolean) => void;
   resetLocation: () => void;
 }
 
@@ -67,6 +74,7 @@ export const useAppStore = create<AppState & AppActions>()(
     coords: null,
     locationUpdatedAt: null,
     locationName: null,
+    locationSynced: false,
 
     setOnboardingSeen: () => set({ hasSeenOnboarding: true }),
     setNotificationsEnabled: (enabled) => set({ notificationsEnabled: enabled }),
@@ -77,6 +85,7 @@ export const useAppStore = create<AppState & AppActions>()(
     setCoords: (coords, updatedAt) =>
       set({ coords, locationUpdatedAt: updatedAt ?? new Date().toISOString() }),
     setLocationName: (name) => set({ locationName: name }),
+    setLocationSynced: (synced) => set({ locationSynced: synced }),
     resetLocation: () =>
       set({
         locationStatus: 'idle',
@@ -84,6 +93,7 @@ export const useAppStore = create<AppState & AppActions>()(
         coords: null,
         locationUpdatedAt: null,
         locationName: null,
+        locationSynced: false,
       }),
   }),
 );

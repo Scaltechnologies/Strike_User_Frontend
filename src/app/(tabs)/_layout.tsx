@@ -1,11 +1,14 @@
 import { Tabs } from 'expo-router';
 import { Platform, StyleSheet, View } from 'react-native';
 import { CreditCard, History, Home, User } from 'lucide-react-native';
+import { PendingRedemptionBar } from '@/components/redemptions/PendingRedemptionBar';
+import { ManropeWeights } from '@/constants/theme';
 
 const ACCENT  = '#D63527';
 const MUTED   = '#AEAEB2';
 const SURFACE = '#FFFFFF';
 const BORDER  = '#E8E8ED';
+const TAB_BAR_HEIGHT = Platform.select({ ios: 82, android: 64 })!;
 
 function TabIcon({
   Icon,
@@ -23,49 +26,56 @@ function TabIcon({
 
 export default function TabsLayout() {
   return (
-    <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarStyle: styles.tabBar,
-        tabBarActiveTintColor: ACCENT,
-        tabBarInactiveTintColor: MUTED,
-        tabBarLabelStyle: styles.label,
-        tabBarItemStyle: styles.tabItem,
-      }}
-    >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Home',
-          tabBarIcon: ({ focused }) => <TabIcon Icon={Home} focused={focused} />,
+    <View style={styles.root}>
+      <Tabs
+        screenOptions={{
+          headerShown: false,
+          tabBarStyle: styles.tabBar,
+          tabBarActiveTintColor: ACCENT,
+          tabBarInactiveTintColor: MUTED,
+          tabBarLabelStyle: styles.label,
+          tabBarItemStyle: styles.tabItem,
         }}
-      />
-      <Tabs.Screen
-        name="cards"
-        options={{
-          title: 'My Cards',
-          tabBarIcon: ({ focused }) => <TabIcon Icon={CreditCard} focused={focused} />,
-        }}
-      />
-      <Tabs.Screen
-        name="history"
-        options={{
-          title: 'History',
-          tabBarIcon: ({ focused }) => <TabIcon Icon={History} focused={focused} />,
-        }}
-      />
-      <Tabs.Screen
-        name="profile"
-        options={{
-          title: 'Profile',
-          tabBarIcon: ({ focused }) => <TabIcon Icon={User} focused={focused} />,
-        }}
-      />
-    </Tabs>
+      >
+        <Tabs.Screen
+          name="index"
+          options={{
+            title: 'Home',
+            tabBarIcon: ({ focused }) => <TabIcon Icon={Home} focused={focused} />,
+          }}
+        />
+        <Tabs.Screen
+          name="cards"
+          options={{
+            title: 'My Cards',
+            tabBarIcon: ({ focused }) => <TabIcon Icon={CreditCard} focused={focused} />,
+          }}
+        />
+        <Tabs.Screen
+          name="history"
+          options={{
+            title: 'History',
+            tabBarIcon: ({ focused }) => <TabIcon Icon={History} focused={focused} />,
+          }}
+        />
+        <Tabs.Screen
+          name="profile"
+          options={{
+            title: 'Profile',
+            tabBarIcon: ({ focused }) => <TabIcon Icon={User} focused={focused} />,
+          }}
+        />
+      </Tabs>
+
+      {/* Persistent tracker — floats above the tab bar on every tab while a
+          redemption request is awaiting vendor approval. */}
+      <PendingRedemptionBar bottomOffset={TAB_BAR_HEIGHT} />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1 },
   tabBar: {
     backgroundColor: SURFACE,
     borderTopWidth: StyleSheet.hairlineWidth,
@@ -89,6 +99,7 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 11,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     marginTop: 2,
   },
   iconWrap: {

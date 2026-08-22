@@ -7,6 +7,7 @@ import { Animated, Easing, Platform, Pressable, StyleSheet, Text, View } from 'r
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AlertTriangle, Bell, CheckCircle2, XCircle } from 'lucide-react-native';
 import { useNotificationStore, type NotificationBannerItem, type NotificationType } from '@/store/notificationStore';
+import { ManropeWeights } from '@/constants/theme';
 
 const TYPE_CONFIG: Record<NotificationType, { color: string; soft: string; Icon: typeof Bell }> = {
   success: { color: '#1C7A3C', soft: '#EAF7EF', Icon: CheckCircle2 },
@@ -123,6 +124,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 14.5,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: '#0D0D0D',
     letterSpacing: -0.2,
   },
@@ -130,6 +132,7 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     color: '#6C6C6C',
     fontWeight: '500',
+    fontFamily: ManropeWeights.medium,
     lineHeight: 17,
   },
 });

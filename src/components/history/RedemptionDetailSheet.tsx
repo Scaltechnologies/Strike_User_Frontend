@@ -19,6 +19,7 @@ import {
   X,
   XCircle,
 } from 'lucide-react-native';
+import { ManropeWeights } from '@/constants/theme';
 import type { Redemption, RedemptionStatus } from '@/types/redemption';
 
 // ── Design tokens (mirrors history.tsx light theme) ─────────────────────────────
@@ -52,6 +53,7 @@ const STATUS_CFG: Record<RedemptionStatus, {
   REVERSED:  { label: 'Reversed', color: C.muted,       bg: C.bg,          Icon: Clock       },
   FAILED:    { label: 'Failed',   color: C.dangerDark,  bg: C.dangerSoft,  Icon: XCircle     },
   REJECTED:  { label: 'Rejected', color: C.dangerDark,  bg: C.dangerSoft,  Icon: XCircle     },
+  CANCELLED: { label: 'Cancelled', color: C.muted,      bg: C.bg,          Icon: XCircle     },
   PENDING:   { label: 'Pending',  color: C.warningDark,  bg: C.warningSoft, Icon: Clock       },
 };
 
@@ -61,9 +63,17 @@ function fmt(n: number): string {
   return n % 1 === 0 ? `₹${n}` : `₹${n.toFixed(2)}`;
 }
 
+// Some redemption-service records (mainly older/legacy ones) have no
+// remainingBalance recorded — omit the row rather than show "₹null".
+function fmtBalance(n: number | null | undefined): string | null {
+  return n == null ? null : fmt(n);
+}
+
+// redemption-service returns createdAt as a naive local (IST) timestamp —
+// unlike subscription-service's UTC ISO strings — so it's parsed as-is here,
+// never with a 'Z' appended (that would shift it by the IST offset).
 function fmtFullDateTime(iso: string): string {
-  const withZone = iso.endsWith('Z') || iso.includes('+') ? iso : iso + 'Z';
-  const d = new Date(withZone);
+  const d = new Date(iso);
   const datePart = d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
   const timePart = d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true });
   return `${datePart} · ${timePart}`;
@@ -115,7 +125,9 @@ export function RedemptionDetailSheet({
   const cfg = STATUS_CFG[redemption.status];
   const { Icon } = cfg;
   const isCredit = redemption.status === 'REVERSED';
-  const showBalance = redemption.status === 'APPROVED' || redemption.status === 'COMPLETED';
+  const balanceText = fmtBalance(redemption.remainingBalance);
+  const showBalance =
+    (redemption.status === 'APPROVED' || redemption.status === 'COMPLETED') && balanceText != null;
 
   return (
     <Modal
@@ -202,7 +214,7 @@ export function RedemptionDetailSheet({
                 <DetailRow
                   Icon={Hash}
                   label="Balance After"
-                  value={fmt(redemption.remainingBalance)}
+                  value={balanceText!}
                   isLast
                 />
               ) : null}
@@ -261,7 +273,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border,
   },
   sheetTitle: {
-    flex: 1, fontSize: 17, fontWeight: '700', color: C.primary, letterSpacing: -0.3,
+    flex: 1, fontSize: 17, fontFamily: ManropeWeights.bold, color: C.primary, letterSpacing: -0.3,
   },
   closeBtn: {
     width: 32, height: 32, borderRadius: 16,
@@ -277,9 +289,9 @@ const styles = StyleSheet.create({
     width: 64, height: 64, borderRadius: 32,
     justifyContent: 'center', alignItems: 'center', marginBottom: 8,
   },
-  heroStatus: { fontSize: 13, fontWeight: '700', letterSpacing: 0.3, textTransform: 'uppercase' },
-  heroAmount: { fontSize: 30, fontWeight: '800', color: C.primary, letterSpacing: -1, marginTop: 2 },
-  heroTime: { fontSize: 13, color: C.muted, fontWeight: '500', marginTop: 2 },
+  heroStatus: { fontSize: 13, fontFamily: ManropeWeights.bold, letterSpacing: 0.3, textTransform: 'uppercase' },
+  heroAmount: { fontSize: 30, fontFamily: ManropeWeights.extraBold, color: C.primary, letterSpacing: -1, marginTop: 2 },
+  heroTime: { fontSize: 13, color: C.muted, fontFamily: ManropeWeights.medium, marginTop: 2 },
 
   // Warning banner
   warningBanner: {
@@ -287,12 +299,12 @@ const styles = StyleSheet.create({
     backgroundColor: C.dangerSoft, borderRadius: 14, padding: 14,
     marginBottom: 4,
   },
-  warningTitle: { fontSize: 12.5, fontWeight: '700', color: C.dangerDark, marginBottom: 2 },
-  warningText: { fontSize: 13, color: C.dangerDark, lineHeight: 18 },
+  warningTitle: { fontSize: 12.5, fontFamily: ManropeWeights.bold, color: C.dangerDark, marginBottom: 2 },
+  warningText: { fontFamily: ManropeWeights.regular, fontSize: 13, color: C.dangerDark, lineHeight: 18 },
 
   // Blocks
   blockLabel: {
-    fontSize: 11, fontWeight: '700', color: C.muted,
+    fontSize: 11, fontFamily: ManropeWeights.bold, color: C.muted,
     letterSpacing: 0.6, textTransform: 'uppercase',
     marginTop: 8, marginBottom: 2,
   },
@@ -310,9 +322,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, paddingVertical: 13, gap: 12,
   },
   itemNameWrap: { flex: 1, gap: 2 },
-  itemName: { fontSize: 14.5, fontWeight: '600', color: C.primary, lineHeight: 20 },
-  itemMeta: { fontSize: 12, color: C.muted, fontWeight: '500' },
-  itemPrice: { fontSize: 14.5, fontWeight: '700', color: C.primary, flexShrink: 0 },
+  itemName: { fontSize: 14.5, fontFamily: ManropeWeights.semiBold, color: C.primary, lineHeight: 20 },
+  itemMeta: { fontSize: 12, color: C.muted, fontFamily: ManropeWeights.medium },
+  itemPrice: { fontSize: 14.5, fontFamily: ManropeWeights.bold, color: C.primary, flexShrink: 0 },
 
   // Detail rows
   detailRow: {
@@ -323,9 +335,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border,
   },
   detailLabelWrap: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  detailLabel: { fontSize: 13.5, color: C.secondary, fontWeight: '500' },
+  detailLabel: { fontSize: 13.5, color: C.secondary, fontFamily: ManropeWeights.medium },
   detailValue: {
-    fontSize: 13.5, fontWeight: '700', color: C.primary,
+    fontSize: 13.5, fontFamily: ManropeWeights.bold, color: C.primary,
     textAlign: 'right', flexShrink: 1, maxWidth: '58%',
   },
 
@@ -339,5 +351,5 @@ const styles = StyleSheet.create({
     backgroundColor: C.primary, borderRadius: 16,
     paddingVertical: 16, alignItems: 'center', marginBottom: 8,
   },
-  doneBtnText: { color: '#FFF', fontSize: 15, fontWeight: '700', letterSpacing: -0.2 },
+  doneBtnText: { color: '#FFF', fontSize: 15, fontFamily: ManropeWeights.bold, letterSpacing: -0.2 },
 });

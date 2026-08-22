@@ -16,6 +16,7 @@ import { useStoreDetail } from '@/hooks/useStores';
 import { useRequestRedemption } from '@/hooks/useRedemptions';
 import { notify } from '@/services/notificationService';
 import { isSubscriptionRedeemable } from '@/utils/subscription';
+import { ManropeWeights } from '@/constants/theme';
 import type { EligibleCategory, EligibleMenuItem } from '@/types/subscription';
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
@@ -102,60 +103,64 @@ interface ItemRowProps {
 }
 
 function ItemRow({ item, quantity, isLast, onInc, onDec }: ItemRowProps) {
-  const isVeg     = item.itemType === 'VEG';
+  const isVeg      = item.itemType === 'VEG';
   const isSelected = quantity > 0;
+  const dotColor   = isVeg ? C.success : C.accent;
 
   return (
     <View style={[styles.itemRow, !isLast && styles.itemRowBorder, isSelected && styles.itemRowSelected]}>
-      {/* Veg/non-veg indicator */}
-      <View style={[styles.itemTypeDot, { backgroundColor: isVeg ? C.success : C.accent }]} />
+      {isSelected ? <View style={styles.itemSelectedBar} /> : null}
 
-      {/* Name + price */}
+      {/* Veg/non-veg indicator — FSSAI-style square outline + dot */}
+      <View style={[styles.vegBox, { borderColor: dotColor }]}>
+        <View style={[styles.vegDot, { backgroundColor: dotColor }]} />
+      </View>
+
+      {/* Name + price (+ live subtotal once selected) */}
       <View style={styles.itemBody}>
         <Text style={[styles.itemName, isSelected && styles.itemNameSelected]} numberOfLines={2}>
           {item.name}
         </Text>
-        <Text style={styles.itemPrice}>{fmt(item.price)}</Text>
+        <View style={styles.itemPriceRow}>
+          <Text style={styles.itemPrice}>{fmt(item.price)}</Text>
+          {isSelected ? (
+            <Text style={styles.itemSubtotal}>· {quantity} × = {fmt(item.price * quantity)}</Text>
+          ) : null}
+        </View>
       </View>
 
-      {/* Quantity stepper */}
-      <View style={[styles.stepper, isSelected && styles.stepperActive]}>
-        <Pressable
-          style={({ pressed }) => [
-            styles.stepperBtn,
-            pressed && styles.stepperBtnPressed,
-          ]}
-          onPress={onDec}
-          hitSlop={8}
-          disabled={quantity === 0}
-        >
-          <Minus
-            size={14}
-            color={quantity === 0 ? C.muted : isSelected ? C.accent : C.secondary}
-            strokeWidth={2.5}
-          />
-        </Pressable>
+      {/* Add pill (unselected) ↔ stepper (selected) — the classic food-app pattern */}
+      {isSelected ? (
+        <View style={styles.stepper}>
+          <Pressable
+            style={({ pressed }) => [styles.stepperBtn, pressed && styles.stepperBtnPressed]}
+            onPress={onDec}
+            hitSlop={8}
+          >
+            <Minus size={14} color={C.accent} strokeWidth={2.5} />
+          </Pressable>
 
-        <Text style={[styles.stepperQty, isSelected && styles.stepperQtyActive]}>
-          {quantity}
-        </Text>
+          <Text style={styles.stepperQty}>{quantity}</Text>
 
+          <Pressable
+            style={({ pressed }) => [styles.stepperBtn, pressed && styles.stepperBtnPressed]}
+            onPress={onInc}
+            hitSlop={8}
+            disabled={quantity >= 10}
+          >
+            <Plus size={14} color={quantity >= 10 ? C.muted : C.accent} strokeWidth={2.5} />
+          </Pressable>
+        </View>
+      ) : (
         <Pressable
-          style={({ pressed }) => [
-            styles.stepperBtn,
-            pressed && styles.stepperBtnPressed,
-          ]}
+          style={({ pressed }) => [styles.addBtn, pressed && styles.addBtnPressed]}
           onPress={onInc}
           hitSlop={8}
-          disabled={quantity >= 10}
         >
-          <Plus
-            size={14}
-            color={quantity >= 10 ? C.muted : C.accent}
-            strokeWidth={2.5}
-          />
+          <Plus size={14} color={C.accent} strokeWidth={2.5} />
+          <Text style={styles.addBtnText}>Add</Text>
         </Pressable>
-      </View>
+      )}
     </View>
   );
 }
@@ -174,7 +179,10 @@ function CategorySection({ category, quantities, onInc, onDec }: CategorySection
 
   return (
     <View style={styles.categoryGroup}>
-      <Text style={styles.categoryLabel}>{category.categoryName}</Text>
+      <View style={styles.categoryLabelRow}>
+        <Text style={styles.categoryLabel}>{category.categoryName}</Text>
+        <Text style={styles.categoryCount}>{category.items.length}</Text>
+      </View>
       <View style={styles.categoryCard}>
         {category.items.map((item, idx) => (
           <ItemRow
@@ -232,6 +240,10 @@ export default function SelectItemsScreen() {
 
   const [quantities, setQuantities] = useState<Map<number, number>>(new Map());
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // The sticky bar's height varies (the balance meter only shows once items
+  // are selected) — measure it instead of guessing a fixed padding, so the
+  // last row never ends up hidden behind it.
+  const [barHeight, setBarHeight] = useState(0);
 
   const { data: sub, isLoading: subLoading }            = useSubscriptionDetail(subId ?? '');
   const { data: store }                               = useStoreDetail(sub?.storeId ?? 0);
@@ -392,24 +404,40 @@ export default function SelectItemsScreen() {
           </View>
         ) : null}
 
-        <View style={{ height: 120 + insets.bottom }} />
+        <View style={{ height: (barHeight || 120) + 16 }} />
       </ScrollView>
 
       {/* ── Sticky summary + CTA ─────────────────────────────────────────────── */}
       {hasItems ? (
-        <View style={[styles.stickyBar, { paddingBottom: insets.bottom + 16 }]}>
+        <View
+          style={[styles.stickyBar, { paddingBottom: insets.bottom + 16 }]}
+          onLayout={(e) => setBarHeight(e.nativeEvent.layout.height)}
+        >
+          {/* Wallet balance meter — how much of the membership this selection uses */}
+          {hasSelection && sub ? (
+            <View style={styles.balanceMeter}>
+              <View style={styles.balanceMeterTrack}>
+                <View
+                  style={[
+                    styles.balanceMeterFill,
+                    { width: `${Math.min((totalValue / Math.max(sub.walletBalance, 1)) * 100, 100)}%` },
+                    insufficientBalance && styles.balanceMeterFillDanger,
+                  ]}
+                />
+              </View>
+              <Text style={[styles.balanceMeterText, insufficientBalance && styles.balanceMeterTextDanger]}>
+                {fmt(totalValue)} of {fmt(sub.walletBalance)} balance
+              </Text>
+            </View>
+          ) : null}
+
           {/* Summary */}
           <View style={styles.summaryRow}>
-            <View style={styles.summaryLeft}>
-              <Text style={styles.summaryItemCount}>
-                {hasSelection
-                  ? `${totalItems} item${totalItems > 1 ? 's' : ''} selected`
-                  : 'No items selected'}
-              </Text>
-              {hasSelection ? (
-                <Text style={styles.summaryValue}>{fmt(totalValue)}</Text>
-              ) : null}
-            </View>
+            <Text style={styles.summaryItemCount}>
+              {hasSelection
+                ? `${totalItems} item${totalItems > 1 ? 's' : ''} selected`
+                : 'No items selected'}
+            </Text>
             {hasSelection ? (
               <Text style={styles.summaryValueRight}>{fmt(totalValue)}</Text>
             ) : null}
@@ -470,11 +498,11 @@ const styles = StyleSheet.create({
   },
   topBarCenter: { flex: 1, alignItems: 'center', gap: 2 },
   topBarTitle: {
-    fontSize: 16, fontWeight: '600',
+    fontSize: 16, fontFamily: ManropeWeights.semiBold,
     color: C.primary, letterSpacing: -0.2,
   },
   topBarSub: {
-    fontSize: 11, color: C.muted, fontWeight: '500',
+    fontSize: 11, color: C.muted, fontFamily: ManropeWeights.medium,
   },
   topBarSpacer: { width: 36 },
 
@@ -486,13 +514,34 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     marginBottom: 24,
   },
+  categoryLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
   categoryLabel: {
     fontSize: 11,
-    fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: C.muted,
     letterSpacing: 0.8,
     textTransform: 'uppercase',
-    marginBottom: 10,
+  },
+  categoryCount: {
+    fontSize: 10.5,
+    fontFamily: ManropeWeights.bold,
+    color: C.muted,
+    backgroundColor: C.surface,
+    minWidth: 18,
+    textAlign: 'center',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 8,
+    overflow: 'hidden',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 3 },
+      android: { elevation: 1 },
+    }),
   },
   categoryCard: {
     backgroundColor: C.surface,
@@ -506,6 +555,7 @@ const styles = StyleSheet.create({
 
   // ── Item row ───────────────────────────────────────────────────────────────
   itemRow: {
+    position: 'relative',
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
@@ -518,49 +568,80 @@ const styles = StyleSheet.create({
     borderBottomColor: C.border,
   },
   itemRowSelected: {
-    backgroundColor: '#FAFFF9',
+    backgroundColor: C.accentSoft,
   },
-  itemTypeDot: {
-    width: 8, height: 8, borderRadius: 4, flexShrink: 0,
+  itemSelectedBar: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 3,
+    backgroundColor: C.accent,
+  },
+  vegBox: {
+    width: 15, height: 15,
+    borderWidth: 1.5, borderRadius: 3,
+    justifyContent: 'center', alignItems: 'center',
+    flexShrink: 0,
+  },
+  vegDot: {
+    width: 7, height: 7, borderRadius: 3.5,
   },
   itemBody: { flex: 1, gap: 3 },
   itemName: {
-    fontSize: 14, fontWeight: '500', color: C.secondary, lineHeight: 20,
+    fontSize: 14, fontFamily: ManropeWeights.medium, color: C.secondary, lineHeight: 20,
   },
   itemNameSelected: {
-    color: C.primary, fontWeight: '600',
+    color: C.primary, fontFamily: ManropeWeights.semiBold,
+  },
+  itemPriceRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
   },
   itemPrice: {
-    fontSize: 12, color: C.muted, fontWeight: '500',
+    fontSize: 12, color: C.muted, fontFamily: ManropeWeights.medium,
+  },
+  itemSubtotal: {
+    fontSize: 12, color: C.accent, fontFamily: ManropeWeights.semiBold,
   },
 
-  // ── Stepper ────────────────────────────────────────────────────────────────
+  // ── Add pill (unselected state) ───────────────────────────────────────────
+  addBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: C.accent,
+    flexShrink: 0,
+  },
+  addBtnPressed: {
+    backgroundColor: C.accentSoft,
+  },
+  addBtnText: {
+    fontSize: 13, fontFamily: ManropeWeights.bold, color: C.accent, letterSpacing: 0.2,
+  },
+
+  // ── Stepper (selected state) ──────────────────────────────────────────────
   stepper: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 0,
-    backgroundColor: C.bg,
+    backgroundColor: C.surface,
     borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: C.border,
+    borderWidth: 1.5,
+    borderColor: C.accent,
     overflow: 'hidden',
     flexShrink: 0,
   },
-  stepperActive: {
-    backgroundColor: C.accentSoft,
-    borderColor: '#FACCBE',
-  },
   stepperBtn: {
-    width: 34, height: 34,
+    width: 32, height: 32,
     justifyContent: 'center', alignItems: 'center',
   },
-  stepperBtnPressed: { opacity: 0.6 },
+  stepperBtnPressed: { opacity: 0.6, backgroundColor: C.accentSoft },
   stepperQty: {
-    width: 28, textAlign: 'center',
-    fontSize: 15, fontWeight: '700',
-    color: C.muted,
-  },
-  stepperQtyActive: {
+    width: 26, textAlign: 'center',
+    fontSize: 15, fontFamily: ManropeWeights.bold,
     color: C.accent,
   },
 
@@ -571,16 +652,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 40, paddingVertical: 60, gap: 10,
   },
   emptyTitle: {
-    fontSize: 17, fontWeight: '700', color: C.primary, marginTop: 8,
+    fontSize: 17, fontFamily: ManropeWeights.bold, color: C.primary, marginTop: 8,
   },
   emptySub: {
-    fontSize: 14, color: C.secondary, textAlign: 'center', lineHeight: 21,
+    fontFamily: ManropeWeights.regular, fontSize: 14, color: C.secondary, textAlign: 'center', lineHeight: 21,
   },
   retryBtn: {
     marginTop: 12, backgroundColor: C.accent,
     paddingHorizontal: 24, paddingVertical: 12, borderRadius: 22,
   },
-  retryBtnText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
+  retryBtnText: { color: '#FFF', fontSize: 14, fontFamily: ManropeWeights.bold },
 
   // ── Error banner ───────────────────────────────────────────────────────────
   errorBanner: {
@@ -591,7 +672,7 @@ const styles = StyleSheet.create({
   },
   errorBannerText: {
     flex: 1, fontSize: 13, color: C.accent,
-    lineHeight: 19, fontWeight: '500',
+    lineHeight: 19, fontFamily: ManropeWeights.medium,
   },
 
   // ── Sticky bar ─────────────────────────────────────────────────────────────
@@ -609,20 +690,36 @@ const styles = StyleSheet.create({
       android: { elevation: 12 },
     }),
   },
+  // Wallet balance meter
+  balanceMeter: { gap: 5 },
+  balanceMeterTrack: {
+    height: 5, borderRadius: 3,
+    backgroundColor: C.bg, overflow: 'hidden',
+  },
+  balanceMeterFill: {
+    height: '100%', borderRadius: 3,
+    backgroundColor: C.success,
+  },
+  balanceMeterFillDanger: {
+    backgroundColor: C.accent,
+  },
+  balanceMeterText: {
+    fontSize: 11.5, fontFamily: ManropeWeights.medium, color: C.muted,
+  },
+  balanceMeterTextDanger: {
+    color: C.accent, fontFamily: ManropeWeights.semiBold,
+  },
+
   summaryRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  summaryLeft: { gap: 2 },
   summaryItemCount: {
-    fontSize: 13, fontWeight: '600', color: C.secondary,
-  },
-  summaryValue: {
-    fontSize: 11, color: C.muted, fontWeight: '500',
+    fontSize: 13, fontFamily: ManropeWeights.semiBold, color: C.secondary,
   },
   summaryValueRight: {
-    fontSize: 20, fontWeight: '800', color: C.primary, letterSpacing: -0.5,
+    fontSize: 20, fontFamily: ManropeWeights.extraBold, color: C.primary, letterSpacing: -0.5,
   },
 
   // CTA button
@@ -643,7 +740,7 @@ const styles = StyleSheet.create({
   },
   ctaBtnPressed: { opacity: 0.88 },
   ctaBtnText: {
-    color: '#FFF', fontSize: 16, fontWeight: '700', letterSpacing: -0.2,
+    color: '#FFF', fontSize: 16, fontFamily: ManropeWeights.bold, letterSpacing: -0.2,
   },
   ctaBtnTextDisabled: { color: C.muted },
 

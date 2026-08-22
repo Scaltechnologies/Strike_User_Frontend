@@ -25,6 +25,7 @@ import { useCardDetail } from '@/hooks/useCards';
 import { useStoreDetail } from '@/hooks/useStores';
 import { getEffectiveStatus, isSubscriptionRedeemable } from '@/utils/subscription';
 import type { EligibleCategory, EligibleMenuItem, SubscriptionStatus } from '@/types/subscription';
+import { ManropeWeights } from '@/constants/theme';
 
 // ── Design tokens — match subscription detail exactly ─────────────────────────
 
@@ -325,7 +326,7 @@ function BlockedNotice({ status }: { status: SubscriptionStatus }) {
     <View style={styles.section}>
       <View style={[styles.instructionsCard, { backgroundColor: bg }]}>
         <Icon size={16} color={color} strokeWidth={1.8} />
-        <Text style={[styles.instructionsText, { color, fontWeight: '600' }]}>
+        <Text style={[styles.instructionsText, { color, fontWeight: '600', fontFamily: ManropeWeights.semiBold }]}>
           This membership is {label.toLowerCase()} and can no longer be redeemed at the
           counter.
         </Text>
@@ -472,6 +473,7 @@ const styles = StyleSheet.create({
   topBarTitle: {
     flex: 1, textAlign: 'center',
     fontSize: 16, fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.primary, letterSpacing: -0.2,
   },
   topBarSpacer: { width: 36 },
@@ -501,11 +503,13 @@ const styles = StyleSheet.create({
   heroNames: { flex: 1, gap: 4, paddingRight: 12 },
   heroStore: {
     fontSize: 11, fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: 'rgba(255,255,255,0.45)',
     textTransform: 'uppercase', letterSpacing: 0.5,
   },
   heroCard: {
     fontSize: 20, fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: '#FFFFFF', letterSpacing: -0.4,
   },
   heroChip: {
@@ -516,16 +520,17 @@ const styles = StyleSheet.create({
   heroBalanceWrap: { marginTop: 16 },
   heroBalanceLabel: {
     fontSize: 11, color: 'rgba(255,255,255,0.48)',
-    fontWeight: '500', letterSpacing: 0.4,
+    fontWeight: '500', fontFamily: ManropeWeights.medium, letterSpacing: 0.4,
     marginBottom: 4, textTransform: 'uppercase',
   },
   heroBalance: {
     fontSize: 40, fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: '#FFFFFF', letterSpacing: -1.5,
   },
   heroOriginal: {
     fontSize: 12, color: 'rgba(255,255,255,0.45)',
-    fontWeight: '500', marginTop: 4,
+    fontWeight: '500', fontFamily: ManropeWeights.medium, marginTop: 4,
   },
   progressWrap: { marginTop: 18 },
   progressTrack: {
@@ -538,10 +543,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row', justifyContent: 'space-between', marginTop: 6,
   },
   progressPct: {
-    fontSize: 11, color: 'rgba(255,255,255,0.55)', fontWeight: '600',
+    fontSize: 11, color: 'rgba(255,255,255,0.55)', fontWeight: '600', fontFamily: ManropeWeights.semiBold,
   },
   progressUsed: {
-    fontSize: 11, color: 'rgba(255,255,255,0.40)', fontWeight: '500',
+    fontSize: 11, color: 'rgba(255,255,255,0.40)', fontWeight: '500', fontFamily: ManropeWeights.medium,
   },
   heroBottom: {
     flexDirection: 'row', justifyContent: 'space-between',
@@ -549,17 +554,17 @@ const styles = StyleSheet.create({
   },
   heroExpLabel: {
     fontSize: 10, color: 'rgba(255,255,255,0.40)',
-    fontWeight: '500', letterSpacing: 0.4,
+    fontWeight: '500', fontFamily: ManropeWeights.medium, letterSpacing: 0.4,
     marginBottom: 3, textTransform: 'uppercase',
   },
   heroExpDate: {
-    fontSize: 14, fontWeight: '600', color: 'rgba(255,255,255,0.85)',
+    fontSize: 14, fontWeight: '600', fontFamily: ManropeWeights.semiBold, color: 'rgba(255,255,255,0.85)',
   },
   statusPill: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
     paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20,
   },
-  statusPillText: { fontSize: 12, fontWeight: '700', letterSpacing: 0.1 },
+  statusPillText: { fontSize: 12, fontWeight: '700', fontFamily: ManropeWeights.bold, letterSpacing: 0.1 },
   decCircle1: {
     position: 'absolute', width: 160, height: 160, borderRadius: 80,
     backgroundColor: 'rgba(255,255,255,0.04)', top: -40, right: -40,
@@ -591,11 +596,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: C.muted,
     fontWeight: '500',
+    fontFamily: ManropeWeights.medium,
     letterSpacing: 0.2,
   },
   idNumber: {
     fontSize: 52,
     fontWeight: '800',
+    fontFamily: ManropeWeights.extraBold,
     color: C.primary,
     letterSpacing: -2,
     // fontVariant: ['tabular-nums'],  // uncomment if RN version supports it
@@ -608,6 +615,7 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 13, fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.muted, letterSpacing: 0.5,
     textTransform: 'uppercase', marginBottom: 10,
   },
@@ -633,7 +641,7 @@ const styles = StyleSheet.create({
     backgroundColor: C.accentSoft, borderRadius: 20,
     paddingHorizontal: 12, paddingVertical: 7,
   },
-  catChipText: { fontSize: 13, fontWeight: '600', color: C.accent },
+  catChipText: { fontSize: 13, fontWeight: '600', fontFamily: ManropeWeights.semiBold, color: C.accent },
 
   // ── Item preview rows ──────────────────────────────────────────────────────
   itemRow: {
@@ -648,15 +656,15 @@ const styles = StyleSheet.create({
     borderBottomColor: C.border,
   },
   itemDot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
-  itemName: { flex: 1, fontSize: 14, color: C.primary, fontWeight: '500' },
-  itemPrice: { fontSize: 13, fontWeight: '600', color: C.secondary },
+  itemName: { flex: 1, fontSize: 14, color: C.primary, fontWeight: '500', fontFamily: ManropeWeights.medium },
+  itemPrice: { fontSize: 13, fontWeight: '600', fontFamily: ManropeWeights.semiBold, color: C.secondary },
   overflowRow: {
     paddingHorizontal: 16,
     paddingVertical: 12,
     alignItems: 'center',
   },
   overflowText: {
-    fontSize: 13, fontWeight: '600', color: C.muted,
+    fontSize: 13, fontWeight: '600', fontFamily: ManropeWeights.semiBold, color: C.muted,
   },
 
   // ── Instructions card ──────────────────────────────────────────────────────
@@ -676,6 +684,7 @@ const styles = StyleSheet.create({
   instructionsText: {
     flex: 1, fontSize: 13,
     color: C.secondary, lineHeight: 20, fontWeight: '400',
+    fontFamily: ManropeWeights.regular,
   },
 
   // ── Skeleton ───────────────────────────────────────────────────────────────

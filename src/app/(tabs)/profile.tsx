@@ -39,7 +39,10 @@ import { useUserRedemptions } from '@/hooks/useRedemptions';
 import { apiClient } from '@/api/client';
 import { API_ENDPOINTS } from '@/constants/api';
 import { ROUTES } from '@/constants/routes';
+import { ManropeWeights } from '@/constants/theme';
 import { useMediaSource, logMediaError } from '@/utils/media';
+import { PressableScale } from '@/components/ui/PressableScale';
+import { FadeInView } from '@/components/ui/FadeInView';
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
 
@@ -100,46 +103,6 @@ function fmtSince(iso: string): string {
   } catch {
     return '';
   }
-}
-
-// ── ScalePressable ─────────────────────────────────────────────────────────────
-
-function ScalePressable({
-  children, style, onPress, disabled,
-}: {
-  children: React.ReactNode;
-  style?: object | object[];
-  onPress?: () => void;
-  disabled?: boolean;
-}) {
-  const scale = useRef(new Animated.Value(1)).current;
-  const go = (v: number) =>
-    Animated.spring(scale, { toValue: v, useNativeDriver: true, speed: 50, bounciness: 4 }).start();
-  return (
-    <Pressable onPress={onPress} onPressIn={() => go(0.96)} onPressOut={() => go(1)} disabled={disabled}>
-      <Animated.View style={[style, { transform: [{ scale }] }]}>{children}</Animated.View>
-    </Pressable>
-  );
-}
-
-// ── FadeIn ─────────────────────────────────────────────────────────────────────
-
-function FadeIn({ children, delay = 0, style }: {
-  children: React.ReactNode; delay?: number; style?: object;
-}) {
-  const opacity = useRef(new Animated.Value(0)).current;
-  const ty = useRef(new Animated.Value(14)).current;
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(opacity, { toValue: 1, duration: 380, delay, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-      Animated.timing(ty, { toValue: 0, duration: 380, delay, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-    ]).start();
-  }, []);
-  return (
-    <Animated.View style={[style, { opacity, transform: [{ translateY: ty }] }]}>
-      {children}
-    </Animated.View>
-  );
 }
 
 // ── Pulse Skeleton ─────────────────────────────────────────────────────────────
@@ -302,20 +265,20 @@ function PhotoSheet({
         <View style={styles.sheetHandle} />
         <Text style={styles.photoSheetTitle}>Profile photo</Text>
 
-        <ScalePressable style={styles.photoOption} onPress={() => { onClose(); setTimeout(onPickLibrary, 220); }}>
+        <PressableScale style={styles.photoOption} onPress={() => { onClose(); setTimeout(onPickLibrary, 220); }}>
           <View style={[styles.photoOptionIcon, { backgroundColor: '#EFF6FF' }]}>
             <ImageIcon size={18} color="#0369A1" strokeWidth={2} />
           </View>
           <Text style={styles.photoOptionLabel}>Choose from library</Text>
-        </ScalePressable>
+        </PressableScale>
 
         {hasPhoto && (
-          <ScalePressable style={styles.photoOption} onPress={() => { onClose(); setTimeout(onRemove, 220); }}>
+          <PressableScale style={styles.photoOption} onPress={() => { onClose(); setTimeout(onRemove, 220); }}>
             <View style={[styles.photoOptionIcon, { backgroundColor: C.dangerSoft }]}>
               <Trash2 size={18} color={C.danger} strokeWidth={2} />
             </View>
             <Text style={[styles.photoOptionLabel, { color: C.danger }]}>Remove photo</Text>
-          </ScalePressable>
+          </PressableScale>
         )}
 
         <Pressable style={styles.photoCancel} onPress={onClose}>
@@ -429,7 +392,7 @@ function EditProfileSheet({
           <View style={styles.fieldBlock}>
             <Text style={styles.fieldLabel}>
               Email{'  '}
-              <Text style={{ color: C.muted, fontWeight: '400', textTransform: 'none', letterSpacing: 0 }}>
+              <Text style={{ color: C.muted, fontWeight: '400', fontFamily: ManropeWeights.regular, textTransform: 'none', letterSpacing: 0 }}>
                 optional
               </Text>
             </Text>
@@ -459,7 +422,7 @@ function EditProfileSheet({
           ) : null}
 
           {/* Save button */}
-          <ScalePressable
+          <PressableScale
             style={[styles.saveBtn, (!canSave || syncFailed) && styles.saveBtnDisabled]}
             onPress={save}
             disabled={!canSave || syncFailed}
@@ -468,11 +431,75 @@ function EditProfileSheet({
               ? <ActivityIndicator size="small" color="#FFF" />
               : <Text style={styles.saveBtnText}>Save changes</Text>
             }
-          </ScalePressable>
+          </PressableScale>
 
           <View style={{ height: Platform.OS === 'ios' ? 16 : 8 }} />
         </Animated.View>
       </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+// ── Sign Out Confirm Dialog ─────────────────────────────────────────────────────
+
+function LogoutConfirmDialog({
+  visible, loading, onCancel, onConfirm,
+}: {
+  visible: boolean;
+  loading: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const scale = useRef(new Animated.Value(0.86)).current;
+  const opacity = useRef(new Animated.Value(0)).current;
+  const bdOp = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      Animated.parallel([
+        Animated.timing(bdOp, { toValue: 1, duration: 200, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 1, duration: 220, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+        Animated.spring(scale, { toValue: 1, useNativeDriver: true, damping: 16, stiffness: 260, mass: 0.7 }),
+      ]).start();
+    } else {
+      Animated.parallel([
+        Animated.timing(bdOp, { toValue: 0, duration: 160, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 0, duration: 140, useNativeDriver: true }),
+        Animated.timing(scale, { toValue: 0.86, duration: 160, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
+      ]).start();
+    }
+  }, [visible]);
+
+  return (
+    <Modal visible={visible} animationType="none" transparent onRequestClose={onCancel} statusBarTranslucent>
+      <Animated.View style={[styles.confirmBackdrop, { opacity: bdOp }]} pointerEvents="box-none">
+        <Pressable style={StyleSheet.absoluteFill} onPress={loading ? undefined : onCancel} />
+      </Animated.View>
+
+      <View style={styles.confirmWrap} pointerEvents="box-none">
+        <Animated.View style={[styles.confirmCard, { opacity, transform: [{ scale }] }]}>
+          <View style={styles.confirmIconWrap}>
+            <LogOut size={24} color={C.danger} strokeWidth={2} />
+          </View>
+
+          <Text style={styles.confirmTitle}>Sign out?</Text>
+          <Text style={styles.confirmMessage}>
+            You'll need to verify your number again the next time you sign in.
+          </Text>
+
+          <View style={styles.confirmActions}>
+            <PressableScale style={styles.confirmCancelBtn} onPress={onCancel} disabled={loading}>
+              <Text style={styles.confirmCancelText}>Cancel</Text>
+            </PressableScale>
+            <PressableScale style={styles.confirmDangerBtn} onPress={onConfirm} disabled={loading}>
+              {loading
+                ? <ActivityIndicator size="small" color="#FFF" />
+                : <Text style={styles.confirmDangerText}>Sign out</Text>
+              }
+            </PressableScale>
+          </View>
+        </Animated.View>
+      </View>
     </Modal>
   );
 }
@@ -490,6 +517,7 @@ export default function ProfileScreen() {
 
   const [editVisible, setEditVisible] = useState(false);
   const [photoSheetVisible, setPhotoSheetVisible] = useState(false);
+  const [logoutConfirmVisible, setLogoutConfirmVisible] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
 
   const name = profile?.name ?? '';
@@ -539,28 +567,22 @@ export default function ProfileScreen() {
 
   // ── Logout ──────────────────────────────────────────────────────────────────
 
-  const handleLogout = () => {
-    Alert.alert('Sign out', 'Are you sure you want to sign out?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Sign out',
-        style: 'destructive',
-        onPress: async () => {
-          setLoggingOut(true);
-          try {
-            const { refreshToken } = useAuthStore.getState();
-            if (refreshToken) {
-              await apiClient
-                .post(API_ENDPOINTS.AUTH.LOGOUT, { refreshToken })
-                .catch(() => {});
-            }
-          } finally {
-            clearAuth();
-            setLoggingOut(false);
-          }
-        },
-      },
-    ]);
+  const handleLogout = () => setLogoutConfirmVisible(true);
+
+  const confirmLogout = async () => {
+    setLoggingOut(true);
+    try {
+      const { refreshToken } = useAuthStore.getState();
+      if (refreshToken) {
+        await apiClient
+          .post(API_ENDPOINTS.AUTH.LOGOUT, { refreshToken })
+          .catch(() => {});
+      }
+    } finally {
+      setLogoutConfirmVisible(false);
+      clearAuth();
+      setLoggingOut(false);
+    }
   };
 
   return (
@@ -576,7 +598,7 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* ── Hero Card ── */}
-        <FadeIn delay={0}>
+        <FadeInView delay={0}>
           <View style={styles.heroCard}>
             {profileLoading ? (
               <View style={styles.heroRow}>
@@ -621,16 +643,16 @@ export default function ProfileScreen() {
                 </View>
 
                 {/* Edit button — always visible */}
-                <ScalePressable style={styles.editBtn} onPress={() => setEditVisible(true)}>
+                <PressableScale style={styles.editBtn} onPress={() => setEditVisible(true)}>
                   <Edit2 size={15} color={C.accent} strokeWidth={2.3} />
-                </ScalePressable>
+                </PressableScale>
               </View>
             )}
           </View>
-        </FadeIn>
+        </FadeInView>
 
         {/* ── Stats ── */}
-        <FadeIn delay={70}>
+        <FadeInView delay={70}>
           <View style={styles.statsRow}>
             <Pressable
               style={[styles.statCard, { marginRight: 10 }]}
@@ -647,10 +669,10 @@ export default function ProfileScreen() {
               <Text style={styles.statLabel}>Redemptions</Text>
             </Pressable>
           </View>
-        </FadeIn>
+        </FadeInView>
 
         {/* ── Account ── */}
-        <FadeIn delay={110}>
+        <FadeInView delay={110}>
           <SectionLabel label="ACCOUNT" />
           <View style={styles.menuGroup}>
             <MenuItem
@@ -669,10 +691,10 @@ export default function ProfileScreen() {
               onPress={() => router.navigate('/(tabs)/history' as never)}
             />
           </View>
-        </FadeIn>
+        </FadeInView>
 
         {/* ── Preferences ── */}
-        <FadeIn delay={150}>
+        <FadeInView delay={150}>
           <SectionLabel label="PREFERENCES" />
           <View style={styles.menuGroup}>
             <MenuItem
@@ -701,10 +723,10 @@ export default function ProfileScreen() {
               disabled
             />
           </View>
-        </FadeIn>
+        </FadeInView>
 
         {/* ── Sign Out ── */}
-        <FadeIn delay={190}>
+        <FadeInView delay={190}>
           <View style={[styles.menuGroup, styles.dangerGroup]}>
             <MenuItem
               icon={
@@ -718,12 +740,12 @@ export default function ProfileScreen() {
               danger
             />
           </View>
-        </FadeIn>
+        </FadeInView>
 
         {/* ── Version ── */}
-        <FadeIn delay={220}>
+        <FadeInView delay={220}>
           <Text style={styles.version}>Cardz  ·  v1.0.0</Text>
-        </FadeIn>
+        </FadeInView>
       </ScrollView>
 
       {/* ── Sheets ── */}
@@ -740,6 +762,13 @@ export default function ProfileScreen() {
         name={profile?.name ?? ''}
         email={profile?.email ?? null}
         onClose={() => setEditVisible(false)}
+      />
+
+      <LogoutConfirmDialog
+        visible={logoutConfirmVisible}
+        loading={loggingOut}
+        onCancel={() => setLogoutConfirmVisible(false)}
+        onConfirm={confirmLogout}
       />
     </SafeAreaView>
   );
@@ -760,6 +789,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 24,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: C.primary,
     letterSpacing: -0.5,
   },
@@ -801,6 +831,7 @@ const styles = StyleSheet.create({
   avatarText: {
     fontSize: 28,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     letterSpacing: -0.5,
   },
   cameraBadge: {
@@ -828,6 +859,7 @@ const styles = StyleSheet.create({
   heroName: {
     fontSize: 19,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: C.primary,
     letterSpacing: -0.4,
   },
@@ -835,15 +867,18 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: C.secondary,
     fontWeight: '500',
+    fontFamily: ManropeWeights.medium,
   },
   heroEmail: {
     fontSize: 12,
     color: C.muted,
+    fontFamily: ManropeWeights.regular,
   },
   heroSub: {
     fontSize: 13,
     color: C.muted,
     marginTop: 4,
+    fontFamily: ManropeWeights.regular,
   },
   heroBadge: {
     alignSelf: 'flex-start',
@@ -858,6 +893,7 @@ const styles = StyleSheet.create({
   heroBadgeText: {
     fontSize: 11,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.muted,
   },
   editBtn: {
@@ -892,6 +928,7 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: 28,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: C.primary,
     letterSpacing: -1,
   },
@@ -899,6 +936,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: C.muted,
     fontWeight: '500',
+    fontFamily: ManropeWeights.medium,
     marginTop: 2,
   },
 
@@ -906,6 +944,7 @@ const styles = StyleSheet.create({
   sectionLabel: {
     fontSize: 11,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: C.muted,
     letterSpacing: 0.9,
     textTransform: 'uppercase',
@@ -944,8 +983,8 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   menuBody: { flex: 1, gap: 2 },
-  menuLabel: { fontSize: 14, fontWeight: '600', color: C.primary },
-  menuSub: { fontSize: 12, color: C.muted },
+  menuLabel: { fontSize: 14, fontWeight: '600', fontFamily: ManropeWeights.semiBold, color: C.primary },
+  menuSub: { fontSize: 12, color: C.muted, fontFamily: ManropeWeights.regular },
   badge: {
     backgroundColor: C.bg,
     borderRadius: 8,
@@ -954,7 +993,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: C.border,
   },
-  badgeText: { fontSize: 11, fontWeight: '600', color: C.muted },
+  badgeText: { fontSize: 11, fontWeight: '600', fontFamily: ManropeWeights.semiBold, color: C.muted },
   divider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: C.border,
@@ -967,6 +1006,7 @@ const styles = StyleSheet.create({
     color: C.muted,
     marginTop: 32,
     letterSpacing: 0.2,
+    fontFamily: ManropeWeights.regular,
   },
 
   // ── Photo Sheet ──
@@ -988,6 +1028,7 @@ const styles = StyleSheet.create({
   photoSheetTitle: {
     fontSize: 13,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: C.muted,
     textAlign: 'center',
     letterSpacing: 0.3,
@@ -1016,6 +1057,7 @@ const styles = StyleSheet.create({
   photoOptionLabel: {
     fontSize: 15,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.primary,
   },
   photoCancel: {
@@ -1026,13 +1068,14 @@ const styles = StyleSheet.create({
   photoCancelText: {
     fontSize: 15,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.muted,
   },
 
   // ── Edit Sheet ──
   sheetKAV: { flex: 1, justifyContent: 'flex-end' },
   sheetBackdrop: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: C.overlay,
   },
   sheet: {
@@ -1064,6 +1107,7 @@ const styles = StyleSheet.create({
   sheetTitle: {
     fontSize: 19,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: C.primary,
     letterSpacing: -0.4,
   },
@@ -1081,6 +1125,7 @@ const styles = StyleSheet.create({
   fieldLabel: {
     fontSize: 11,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: C.secondary,
     letterSpacing: 0.6,
     textTransform: 'uppercase',
@@ -1092,6 +1137,7 @@ const styles = StyleSheet.create({
     height: 52,
     paddingHorizontal: 16,
     fontSize: 15,
+    fontFamily: ManropeWeights.regular,
     color: C.primary,
     borderWidth: 1.5,
     borderColor: C.border,
@@ -1112,6 +1158,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#92400E',
     fontWeight: '500',
+    fontFamily: ManropeWeights.medium,
     textAlign: 'center',
   },
   saveBtn: {
@@ -1126,7 +1173,107 @@ const styles = StyleSheet.create({
   saveBtnText: {
     fontSize: 15,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: '#FFFFFF',
     letterSpacing: 0.1,
+  },
+
+  // ── Logout Confirm Dialog ──
+  confirmBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: C.overlay,
+  },
+  confirmWrap: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+  },
+  confirmCard: {
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: C.surface,
+    borderRadius: 26,
+    paddingTop: 28,
+    paddingHorizontal: 24,
+    paddingBottom: 20,
+    alignItems: 'center',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 16 }, shadowOpacity: 0.22, shadowRadius: 32 },
+      android: { elevation: 16 },
+    }),
+  },
+  confirmIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 18,
+    backgroundColor: C.dangerSoft,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  confirmTitle: {
+    fontSize: 19,
+    fontWeight: '800',
+    fontFamily: ManropeWeights.extraBold,
+    color: C.primary,
+    letterSpacing: -0.4,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  confirmMessage: {
+    fontSize: 14,
+    color: C.secondary,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 24,
+    fontFamily: ManropeWeights.regular,
+  },
+  confirmActions: {
+    flexDirection: 'row',
+    width: '100%',
+  },
+  confirmCancelBtn: {
+    flex: 1,
+    height: 50,
+    marginRight: 10,
+    borderRadius: 14,
+    backgroundColor: C.bg,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: C.border,
+  },
+  confirmCancelText: {
+    fontSize: 15,
+    fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
+    color: C.secondary,
+  },
+  confirmDangerBtn: {
+    flex: 1,
+    height: 50,
+    borderRadius: 14,
+    backgroundColor: C.danger,
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...Platform.select({
+      ios: { shadowColor: C.danger, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10 },
+      android: { elevation: 4 },
+    }),
+  },
+  confirmDangerText: {
+    fontSize: 15,
+    fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
+    color: '#FFFFFF',
   },
 });

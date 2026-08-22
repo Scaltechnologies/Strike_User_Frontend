@@ -4,6 +4,7 @@
 import { useEffect } from 'react';
 import { NotificationBanner } from '@/components/notifications/NotificationBanner';
 import { initNotifications } from '@/services/notificationService';
+import { useNotificationHistoryStore } from '@/store/notificationHistoryStore';
 
 interface NotificationProviderProps {
   children: React.ReactNode;
@@ -12,6 +13,7 @@ interface NotificationProviderProps {
 export function NotificationProvider({ children }: NotificationProviderProps) {
   useEffect(() => {
     void initNotifications();
+    void useNotificationHistoryStore.getState().hydrate();
   }, []);
 
   return (

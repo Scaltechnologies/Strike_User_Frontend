@@ -17,4 +17,20 @@ export const cardApi = {
     );
     return data.data;
   },
+
+  // GET /api/cards/lowest-price-by-stores?storeIds=1,2,3 — cheapest active card
+  // per store, batched. Backs "Starting from ₹X" on the home screen's store
+  // list. Stores with no active card are simply absent from the response.
+  getLowestPricesByStores: async (storeIds: (string | number)[]): Promise<Record<number, number>> => {
+    if (storeIds.length === 0) return {};
+    const { data } = await apiClient.get<ApiSuccessResponse<Record<string, number>>>(
+      API_ENDPOINTS.CARDS.LOWEST_PRICE_BY_STORES,
+      { params: { storeIds: storeIds.join(',') } },
+    );
+    const byId: Record<number, number> = {};
+    for (const [storeId, price] of Object.entries(data.data ?? {})) {
+      byId[Number(storeId)] = price;
+    }
+    return byId;
+  },
 };

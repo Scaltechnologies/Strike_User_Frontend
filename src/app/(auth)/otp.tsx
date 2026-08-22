@@ -15,7 +15,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { authApi } from '@/api/auth.api';
+import { authService, FirebaseAuthError, getFirebaseAuthErrorMessage, toIndianE164 } from '@/services/authService';
 import { useAuthStore } from '@/store/authStore';
+import { ManropeWeights } from '@/constants/theme';
 
 const OTP_LENGTH = 6;
 const RESEND_SECONDS = 60;
@@ -123,13 +125,16 @@ export default function OtpScreen() {
     setLoading(true);
     setError('');
     try {
-      const res = await authApi.verifyOtp(phone, otp);
+      const idToken = await authService.confirmOtp(otp);
+      const res = await authApi.verifyFirebaseToken(idToken);
       // setTokens → isAuthenticated = true → AuthProvider navigates to home
       setTokens(res.token, res.refreshToken, String(res.userId));
     } catch (err: unknown) {
-      const msg = axios.isAxiosError(err)
-        ? ((err.response?.data as { message?: string })?.message ?? 'Invalid OTP. Please try again.')
-        : 'Something went wrong. Please try again.';
+      const msg = err instanceof FirebaseAuthError
+        ? getFirebaseAuthErrorMessage(err)
+        : axios.isAxiosError(err)
+          ? ((err.response?.data as { message?: string })?.message ?? 'Invalid OTP. Please try again.')
+          : 'Something went wrong. Please try again.';
       setError(msg);
       // Clear boxes and re-focus first on error
       setDigits(Array(OTP_LENGTH).fill(''));
@@ -144,16 +149,13 @@ export default function OtpScreen() {
     setResendLoading(true);
     setError('');
     try {
-      await authApi.sendOtp(phone);
+      await authService.sendOtp(toIndianE164(phone));
       setDigits(Array(OTP_LENGTH).fill(''));
       setCountdown(RESEND_SECONDS);
       setCanResend(false);
       setTimeout(() => inputRefs.current[0]?.focus(), 100);
     } catch (err: unknown) {
-      const msg = axios.isAxiosError(err)
-        ? ((err.response?.data as { message?: string })?.message ?? 'Failed to resend OTP.')
-        : 'Failed to resend. Please try again.';
-      setError(msg);
+      setError(getFirebaseAuthErrorMessage(err));
     } finally {
       setResendLoading(false);
     }
@@ -279,11 +281,13 @@ const styles = StyleSheet.create({
   backText: {
     fontSize: 15,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: '#C0392B',
   },
   heading: {
     fontSize: 28,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: '#1A1A1A',
     marginBottom: 10,
   },
@@ -292,10 +296,12 @@ const styles = StyleSheet.create({
     color: '#666666',
     marginBottom: 40,
     lineHeight: 22,
+    fontFamily: ManropeWeights.regular,
   },
   phoneHighlight: {
     color: '#1A1A1A',
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
   },
   boxRow: {
     flexDirection: 'row',
@@ -312,6 +318,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: 22,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: '#1A1A1A',
   },
   boxFocused: {
@@ -329,6 +336,7 @@ const styles = StyleSheet.create({
     color: '#E74C3C',
     textAlign: 'center',
     marginBottom: 16,
+    fontFamily: ManropeWeights.regular,
   },
   button: {
     backgroundColor: '#C0392B',
@@ -344,6 +352,7 @@ const styles = StyleSheet.create({
   buttonText: {
     fontSize: 16,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: '#FFFFFF',
     letterSpacing: 0.5,
   },
@@ -355,14 +364,17 @@ const styles = StyleSheet.create({
   resendLink: {
     fontSize: 14,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: '#C0392B',
   },
   resendCountdown: {
     fontSize: 14,
     color: '#888888',
+    fontFamily: ManropeWeights.regular,
   },
   resendBold: {
     color: '#1A1A1A',
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
   },
 });

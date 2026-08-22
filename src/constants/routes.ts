@@ -24,6 +24,7 @@ export const ROUTES = {
   SEARCH: '/search' as const,
   SUPPORT: '/support' as const,
   TERMS: '/support/terms' as const,
+  NOTIFICATIONS: '/notifications' as const,
 
   SETTINGS: {
     NOTIFICATIONS: '/settings/notifications' as const,

@@ -1,5 +1,6 @@
 import { memo, useCallback } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ManropeWeights } from '@/constants/theme';
 import { C } from './theme';
 import type { MenuCategory } from '@/types/store';
 
@@ -78,10 +79,12 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 13,
     fontWeight: '500',
+    fontFamily: ManropeWeights.medium,
     color: C.muted,
   },
   labelActive: {
     color: '#FFFFFF',
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
   },
 });

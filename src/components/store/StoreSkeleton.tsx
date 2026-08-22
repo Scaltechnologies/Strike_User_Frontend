@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { Animated, Platform, StyleSheet, View } from 'react-native';
-import { C, BANNER_HEIGHT } from './theme';
+import { C, MAP_THUMB_SIZE } from './theme';
 
 function Pulse({
   height,
@@ -41,42 +41,12 @@ function SkeletonCard({ children, style }: { children: React.ReactNode; style?: 
   return <View style={[styles.card, style]}>{children}</View>;
 }
 
-export function StoreSkeleton() {
+// Extracted so the Menu tab can show just this while the store's other
+// sections (header/info, which only depend on the store query) are already
+// rendered — instead of the whole screen waiting on both queries together.
+export function MenuItemsSkeleton() {
   return (
-    <View style={styles.root}>
-      {/* Banner */}
-      <Pulse height={BANNER_HEIGHT} radius={0} />
-
-      {/* Store meta */}
-      <View style={styles.meta}>
-        <View style={styles.metaLeft}>
-          <Pulse height={22} width="58%" />
-          <Pulse height={13} width="72%" style={{ marginTop: 8 }} />
-          <Pulse height={13} width="36%" style={{ marginTop: 6 }} />
-        </View>
-        <View style={styles.metaActions}>
-          <Pulse height={36} width={36} radius={10} />
-          <Pulse height={36} width={36} radius={10} />
-        </View>
-      </View>
-
-      {/* Info card */}
-      <SkeletonCard style={{ marginTop: 12 }}>
-        <Pulse height={13} width="92%" />
-        <Pulse height={13} width="78%" style={{ marginTop: 8 }} />
-        <View style={styles.divider} />
-        <Pulse height={13} width="52%" />
-        <Pulse height={13} width="44%" style={{ marginTop: 8 }} />
-      </SkeletonCard>
-
-      {/* Category tabs */}
-      <View style={styles.tabsRow}>
-        {[72, 88, 68, 82].map((w, i) => (
-          <Pulse key={i} height={34} width={w} radius={17} />
-        ))}
-      </View>
-
-      {/* Menu items */}
+    <>
       {[0, 1, 2].map((i) => (
         <SkeletonCard key={i} style={{ marginTop: 12 }}>
           <View style={styles.itemRow}>
@@ -91,6 +61,49 @@ export function StoreSkeleton() {
           </View>
         </SkeletonCard>
       ))}
+    </>
+  );
+}
+
+export function StoreSkeleton() {
+  return (
+    <View style={styles.root}>
+      {/* Header card — name + badges beside a small map thumbnail, then address */}
+      <SkeletonCard style={[styles.headerCard, { marginTop: 14 }]}>
+        <View style={styles.topRowSkeleton}>
+          <View style={{ flex: 1 }}>
+            <Pulse height={22} width="80%" />
+            <View style={styles.badgeRowSkeleton}>
+              <Pulse height={26} width={92} radius={20} />
+              <Pulse height={26} width={64} radius={20} />
+            </View>
+            <Pulse height={13} width="55%" style={{ marginTop: 10 }} />
+          </View>
+          <Pulse height={MAP_THUMB_SIZE} width={MAP_THUMB_SIZE} radius={16} />
+        </View>
+        <View style={styles.divider} />
+        <Pulse height={13} width="88%" />
+      </SkeletonCard>
+
+      {/* Info card */}
+      <SkeletonCard style={{ marginTop: 12 }}>
+        <Pulse height={13} width="92%" />
+        <Pulse height={13} width="78%" style={{ marginTop: 8 }} />
+        <View style={styles.divider} />
+        <Pulse height={13} width="52%" />
+        <Pulse height={13} width="44%" style={{ marginTop: 8 }} />
+      </SkeletonCard>
+
+      {/* Cards / Menu tabs */}
+      <View style={styles.tabsRow}>
+        <View style={styles.tabsTrack}>
+          <Pulse height={40} radius={11} />
+          <Pulse height={40} radius={11} />
+        </View>
+      </View>
+
+      {/* Menu items */}
+      <MenuItemsSkeleton />
     </View>
   );
 }
@@ -99,24 +112,6 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: C.bg,
-  },
-  meta: {
-    backgroundColor: C.surface,
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: C.border,
-  },
-  metaLeft: {
-    flex: 1,
-  },
-  metaActions: {
-    flexDirection: 'row',
-    gap: 8,
-    marginLeft: 12,
-    marginTop: 2,
   },
   card: {
     backgroundColor: C.surface,
@@ -129,20 +124,36 @@ const styles = StyleSheet.create({
       android: { elevation: 2 },
     }),
   },
+  headerCard: {
+    borderRadius: 20,
+    padding: 20,
+  },
+  topRowSkeleton: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 14,
+  },
+  badgeRowSkeleton: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 12,
+  },
   divider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: C.divider,
     marginVertical: 14,
   },
   tabsRow: {
-    flexDirection: 'row',
-    gap: 8,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 10,
     backgroundColor: C.surface,
     marginTop: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: C.border,
+  },
+  tabsTrack: {
+    flexDirection: 'row',
+    gap: 4,
   },
   itemRow: {
     flexDirection: 'row',

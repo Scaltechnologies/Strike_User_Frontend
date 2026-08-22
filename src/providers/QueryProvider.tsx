@@ -4,7 +4,9 @@
 // of the provider. Per-feature staleTime and cache TTLs are set here as
 // defaults; individual queries can override them.
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useEffect } from 'react';
+import { AppState, type AppStateStatus, Platform } from 'react-native';
+import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -23,11 +25,27 @@ const queryClient = new QueryClient({
   },
 });
 
+// Returning to the app from the background should quietly refresh whatever's
+// gone stale while it was away — without this, `refetchOnWindowFocus` (on by
+// default) has nothing to trigger it on React Native, since there's no
+// browser window-focus event here. This is TanStack Query's documented RN
+// pattern: https://tanstack.com/query/latest/docs/framework/react/react-native
+function onAppStateChange(status: AppStateStatus) {
+  if (Platform.OS !== 'web') {
+    focusManager.setFocused(status === 'active');
+  }
+}
+
 interface QueryProviderProps {
   children: React.ReactNode;
 }
 
 export function QueryProvider({ children }: QueryProviderProps) {
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', onAppStateChange);
+    return () => subscription.remove();
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   );

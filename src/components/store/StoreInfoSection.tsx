@@ -2,6 +2,7 @@ import { memo, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { ChevronDown, ChevronUp, Clock } from 'lucide-react-native';
 import { C } from './theme';
+import { ManropeWeights } from '@/constants/theme';
 import { isStoreOpenNow } from '@/utils/storeTiming';
 import type { Store, StoreTiming } from '@/types/store';
 
@@ -34,6 +35,7 @@ interface TodayStatus {
   label: string;
   hours: string | null;
   color: string;
+  bg: string;
 }
 
 function getTodayStatus(store: Store): TodayStatus | null {
@@ -41,7 +43,7 @@ function getTodayStatus(store: Store): TodayStatus | null {
   const t = store.timings.find((x) => x.dayOfWeek === today);
   if (!t) return null;
   if (t.isClosed) {
-    return { label: 'Closed Today', hours: null, color: C.dangerText };
+    return { label: 'Closed Today', hours: null, color: C.dangerText, bg: C.dangerBg };
   }
   if (t.openTime && t.closeTime) {
     const openNow = isStoreOpenNow(store);
@@ -49,6 +51,7 @@ function getTodayStatus(store: Store): TodayStatus | null {
       label: openNow ? 'Open Now' : 'Closed Now',
       hours: `${fmtTime(t.openTime)} – ${fmtTime(t.closeTime)}`,
       color: openNow ? C.successText : C.dangerText,
+      bg: openNow ? C.successBg : C.dangerBg,
     };
   }
   return null;
@@ -113,52 +116,64 @@ export const StoreInfoSection = memo(function StoreInfoSection({ store }: Props)
   const hasDesc    = !!store.description;
   // Phone and email intentionally omitted — vendor-internal, not customer-facing.
 
-  if (!hasTimings && !hasDesc) return null;
-
   const todayStatus = hasTimings ? getTodayStatus(store) : null;
 
   return (
     <View style={styles.card}>
-      {/* ── Timings ──────────────────────────────────────────────────────── */}
-      {hasTimings ? (
-        <>
-          <View style={styles.section}>
-            <View style={styles.timingRow}>
-              <Clock size={15} color={C.secondary} strokeWidth={1.8} style={styles.timingIcon} />
-              <View style={styles.timingBody}>
-                {todayStatus ? (
-                  <>
-                    <Text style={[styles.todayLabel, { color: todayStatus.color }]}>
+      {/* ── Timings — always shown; falls back to a static "not available"
+          row instead of vanishing when the vendor hasn't set hours. ──────── */}
+      <View style={styles.section}>
+        {hasTimings ? (
+          <Pressable
+            style={({ pressed }) => [styles.timingRow, pressed && styles.timingRowPressed]}
+            onPress={() => setWeekExpanded((v) => !v)}
+            hitSlop={6}
+          >
+            <View style={styles.timingIconWrap}>
+              <Clock size={16} color={C.accent} strokeWidth={2} />
+            </View>
+            <View style={styles.timingBody}>
+              {todayStatus ? (
+                <>
+                  <View style={[styles.statusPill, { backgroundColor: todayStatus.bg }]}>
+                    <View style={[styles.statusDot, { backgroundColor: todayStatus.color }]} />
+                    <Text style={[styles.statusPillText, { color: todayStatus.color }]}>
                       {todayStatus.label}
                     </Text>
-                    {todayStatus.hours ? (
-                      <Text style={styles.todayHours}>{todayStatus.hours}</Text>
-                    ) : null}
-                  </>
-                ) : (
+                  </View>
+                  {todayStatus.hours ? (
+                    <Text style={styles.todayHours}>{todayStatus.hours}</Text>
+                  ) : null}
+                </>
+              ) : (
+                <>
                   <Text style={styles.todayLabel}>Store hours</Text>
-                )}
-              </View>
-              <Pressable
-                style={styles.allHoursBtn}
-                onPress={() => setWeekExpanded((v) => !v)}
-                hitSlop={10}
-              >
-                <Text style={styles.allHoursText}>
-                  {weekExpanded ? 'Less' : 'All hours'}
-                </Text>
-                {weekExpanded
-                  ? <ChevronUp  size={12} color={C.accent} strokeWidth={2.5} />
-                  : <ChevronDown size={12} color={C.accent} strokeWidth={2.5} />
-                }
-              </Pressable>
+                  <Text style={styles.todayHours}>Tap to view the weekly schedule</Text>
+                </>
+              )}
             </View>
-
-            {weekExpanded ? <WeekTable timings={store.timings} /> : null}
+            <View style={styles.chevronBadge}>
+              {weekExpanded
+                ? <ChevronUp  size={16} color={C.accent} strokeWidth={2.4} />
+                : <ChevronDown size={16} color={C.accent} strokeWidth={2.4} />
+              }
+            </View>
+          </Pressable>
+        ) : (
+          <View style={styles.timingRow}>
+            <View style={styles.timingIconWrap}>
+              <Clock size={16} color={C.muted} strokeWidth={2} />
+            </View>
+            <View style={styles.timingBody}>
+              <Text style={styles.todayLabel}>Store hours</Text>
+              <Text style={styles.todayHours}>Hours not available</Text>
+            </View>
           </View>
-          {hasDesc ? <View style={styles.divider} /> : null}
-        </>
-      ) : null}
+        )}
+
+        {weekExpanded ? <WeekTable timings={store.timings} /> : null}
+      </View>
+      {hasDesc ? <View style={styles.divider} /> : null}
 
       {/* ── Description ──────────────────────────────────────────────────── */}
       {hasDesc ? (
@@ -175,102 +190,133 @@ const styles = StyleSheet.create({
     backgroundColor: C.surface,
     marginHorizontal: 16,
     marginTop: 12,
-    borderRadius: 16,
+    marginBottom: 14,
+    borderRadius: 20,
     overflow: 'hidden',
     ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8 },
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.06, shadowRadius: 12 },
       android: { elevation: 2 },
     }),
   },
   section: {
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
   },
   divider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: C.border,
-    marginHorizontal: 16,
+    marginHorizontal: 20,
   },
 
   // Timings
   timingRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
+    alignItems: 'center',
+    gap: 12,
+    borderRadius: 12,
   },
-  timingIcon: {
-    marginTop: 2,
+  timingRowPressed: {
+    backgroundColor: C.bg,
+  },
+  timingIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+    backgroundColor: C.accentSoft,
+    justifyContent: 'center',
+    alignItems: 'center',
     flexShrink: 0,
   },
   timingBody: {
     flex: 1,
-    gap: 3,
+    gap: 5,
+    justifyContent: 'center',
   },
   todayLabel: {
-    fontSize: 14,
+    fontSize: 14.5,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: C.primary,
+    letterSpacing: -0.1,
   },
   todayHours: {
-    fontSize: 13,
+    fontSize: 12.5,
     color: C.secondary,
-    lineHeight: 19,
+    lineHeight: 17,
+    fontFamily: ManropeWeights.regular,
   },
-  allHoursBtn: {
+  statusPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
-    flexShrink: 0,
-    marginTop: 2,
+    alignSelf: 'flex-start',
+    gap: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 20,
   },
-  allHoursText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: C.accent,
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  statusPillText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
+    letterSpacing: -0.1,
+  },
+  chevronBadge: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: C.bg,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexShrink: 0,
   },
 
   // Week table
   weekTable: {
-    marginTop: 12,
-    gap: 2,
+    marginTop: 16,
+    gap: 3,
   },
   weekRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 5,
-    paddingHorizontal: 2,
-    borderRadius: 6,
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 10,
   },
   weekRowToday: {
-    backgroundColor: '#F7F7FA',
-    paddingHorizontal: 6,
+    backgroundColor: C.accentSoft,
   },
   weekDay: {
-    fontSize: 12,
-    fontWeight: '500',
+    fontSize: 12.5,
+    fontFamily: ManropeWeights.medium,
     color: C.muted,
-    width: 34,
+    width: 40,
   },
   weekDayToday: {
-    color: C.primary,
-    fontWeight: '700',
+    color: C.accentDeep,
+    fontFamily: ManropeWeights.bold,
   },
   weekTime: {
-    fontSize: 12,
+    fontFamily: ManropeWeights.regular, fontSize: 12.5,
     color: C.secondary,
   },
   weekTimeClosed: {
     color: C.muted,
   },
   weekTimeToday: {
-    color: C.primary,
-    fontWeight: '600',
+    color: C.accentDeep,
+    fontFamily: ManropeWeights.semiBold,
   },
 
   // Description
   desc: {
-    fontSize: 13,
+    fontFamily: ManropeWeights.regular, fontSize: 13.5,
     color: C.secondary,
-    lineHeight: 20,
+    lineHeight: 21,
   },
 });

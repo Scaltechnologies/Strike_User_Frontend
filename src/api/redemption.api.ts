@@ -58,4 +58,14 @@ export const redemptionApi = {
     );
     return data.data;
   },
+
+  // User-initiated: POST /api/redemptions/{id}/cancel — withdraws a PENDING
+  // request so the user isn't locked out of submitting a new one while
+  // waiting on the vendor (e.g. requested items turn out unavailable).
+  cancel: async (id: number | string): Promise<Redemption> => {
+    const { data } = await apiClient.post<ApiSuccessResponse<Redemption>>(
+      API_ENDPOINTS.REDEMPTIONS.CANCEL(id),
+    );
+    return data.data;
+  },
 };

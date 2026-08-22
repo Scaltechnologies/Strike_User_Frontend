@@ -39,6 +39,8 @@ export const API_ENDPOINTS = {
     NEARBY: `${P}/user/stores/nearby/me`,
     DETAIL: (storeId: string | number) => `${P}/user/stores/${storeId}`,
     MENU: (storeId: string | number) => `${P}/user/stores/${storeId}/menu`,
+    CATEGORIES: `${P}/user/stores/categories`,
+    BY_CATEGORY: `${P}/user/stores/by-category`,
   },
 
   SAVED_STORES: {
@@ -51,13 +53,13 @@ export const API_ENDPOINTS = {
   CARDS: {
     BY_STORE: (storeId: string | number) => `${P}/cards/store/${storeId}`,
     BY_ID:    (id: string | number)      => `${P}/cards/${id}`,
+    LOWEST_PRICE_BY_STORES: `${P}/cards/lowest-price-by-stores`,
   },
 
   // Card-service subscriptions.
   // All responses are wrapped in ApiResponse<T>.
   // X-User-Id header is injected by the gateway from the JWT — do not set manually.
   SUBSCRIPTIONS: {
-    PURCHASE:  `${P}/subscriptions`,
     MY:        `${P}/subscriptions/my`,
     MY_ACTIVE: `${P}/subscriptions/my/active`,
     DETAIL:    (id: string | number) => `${P}/subscriptions/${id}`,
@@ -67,12 +69,23 @@ export const API_ENDPOINTS = {
     MENU:      (id: string | number) => `${P}/subscriptions/${id}/menu`,
   },
 
+  // Card-service payments — the only path a USER can turn into a purchased
+  // subscription (POST /api/subscriptions itself is now ADMIN-only).
+  PAYMENTS: {
+    CREATE: `${P}/payments`,
+    DETAIL: (id: string | number) => `${P}/payments/${id}`,
+    VERIFY: (id: string | number) => `${P}/payments/${id}/verify`,
+    CANCEL: (id: string | number) => `${P}/payments/${id}/cancel`,
+    RETRY:  (id: string | number) => `${P}/payments/${id}/retry`,
+  },
+
   REDEMPTIONS: {
     // User-initiated flow (Phase 5)
     REQUEST:         `${P}/redemptions/request`,
     DETAIL:          (id: string | number)      => `${P}/redemptions/${id}`,
     APPROVE:         (id: string | number)      => `${P}/redemptions/${id}/approve`,
     REJECT:          (id: string | number)      => `${P}/redemptions/${id}/reject`,
+    CANCEL:          (id: string | number)      => `${P}/redemptions/${id}/cancel`,
     STORE_QUEUE:     (storeId: string | number) => `${P}/redemptions/store/${storeId}/queue`,
     // History
     BY_USER:         (userId: string | number)  => `${P}/redemptions/user/${userId}`,

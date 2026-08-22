@@ -9,7 +9,28 @@ export const storeKeys = {
   search: (query: string) => [...storeKeys.all, 'search', query] as const,
   detail: (id: string | number) => [...storeKeys.all, 'detail', String(id)] as const,
   menu:   (id: string | number) => [...storeKeys.all, 'menu', String(id)] as const,
+  categories: () => [...storeKeys.all, 'categories'] as const,
+  byCategory: (name: string) => [...storeKeys.all, 'byCategory', name] as const,
 };
+
+// Home screen category row — deduped across every store, rarely changes.
+export function useStoreCategories() {
+  return useQuery({
+    queryKey: storeKeys.categories(),
+    queryFn: storeApi.getCategories,
+    staleTime: 10 * 60 * 1000,
+  });
+}
+
+// Stores matching a tapped category chip — enabled only while one is selected.
+export function useStoresByCategory(name: string | null) {
+  return useQuery({
+    queryKey: storeKeys.byCategory(name ?? ''),
+    queryFn: () => storeApi.getStoresByCategory(name!),
+    enabled: !!name,
+    staleTime: 60 * 1000,
+  });
+}
 
 // All stores — always loaded, no location dependency.
 export function useAllStores() {

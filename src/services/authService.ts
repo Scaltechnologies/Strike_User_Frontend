@@ -1,10 +1,4 @@
-// Firebase Phone Auth wrapper.
-//
-// TEMPORARILY UNUSED — login.tsx/otp.tsx currently call authApi.sendOtp/
-// verifyOtp (the legacy mock-OTP backend flow, fixed code 123456) instead,
-// because Firebase phone auth doesn't work reliably on this development APK.
-// Switch the two screens back to this module once Firebase native auth is
-// confirmed working on a dev build again — the logic below is unchanged.
+// Firebase Phone Auth wrapper — used directly by login.tsx/otp.tsx.
 //
 // Firebase sends/verifies the SMS code directly (native autofill + Play
 // Integrity on Android). Screens never see raw OTP transport — they get an
@@ -14,6 +8,11 @@
 import { LogBox } from 'react-native';
 import { getAuth, signInWithPhoneNumber, getIdToken } from '@react-native-firebase/auth';
 import type { ConfirmationResult } from '@react-native-firebase/auth';
+
+// TEMPORARY — fires the instant this module is evaluated (app startup, well before any
+// button press), so its presence/absence in the log proves whether the running bundle
+// actually contains this file's current code. Remove alongside the other [OTP-DIAG] logging.
+console.log('[OTP-DIAG] authService.ts module loaded — build marker: bundle-verify-1');
 
 // Firebase auth errors below are always caught and surfaced as friendly UI
 // copy (see login.tsx / otp.tsx's FIREBASE_ERROR_MESSAGES maps) — they're
@@ -50,16 +49,46 @@ function toFirebaseAuthError(err: unknown): FirebaseAuthError {
 // router params between login.tsx and otp.tsx.
 let confirmation: ConfirmationResult | null = null;
 
+// ============================================================================
+// TEMPORARY DIAGNOSTIC LOGGING — added solely to pin down why real-user Phone
+// Auth OTPs resolve "successfully" but no SMS is ever delivered. Logs only
+// presence/booleans/error codes/masked numbers — never OTPs, ID tokens,
+// refresh tokens, verificationIds, or full phone numbers. Remove once the
+// root cause is found and fixed.
+// ============================================================================
+const DIAG = '[OTP-DIAG]';
+
+/** Keeps country code + last 2 digits only, e.g. "+9198*******10". Never logs the full number. */
+function maskPhone(phone: string): string {
+  if (phone.length <= 6) return '***';
+  return `${phone.slice(0, 4)}${'*'.repeat(phone.length - 6)}${phone.slice(-2)}`;
+}
+
 export const authService = {
   async sendOtp(fullPhoneNumber: string): Promise<void> {
+    console.log(DIAG, 'OTP request started. mobile =', maskPhone(fullPhoneNumber));
     try {
-      confirmation = await signInWithPhoneNumber(getAuth(), fullPhoneNumber);
+      console.log(DIAG, 'signInWithPhoneNumber() invocation started');
+      // Reassigning module-scoped `confirmation` here is what makes resend correct: a fresh call
+      // (initial send or resend) always replaces whatever session was previously active, so there
+      // is never more than one live confirmation session and confirmOtp() always checks against
+      // the most recent one.
+      const result = await signInWithPhoneNumber(getAuth(), fullPhoneNumber);
+      confirmation = result;
+      console.log(
+        DIAG,
+        'signInWithPhoneNumber() resolved. gotConfirmationResult =', !!result,
+        '| hasVerificationId =', !!result?.verificationId,
+      );
     } catch (err) {
-      throw toFirebaseAuthError(err);
+      const mapped = toFirebaseAuthError(err);
+      console.log(DIAG, 'signInWithPhoneNumber() threw. code =', mapped.code, '| message =', mapped.message);
+      throw mapped;
     }
   },
 
   async confirmOtp(code: string): Promise<string> {
+    console.log(DIAG, 'OTP verification stage started. hasActiveConfirmation =', !!confirmation);
     if (!confirmation) {
       throw new FirebaseAuthError(
         'auth/session-expired',
@@ -68,12 +97,48 @@ export const authService = {
     }
     try {
       const credential = await confirmation.confirm(code);
+      console.log(DIAG, 'confirmation.confirm() resolved. gotCredential =', !!credential);
       if (!credential) {
         throw new FirebaseAuthError('auth/invalid-verification-code', 'Invalid OTP. Please try again.');
       }
-      return await getIdToken(credential.user);
+      const idToken = await getIdToken(credential.user);
+      console.log(DIAG, 'Verification succeeded. gotIdToken =', !!idToken);
+      return idToken;
     } catch (err) {
-      throw err instanceof FirebaseAuthError ? err : toFirebaseAuthError(err);
+      const mapped = err instanceof FirebaseAuthError ? err : toFirebaseAuthError(err);
+      console.log(DIAG, 'Verification failed. code =', mapped.code);
+      throw mapped;
     }
   },
 };
+
+/** India-only number entry (see login.tsx's INDIA_PHONE_RE) — the UI has no country-code
+ *  selector/state to reuse, so this is the single place the +91 prefix is applied before a
+ *  number ever reaches Firebase. */
+export function toIndianE164(tenDigitMobileNumber: string): string {
+  return `+91${tenDigitMobileNumber}`;
+}
+
+const FIREBASE_ERROR_MESSAGES: Record<string, string> = {
+  'auth/invalid-phone-number': 'Please enter a valid mobile number.',
+  'auth/too-many-requests': 'Too many attempts. Please wait and try again later.',
+  'auth/quota-exceeded': 'OTP service limit reached. Please try again later.',
+  'auth/network-request-failed': 'Network error. Please check your internet connection.',
+  'auth/app-not-authorized': 'This device could not be verified. Please update the app and try again.',
+  'auth/invalid-app-credential': 'This device could not be verified. Please update the app and try again.',
+  'auth/invalid-verification-code': 'The OTP is incorrect. Please try again.',
+  'auth/code-expired': 'This OTP has expired. Please request a new OTP.',
+  'auth/session-expired': 'Your verification session has expired. Please request a new OTP.',
+};
+
+const DEFAULT_AUTH_ERROR_MESSAGE = 'Something went wrong. Please try again.';
+
+/** Maps a FirebaseAuthError (or any other thrown value) to safe, user-facing copy — never the
+ *  raw Firebase message/stack. Unmapped codes fall back to the same generic copy the screens
+ *  already used for non-Firebase errors, so behavior for an unrecognized code is unchanged. */
+export function getFirebaseAuthErrorMessage(err: unknown): string {
+  if (err instanceof FirebaseAuthError) {
+    return FIREBASE_ERROR_MESSAGES[err.code] ?? DEFAULT_AUTH_ERROR_MESSAGE;
+  }
+  return DEFAULT_AUTH_ERROR_MESSAGE;
+}

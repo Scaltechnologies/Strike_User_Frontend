@@ -1,6 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Wrench } from 'lucide-react-native';
+import { ManropeWeights } from '@/constants/theme';
 
 const C = {
   accent: '#D63527',
@@ -48,6 +49,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 20,
     fontWeight: '800',
+    fontFamily: ManropeWeights.extraBold,
     color: C.primary,
     marginBottom: 8,
     textAlign: 'center',
@@ -55,6 +57,7 @@ const styles = StyleSheet.create({
   message: {
     fontSize: 14,
     fontWeight: '400',
+    fontFamily: ManropeWeights.regular,
     color: C.secondary,
     textAlign: 'center',
     lineHeight: 20,

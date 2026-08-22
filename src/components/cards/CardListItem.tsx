@@ -2,6 +2,7 @@ import type { CardDefinition } from '@/types/card';
 import type { MenuCategory } from '@/types/store';
 import { CreditCard } from 'lucide-react-native';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ManropeWeights } from '@/constants/theme';
 import { cardBgColor, formatCardPrice } from './theme';
 
 interface Props {
@@ -9,13 +10,16 @@ interface Props {
   categories: MenuCategory[];
   onPress: () => void;
   isOwned?: boolean;
+  // 'list' spans the full available width (vertical card lists); 'grid' keeps
+  // the original fixed-width widget for horizontal strips.
+  layout?: 'grid' | 'list';
 }
 
-// Compact card widget for the horizontal discovery strip in Store Detail.
-// Design: premium dark widget, ~220×175, Apple Wallet / CRED aesthetic.
-export function CardListItem({ card, categories, onPress, isOwned = false }: Props) {
+// Premium dark widget, Apple Wallet / CRED aesthetic.
+export function CardListItem({ card, categories, onPress, isOwned = false, layout = 'grid' }: Props) {
   const bg = cardBgColor(card.name);
   const hasBonus = card.bonusAmount > 0;
+  const isList = layout === 'list';
 
   // Resolve category names covered by this card.
   // Guard: backend may omit categoryIds on older card records.
@@ -32,7 +36,11 @@ export function CardListItem({ card, categories, onPress, isOwned = false }: Pro
 
   return (
     <Pressable
-      style={({ pressed }) => [styles.card, { backgroundColor: bg, opacity: pressed ? 0.9 : 1 }]}
+      style={({ pressed }) => [
+        styles.card,
+        isList && styles.cardList,
+        { backgroundColor: bg, opacity: pressed ? 0.9 : 1 },
+      ]}
       onPress={onPress}
     >
       {/* Top row: brand label + chip icon (or owned badge) */}
@@ -103,6 +111,13 @@ const styles = StyleSheet.create({
       android: { elevation: 6 },
     }),
   },
+  cardList: {
+    width: '100%',
+    height: 168,
+    padding: 20,
+    marginRight: 0,
+    marginBottom: 14,
+  },
 
   topRow: {
     flexDirection: 'row',
@@ -112,6 +127,7 @@ const styles = StyleSheet.create({
   brand: {
     fontSize: 10,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: 'rgba(255,255,255,0.42)',
     letterSpacing: 1.6,
     textTransform: 'uppercase',
@@ -128,6 +144,7 @@ const styles = StyleSheet.create({
   name: {
     fontSize: 15,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: '#FFFFFF',
     letterSpacing: -0.3,
     marginTop: 2,
@@ -137,10 +154,12 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: 'rgba(255,255,255,0.58)',
     fontWeight: '500',
+    fontFamily: ManropeWeights.medium,
   },
   bonusText: {
     color: '#FFD580',
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
   },
 
   bottomRow: {
@@ -153,10 +172,12 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.40)',
     marginBottom: 4,
     letterSpacing: 0.2,
+    fontFamily: ManropeWeights.regular,
   },
   price: {
     fontSize: 18,
     fontWeight: '800',
+    fontFamily: ManropeWeights.extraBold,
     color: '#FFFFFF',
     letterSpacing: -0.5,
   },
@@ -170,6 +191,7 @@ const styles = StyleSheet.create({
   validityText: {
     fontSize: 11,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: 'rgba(255,255,255,0.82)',
   },
 
@@ -184,6 +206,7 @@ const styles = StyleSheet.create({
   ownedBadgeText: {
     fontSize: 10,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: '#34C759',
     letterSpacing: 0.3,
   },

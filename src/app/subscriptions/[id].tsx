@@ -11,12 +11,17 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import axios from 'axios';
 import {
   AlertCircle,
   ArrowLeft,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
   Clock,
   CreditCard,
+  SearchX,
   Tag,
   Wallet,
   XCircle,
@@ -27,8 +32,12 @@ import { useCardDetail } from '@/hooks/useCards';
 import { useStoreDetail } from '@/hooks/useStores';
 import { redemptionKeys, useSubscriptionRedemptions } from '@/hooks/useRedemptions';
 import { getEffectiveStatus, isSubscriptionRedeemable } from '@/utils/subscription';
+import { ROUTES } from '@/constants/routes';
+import { RedemptionDetailSheet } from '@/components/history/RedemptionDetailSheet';
+import { EmptyState } from '@/components/common/EmptyState';
 import type { EligibleCategory, EligibleMenuItem, SubscriptionStatus } from '@/types/subscription';
 import type { Redemption } from '@/types/redemption';
+import { ManropeWeights } from '@/constants/theme';
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
 
@@ -73,6 +82,12 @@ function fmt(n: number): string {
   return n % 1 === 0 ? `₹${n}` : `₹${n.toFixed(2)}`;
 }
 
+// Some redemption-service records (mainly older/legacy ones) have no
+// remainingBalance recorded — show nothing rather than the literal "₹null".
+function fmtBalance(n: number | null | undefined): string | null {
+  return n == null ? null : fmt(n);
+}
+
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-IN', {
     day: 'numeric', month: 'short', year: 'numeric',
@@ -88,13 +103,16 @@ function pct(remaining: number, original: number): number {
   return Math.min(Math.max(remaining / original, 0), 1);
 }
 
+// redemption-service returns createdAt as a naive local (IST) timestamp —
+// unlike subscription-service's UTC expiresAt above — so these are parsed
+// as-is, never with a 'Z' appended (that would shift them by the IST offset).
 function dayStart(iso: string): number {
-  const d = new Date(toUtc(iso));
+  const d = new Date(iso);
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 }
 
 function fmtTime(iso: string): string {
-  const d       = new Date(toUtc(iso));
+  const d       = new Date(iso);
   const now     = new Date();
   const today   = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const yest    = today - 86_400_000;
@@ -110,7 +128,23 @@ function toUtc(iso: string): string {
 }
 
 function isRecent(iso: string): boolean {
-  return Date.now() - new Date(toUtc(iso)).getTime() < 5 * 60 * 1000;
+  return Date.now() - new Date(iso).getTime() < 5 * 60 * 1000;
+}
+
+// Ties the "no longer redeemable" note to what actually happened to any
+// unused balance, so it never reads as if the credit just disappeared.
+function inactiveMessage(status: SubscriptionStatus, balance: number, expiresAt: string): string {
+  if (status === 'EXPIRED') {
+    return balance > 0
+      ? `${fmt(balance)} unused credit expired on ${fmtDate(expiresAt)}. Redemption is no longer available.`
+      : `This membership expired on ${fmtDate(expiresAt)}. Redemption is no longer available.`;
+  }
+  if (status === 'CANCELLED') {
+    return balance > 0
+      ? `${fmt(balance)} remaining credit was cancelled. Redemption is no longer available.`
+      : 'This membership has been cancelled. Redemption is no longer available.';
+  }
+  return 'This membership is exhausted. Redemption is no longer available.';
 }
 
 function groupRedemptionsByDate(
@@ -336,9 +370,10 @@ function EligibleMenuSection({ categories }: { categories: EligibleCategory[] })
   if (categories.length === 0) {
     return (
       <Section title="Eligible Items">
-        <View style={styles.menuEmpty}>
-          <Text style={styles.menuEmptyText}>No eligible items configured for this membership.</Text>
-        </View>
+        <EmptyState
+          icon={<Tag size={20} color={C.muted} strokeWidth={1.5} />}
+          title="No eligible items configured for this membership"
+        />
       </Section>
     );
   }
@@ -415,13 +450,17 @@ function RedemptionStatusWidget({ redemption }: { redemption: Redemption }) {
               <Text style={styles.redemptionAmountLabel}>Deducted</Text>
               <Text style={styles.redemptionAmountValue}>−{fmt(redemption.totalAmount)}</Text>
             </View>
-            <View style={styles.redemptionWidgetAmountDivider} />
-            <View style={styles.redemptionWidgetAmountCol}>
-              <Text style={styles.redemptionAmountLabel}>Balance After</Text>
-              <Text style={[styles.redemptionAmountValue, styles.redemptionAmountBalance]}>
-                {fmt(redemption.remainingBalance)}
-              </Text>
-            </View>
+            {fmtBalance(redemption.remainingBalance) ? (
+              <>
+                <View style={styles.redemptionWidgetAmountDivider} />
+                <View style={styles.redemptionWidgetAmountCol}>
+                  <Text style={styles.redemptionAmountLabel}>Balance After</Text>
+                  <Text style={[styles.redemptionAmountValue, styles.redemptionAmountBalance]}>
+                    {fmtBalance(redemption.remainingBalance)}
+                  </Text>
+                </View>
+              </>
+            ) : null}
           </View>
         </View>
       </View>
@@ -431,15 +470,32 @@ function RedemptionStatusWidget({ redemption }: { redemption: Redemption }) {
 
 // ── Redemption history timeline ────────────────────────────────────────────────
 
-function RedemptionHistorySection({ redemptions }: { redemptions: Redemption[] }) {
+// Collapsed by default to a short, glanceable list — tap a row for the full
+// breakdown (via the shared RedemptionDetailSheet) instead of every row
+// showing its own item list + time + amount + balance stacked up, which is
+// what made this section so tall to scroll through.
+const HISTORY_COLLAPSED_COUNT = 4;
+
+function RedemptionHistorySection({
+  redemptions,
+  cardName,
+  storeName,
+}: {
+  redemptions: Redemption[];
+  cardName: string;
+  storeName: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [selected, setSelected] = useState<Redemption | null>(null);
+
   if (redemptions.length === 0) {
     return (
       <Section title="Redemption History">
-        <View style={styles.emptyHistory}>
-          <Text style={styles.emptyHistoryText}>
-            No redemptions yet. Tap "Redeem Benefits" to start.
-          </Text>
-        </View>
+        <EmptyState
+          icon={<Clock size={20} color={C.muted} strokeWidth={1.5} />}
+          title="No redemptions yet"
+          subtitle='Tap "Redeem Benefits" to start'
+        />
       </Section>
     );
   }
@@ -448,7 +504,9 @@ function RedemptionHistorySection({ redemptions }: { redemptions: Redemption[] }
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, 8);
 
-  const groups = groupRedemptionsByDate(sorted);
+  const visible = expanded ? sorted : sorted.slice(0, HISTORY_COLLAPSED_COUNT);
+  const hiddenCount = sorted.length - visible.length;
+  const groups = groupRedemptionsByDate(visible);
 
   return (
     <View style={styles.section}>
@@ -466,21 +524,50 @@ function RedemptionHistorySection({ redemptions }: { redemptions: Redemption[] }
                 .map((i) => (i.quantity > 1 ? `${i.menuItemName} ×${i.quantity}` : i.menuItemName))
                 .join(', ');
               return (
-                <View key={r.id} style={[styles.historyRow, !isLast && styles.infoRowBorder]}>
+                <Pressable
+                  key={r.id}
+                  style={({ pressed }) => [
+                    styles.historyRow,
+                    !isLast && styles.infoRowBorder,
+                    pressed && styles.historyRowPressed,
+                  ]}
+                  onPress={() => setSelected(r)}
+                >
                   <View style={styles.historyRowLeft}>
                     <Text style={styles.historyRowItems} numberOfLines={1}>{names}</Text>
                     <Text style={styles.historyRowTime}>{fmtTime(r.createdAt)}</Text>
                   </View>
-                  <View style={styles.historyRowRight}>
-                    <Text style={styles.historyRowAmount}>−{fmt(r.totalAmount)}</Text>
-                    <Text style={styles.historyRowBalance}>{fmt(r.remainingBalance)} left</Text>
-                  </View>
-                </View>
+                  <Text style={styles.historyRowAmount}>−{fmt(r.totalAmount)}</Text>
+                  <ChevronRight size={16} color={C.muted} strokeWidth={2} />
+                </Pressable>
               );
             })}
           </View>
         ))}
+
+        {hiddenCount > 0 || expanded ? (
+          <Pressable
+            style={({ pressed }) => [styles.historyToggle, pressed && styles.historyRowPressed]}
+            onPress={() => setExpanded((v) => !v)}
+          >
+            <Text style={styles.historyToggleText}>
+              {expanded ? 'Show less' : `Show ${hiddenCount} more`}
+            </Text>
+            {expanded
+              ? <ChevronUp size={14} color={C.accent} strokeWidth={2.4} />
+              : <ChevronDown size={14} color={C.accent} strokeWidth={2.4} />
+            }
+          </Pressable>
+        ) : null}
       </View>
+
+      <RedemptionDetailSheet
+        visible={!!selected}
+        onClose={() => setSelected(null)}
+        redemption={selected}
+        cardName={cardName}
+        storeName={storeName}
+      />
     </View>
   );
 }
@@ -557,20 +644,40 @@ function DetailSkeleton({ onBack }: { onBack: () => void }) {
 
 // ── Error state ────────────────────────────────────────────────────────────────
 
-function ErrorState({ message, onBack, onRetry }: {
+function ErrorState({ notFound, message, onBack, onRetry, onGoToCards }: {
+  notFound: boolean;
   message: string;
   onBack: () => void;
   onRetry: () => void;
+  onGoToCards: () => void;
 }) {
+  // A 404 means the membership genuinely doesn't exist server-side (removed,
+  // or the list this was opened from was stale) — retrying the same request
+  // will 404 again, so route the user somewhere useful instead.
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
       <TopBar onBack={onBack} />
       <View style={styles.errorCenter}>
-        <AlertCircle size={40} color={C.muted} strokeWidth={1.5} />
-        <Text style={styles.errorTitle}>Couldn't load membership</Text>
-        <Text style={styles.errorSub}>{message}</Text>
-        <Pressable style={styles.retryBtn} onPress={onRetry}>
-          <Text style={styles.retryBtnText}>Try again</Text>
+        {notFound
+          ? <SearchX size={40} color={C.muted} strokeWidth={1.5} />
+          : <AlertCircle size={40} color={C.muted} strokeWidth={1.5} />
+        }
+        <Text style={styles.errorTitle}>
+          {notFound ? 'Membership not found' : "Couldn't load membership"}
+        </Text>
+        <Text style={styles.errorSub}>
+          {notFound
+            ? "This membership couldn't be found. It may have already expired or been removed."
+            : message
+          }
+        </Text>
+        <Pressable
+          style={styles.retryBtn}
+          onPress={notFound ? onGoToCards : onRetry}
+        >
+          <Text style={styles.retryBtnText}>
+            {notFound ? 'Back to My Cards' : 'Try again'}
+          </Text>
         </Pressable>
       </View>
     </SafeAreaView>
@@ -633,14 +740,29 @@ export default function SubscriptionDetailScreen() {
     setIsRefreshing(false);
   }, [refetchSub, refetchMenu, refetchRedemptions]);
 
+  const is404 = axios.isAxiosError(subErr) && subErr.response?.status === 404;
+
+  // The membership was opened from a list (My Cards / History) that's now
+  // stale — drop the cached lists so this entry doesn't 404 again next visit.
+  useEffect(() => {
+    if (!is404) return;
+    void queryClient.invalidateQueries({ queryKey: subscriptionKeys.all });
+  }, [is404, queryClient]);
+
+  const handleGoToCards = useCallback(() => {
+    router.replace(ROUTES.TABS.CARDS as never);
+  }, [router]);
+
   if (subLoading) return <DetailSkeleton onBack={handleBack} />;
 
   if (isError || !sub) {
     return (
       <ErrorState
+        notFound={is404}
         message={(subErr as Error)?.message ?? 'Membership not found.'}
         onBack={handleBack}
         onRetry={() => void refetchSub()}
+        onGoToCards={handleGoToCards}
       />
     );
   }
@@ -729,14 +851,12 @@ export default function SubscriptionDetailScreen() {
           <Section title="Membership Status">
             <View style={styles.inactiveNote}>
               {(() => {
-                const { Icon, label, color } = STATUS_CFG[effectiveStatus];
+                const { Icon, color } = STATUS_CFG[effectiveStatus];
                 return (
                   <>
                     <Icon size={18} color={color} strokeWidth={2} />
                     <Text style={[styles.inactiveNoteText, { color }]}>
-                      This membership is {label.toLowerCase()}
-                      {effectiveStatus === 'EXPIRED' ? ` on ${fmtDate(sub.expiresAt)}` : ''}.
-                      Redemption is no longer available.
+                      {inactiveMessage(effectiveStatus, sub.walletBalance, sub.expiresAt)}
                     </Text>
                   </>
                 );
@@ -748,6 +868,8 @@ export default function SubscriptionDetailScreen() {
         {/* ── Redemption history timeline (completed only) ──────── */}
         <RedemptionHistorySection
           redemptions={redemptions.filter((r) => r.status !== 'PENDING')}
+          cardName={sub.cardName}
+          storeName={store?.name ?? ''}
         />
 
         {/* ── Validity ───────────────────────────────────────────── */}
@@ -854,6 +976,7 @@ const styles = StyleSheet.create({
   topBarTitle: {
     flex: 1, textAlign: 'center',
     fontSize: 16, fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.primary, letterSpacing: -0.2,
   },
   topBarSpacer: { width: 36 },
@@ -884,6 +1007,7 @@ const styles = StyleSheet.create({
   heroStore: {
     fontSize: 11,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: 'rgba(255,255,255,0.45)',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
@@ -891,6 +1015,7 @@ const styles = StyleSheet.create({
   heroCard: {
     fontSize: 20,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: '#FFFFFF',
     letterSpacing: -0.4,
   },
@@ -904,6 +1029,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: 'rgba(255,255,255,0.48)',
     fontWeight: '500',
+    fontFamily: ManropeWeights.medium,
     letterSpacing: 0.4,
     marginBottom: 4,
     textTransform: 'uppercase',
@@ -911,6 +1037,7 @@ const styles = StyleSheet.create({
   heroBalance: {
     fontSize: 40,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: '#FFFFFF',
     letterSpacing: -1.5,
   },
@@ -918,6 +1045,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: 'rgba(255,255,255,0.45)',
     fontWeight: '500',
+    fontFamily: ManropeWeights.medium,
     marginTop: 4,
   },
 
@@ -942,11 +1070,13 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: 'rgba(255,255,255,0.55)',
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
   },
   progressUsed: {
     fontSize: 11,
     color: 'rgba(255,255,255,0.40)',
     fontWeight: '500',
+    fontFamily: ManropeWeights.medium,
   },
 
   // Hero bottom
@@ -960,6 +1090,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: 'rgba(255,255,255,0.40)',
     fontWeight: '500',
+    fontFamily: ManropeWeights.medium,
     letterSpacing: 0.4,
     marginBottom: 3,
     textTransform: 'uppercase',
@@ -967,6 +1098,7 @@ const styles = StyleSheet.create({
   heroExpDate: {
     fontSize: 14,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: 'rgba(255,255,255,0.85)',
   },
   statusPill: {
@@ -980,6 +1112,7 @@ const styles = StyleSheet.create({
   statusPillText: {
     fontSize: 12,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     letterSpacing: 0.1,
   },
 
@@ -1005,6 +1138,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 13,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.muted,
     letterSpacing: 0.5,
     textTransform: 'uppercase',
@@ -1036,11 +1170,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: C.secondary,
     fontWeight: '500',
+    fontFamily: ManropeWeights.medium,
   },
   infoValue: {
     fontSize: 14,
     color: C.primary,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     textAlign: 'right',
     flexShrink: 1,
     marginLeft: 12,
@@ -1048,6 +1184,7 @@ const styles = StyleSheet.create({
   infoValueHighlight: {
     color: C.accent,
     fontSize: 15,
+    fontFamily: ManropeWeights.regular,
   },
 
   // ── Eligible menu ──────────────────────────────────────────────────────────
@@ -1069,6 +1206,7 @@ const styles = StyleSheet.create({
   catChipText: {
     fontSize: 13,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.accent,
   },
   menuItemRow: {
@@ -1086,19 +1224,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: C.primary,
     fontWeight: '500',
+    fontFamily: ManropeWeights.medium,
   },
   menuItemPrice: {
     fontSize: 13,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.secondary,
-  },
-  menuEmpty: {
-    padding: 16,
-  },
-  menuEmptyText: {
-    fontSize: 13,
-    color: C.muted,
-    lineHeight: 20,
   },
 
   // ── Inactive note ──────────────────────────────────────────────────────────
@@ -1113,6 +1245,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 20,
     fontWeight: '500',
+    fontFamily: ManropeWeights.medium,
   },
 
   // ── Error state ────────────────────────────────────────────────────────────
@@ -1121,16 +1254,16 @@ const styles = StyleSheet.create({
     gap: 10, padding: 40,
   },
   errorTitle: {
-    fontSize: 17, fontWeight: '700', color: C.primary, marginTop: 8,
+    fontSize: 17, fontWeight: '700', fontFamily: ManropeWeights.bold, color: C.primary, marginTop: 8,
   },
   errorSub: {
-    fontSize: 14, color: C.secondary, textAlign: 'center', lineHeight: 21,
+    fontSize: 14, color: C.secondary, textAlign: 'center', lineHeight: 21, fontFamily: ManropeWeights.regular,
   },
   retryBtn: {
     marginTop: 10, backgroundColor: C.accent,
     paddingHorizontal: 24, paddingVertical: 12, borderRadius: 22,
   },
-  retryBtnText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
+  retryBtnText: { color: '#FFF', fontSize: 14, fontWeight: '700', fontFamily: ManropeWeights.bold },
 
   // ── Hero skeleton ──────────────────────────────────────────────────────────
   heroSkeleton: {
@@ -1185,6 +1318,7 @@ const styles = StyleSheet.create({
   redemptionWidgetStatus: {
     flex: 1,
     fontSize: 11, fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: C.secondary,
     letterSpacing: 0.5, textTransform: 'uppercase',
   },
@@ -1192,13 +1326,13 @@ const styles = StyleSheet.create({
     color: C.successDark,
   },
   redemptionWidgetTime: {
-    fontSize: 11, color: C.muted, fontWeight: '500',
+    fontSize: 11, color: C.muted, fontWeight: '500', fontFamily: ManropeWeights.medium,
   },
   redemptionWidgetBody: {
     padding: 16, gap: 12,
   },
   redemptionWidgetItems: {
-    fontSize: 15, fontWeight: '600', color: C.primary, lineHeight: 22,
+    fontSize: 15, fontWeight: '600', fontFamily: ManropeWeights.semiBold, color: C.primary, lineHeight: 22,
   },
   redemptionWidgetAmounts: {
     flexDirection: 'row', alignItems: 'center',
@@ -1211,22 +1345,16 @@ const styles = StyleSheet.create({
     backgroundColor: C.border, marginHorizontal: 16,
   },
   redemptionAmountLabel: {
-    fontSize: 11, color: C.muted, fontWeight: '500', letterSpacing: 0.2,
+    fontSize: 11, color: C.muted, fontWeight: '500', fontFamily: ManropeWeights.medium, letterSpacing: 0.2,
   },
   redemptionAmountValue: {
-    fontSize: 16, fontWeight: '700', color: C.primary, letterSpacing: -0.3,
+    fontSize: 16, fontWeight: '700', fontFamily: ManropeWeights.bold, color: C.primary, letterSpacing: -0.3,
   },
   redemptionAmountBalance: {
     color: C.accent,
   },
 
   // ── Redemption history timeline ────────────────────────────────────────────
-  emptyHistory: {
-    padding: 16,
-  },
-  emptyHistoryText: {
-    fontSize: 13, color: C.muted, lineHeight: 20,
-  },
   historyGroupDivider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: C.border,
@@ -1238,34 +1366,44 @@ const styles = StyleSheet.create({
   },
   historyGroupLabel: {
     fontSize: 11, fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: C.muted, letterSpacing: 0.4,
     textTransform: 'uppercase',
   },
   historyRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 13,
-    gap: 12,
+    paddingVertical: 11,
+    gap: 10,
+  },
+  historyRowPressed: {
+    backgroundColor: C.bg,
   },
   historyRowLeft: {
-    flex: 1, gap: 3,
-  },
-  historyRowRight: {
-    alignItems: 'flex-end', gap: 3, flexShrink: 0,
+    flex: 1, gap: 2,
   },
   historyRowItems: {
-    fontSize: 14, fontWeight: '500', color: C.primary,
+    fontSize: 14, fontWeight: '500', fontFamily: ManropeWeights.medium, color: C.primary,
   },
   historyRowTime: {
-    fontSize: 12, color: C.muted, fontWeight: '400',
+    fontSize: 11.5, color: C.muted, fontWeight: '400', fontFamily: ManropeWeights.regular,
   },
   historyRowAmount: {
-    fontSize: 14, fontWeight: '700', color: C.primary,
+    fontSize: 14, fontWeight: '700', fontFamily: ManropeWeights.bold, color: C.primary,
+    flexShrink: 0,
   },
-  historyRowBalance: {
-    fontSize: 11, color: C.muted, fontWeight: '500',
+  historyToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 13,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: C.border,
+  },
+  historyToggleText: {
+    fontSize: 13, fontFamily: ManropeWeights.semiBold, color: C.accent,
   },
 
   // ── Sticky CTA — Present at Counter ───────────────────────────────────────
@@ -1302,6 +1440,7 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 16,
     fontWeight: '700' as const,
+    fontFamily: ManropeWeights.bold,
     letterSpacing: -0.2,
   },
 });

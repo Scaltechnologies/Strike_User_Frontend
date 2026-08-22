@@ -1,12 +1,7 @@
 import { apiClient } from './client';
 import { API_ENDPOINTS } from '@/constants/api';
 import type { ApiSuccessResponse } from '@/types/api';
-import type {
-  EligibleMenu,
-  PurchaseSubscriptionRequest,
-  Subscription,
-  SubscriptionPage,
-} from '@/types/subscription';
+import type { EligibleMenu, Subscription, SubscriptionPage } from '@/types/subscription';
 
 export const subscriptionApi = {
   // Returns active subscriptions only; server auto-expires stale ones.
@@ -36,14 +31,6 @@ export const subscriptionApi = {
   getEligibleMenu: async (id: string | number): Promise<EligibleMenu> => {
     const { data } = await apiClient.get<ApiSuccessResponse<EligibleMenu>>(
       API_ENDPOINTS.SUBSCRIPTIONS.MENU(id),
-    );
-    return data.data;
-  },
-
-  purchase: async (body: PurchaseSubscriptionRequest): Promise<Subscription> => {
-    const { data } = await apiClient.post<ApiSuccessResponse<Subscription>>(
-      API_ENDPOINTS.SUBSCRIPTIONS.PURCHASE,
-      body,
     );
     return data.data;
   },

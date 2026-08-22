@@ -1,6 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { subscriptionApi } from '@/api/subscription.api';
-import type { PurchaseSubscriptionRequest } from '@/types/subscription';
 
 export const subscriptionKeys = {
   all:       ['subscriptions'] as const,
@@ -44,13 +43,3 @@ export function useEligibleMenu(id: string | number | undefined) {
   });
 }
 
-export function usePurchaseSubscription() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (body: PurchaseSubscriptionRequest) => subscriptionApi.purchase(body),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: subscriptionKeys.myActive() });
-      void queryClient.invalidateQueries({ queryKey: subscriptionKeys.all });
-    },
-  });
-}

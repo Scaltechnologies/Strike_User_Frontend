@@ -12,7 +12,9 @@ import {
   RefreshCw,
   Search,
   Settings,
+  SlidersHorizontal,
   Sparkles,
+  UtensilsCrossed,
   X,
 } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -37,8 +39,20 @@ import { formatDistance, openDirections } from '@/utils/maps';
 import { useMediaSource, logMediaError } from '@/utils/media';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AnimatedHomeBackground } from '@/components/home/AnimatedHomeBackground';
+import { BannerCarousel } from '@/components/home/BannerCarousel';
+import { CategoriesRow } from '@/components/home/CategoriesRow';
+import { PurchasedCardsCarousel } from '@/components/home/PurchasedCardsCarousel';
+import { PressableScale } from '@/components/ui/PressableScale';
+import { FadeInView } from '@/components/ui/FadeInView';
 import { useLocation } from '@/hooks/useLocation';
-import { useAllStores, useInvalidateStores, useNearbyStores, useSearchStores } from '@/hooks/useStores';
+import { useNotificationHistory } from '@/hooks/useNotificationHistory';
+import {
+  useAllStores, useInvalidateStores, useNearbyStores, useSearchStores, useStoreMenu, useStoresByCategory,
+} from '@/hooks/useStores';
+import { useLowestCardPricesByStores } from '@/hooks/useCards';
+import { ROUTES } from '@/constants/routes';
+import { ManropeWeights } from '@/constants/theme';
 import type { RecentLocation } from '@/services/storageService';
 import { storageService } from '@/services/storageService';
 import { useAppStore } from '@/store/appStore';
@@ -90,6 +104,10 @@ const C = {
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
+function fmtPrice(n: number): string {
+  return n % 1 === 0 ? `₹${n}` : `₹${n.toFixed(2)}`;
+}
+
 function getGreeting(): string {
   const h = new Date().getHours();
   if (h < 12) return 'Good morning';
@@ -129,6 +147,19 @@ function getStoreInitialColor(name: string): string {
   ];
   const idx = name.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % palette.length;
   return palette[idx];
+}
+
+// Open stores first, nearest first within each group — closed stores sink to
+// the bottom instead of interrupting the "closest to you" ordering.
+function sortStoresByAvailability(stores: Store[]): Store[] {
+  return [...stores].sort((a, b) => {
+    const aOpen = isStoreOpenNow(a) ? 0 : 1;
+    const bOpen = isStoreOpenNow(b) ? 0 : 1;
+    if (aOpen !== bOpen) return aOpen - bOpen;
+    const aDist = a.distanceKm ?? Number.POSITIVE_INFINITY;
+    const bDist = b.distanceKm ?? Number.POSITIVE_INFINITY;
+    return aDist - bDist;
+  });
 }
 
 // ─── Area Search (Nominatim) ───────────────────────────────────────────────────
@@ -202,94 +233,6 @@ async function searchArea(query: string): Promise<GeoResult[]> {
   }
 }
 
-// ─── Animated Pressable ────────────────────────────────────────────────────────
-
-function ScalePressable({
-  children,
-  style,
-  onPress,
-  hitSlop,
-  disabled,
-}: {
-  children: React.ReactNode;
-  style?: object | object[];
-  onPress?: () => void;
-  hitSlop?: number;
-  disabled?: boolean;
-}) {
-  const scale = useRef(new Animated.Value(1)).current;
-
-  const onPressIn = () =>
-    Animated.spring(scale, {
-      toValue: 0.96,
-      useNativeDriver: true,
-      speed: 50,
-      bounciness: 4,
-    }).start();
-
-  const onPressOut = () =>
-    Animated.spring(scale, {
-      toValue: 1,
-      useNativeDriver: true,
-      speed: 50,
-      bounciness: 4,
-    }).start();
-
-  return (
-    <Pressable
-      onPress={onPress}
-      onPressIn={onPressIn}
-      onPressOut={onPressOut}
-      hitSlop={hitSlop}
-      disabled={disabled}
-    >
-      <Animated.View style={[style, { transform: [{ scale }] }]}>
-        {children}
-      </Animated.View>
-    </Pressable>
-  );
-}
-
-// ─── Fade-In Wrapper ───────────────────────────────────────────────────────────
-
-function FadeIn({
-  children,
-  delay = 0,
-  style,
-}: {
-  children: React.ReactNode;
-  delay?: number;
-  style?: object;
-}) {
-  const opacity = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(10)).current;
-
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(opacity, {
-        toValue: 1,
-        duration: 380,
-        delay,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(translateY, {
-        toValue: 0,
-        duration: 380,
-        delay,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, []);
-
-  return (
-    <Animated.View style={[style, { opacity, transform: [{ translateY }] }]}>
-      {children}
-    </Animated.View>
-  );
-}
-
 // ─── Skeleton ──────────────────────────────────────────────────────────────────
 
 function SkeletonPulse({ width, height, style, radius = 8 }: {
@@ -335,14 +278,14 @@ function SkeletonPulse({ width, height, style, radius = 8 }: {
 function StoreCardSkeleton() {
   return (
     <View style={[styles.card, { overflow: 'hidden' }]}>
-      <SkeletonPulse height={188} radius={0} style={{ width: '100%' }} />
+      <SkeletonPulse height={124} radius={0} style={{ width: '100%' }} />
       <View style={styles.cardBody}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10, gap: 8 }}>
-          <SkeletonPulse height={15} width="55%" />
-          <SkeletonPulse height={15} width="20%" />
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8, gap: 8 }}>
+          <SkeletonPulse height={14} width="55%" />
+          <SkeletonPulse height={14} width="20%" />
         </View>
-        <SkeletonPulse height={22} width="30%" style={{ borderRadius: 8, marginBottom: 12 }} />
-        <SkeletonPulse height={12} width="62%" />
+        <SkeletonPulse height={19} width="30%" style={{ borderRadius: 6, marginBottom: 9 }} />
+        <SkeletonPulse height={11} width="55%" />
       </View>
     </View>
   );
@@ -350,7 +293,7 @@ function StoreCardSkeleton() {
 
 // ─── Store Card ────────────────────────────────────────────────────────────────
 
-function StoreCard({ store, index = 0 }: { store: Store; index?: number }) {
+function StoreCard({ store, index = 0, lowestPrice }: { store: Store; index?: number; lowestPrice?: number }) {
   const router = useRouter();
   const isOpen = isStoreOpenNow(store);
   const timing = getTodayTiming(store.timings);
@@ -361,9 +304,21 @@ function StoreCard({ store, index = 0 }: { store: Store; index?: number }) {
   const [imgFailed, setImgFailed] = useState(false);
   const bannerSource = useMediaSource(store.logoUrl);
   const showPhoto = !!bannerSource && !imgFailed;
+
+  // Vendor-defined menu categories (e.g. "Mains", "Beverages") — falls back
+  // to the store's single business category if the vendor hasn't set up a
+  // menu yet, so a card never renders with no tag at all.
+  const { data: menuCategories, isLoading: categoriesLoading } = useStoreMenu(store.id);
+  const categoryNames = menuCategories && menuCategories.length > 0
+    ? menuCategories.map((c) => c.name)
+    : null;
+
   return (
-    <FadeIn delay={index * 60} style={styles.cardWrapper}>
-      <ScalePressable style={styles.card} onPress={() => router.push(`/store/${store.id}` as never)}>
+    <FadeInView delay={index * 60} style={styles.cardWrapper}>
+      <PressableScale
+        style={[styles.card, !isOpen && styles.cardClosed]}
+        onPress={() => router.push(`/store/${store.id}` as never)}
+      >
         {/* ── Banner ─────────────────────────────────── */}
         <View style={styles.banner}>
           {showPhoto && bannerSource ? (
@@ -371,7 +326,7 @@ function StoreCard({ store, index = 0 }: { store: Store; index?: number }) {
               source={bannerSource}
               style={StyleSheet.absoluteFill}
               contentFit="cover"
-              transition={300}
+              transition={200}
               onError={(e) => {
                 logMediaError('store card banner', bannerSource.uri, e.error);
                 setImgFailed(true);
@@ -392,22 +347,6 @@ function StoreCard({ store, index = 0 }: { store: Store; index?: number }) {
 
           {/* Subtle scrim for photos */}
           {showPhoto ? <View style={styles.bannerPhotoScrim} /> : null}
-
-          {/* Status chip */}
-          <View style={[styles.statusChip, isOpen ? styles.statusChipOpen : styles.statusChipClosed]}>
-            <View style={[styles.statusDot, { backgroundColor: isOpen ? C.success : C.danger }]} />
-            <Text style={[styles.statusChipText, { color: isOpen ? C.successText : C.dangerText }]}>
-              {isOpen ? 'Open' : 'Closed'}
-            </Text>
-          </View>
-
-          {/* Distance badge top-left */}
-          {distance != null && (
-            <View style={styles.distanceBadge}>
-              <MapPin size={10} color={C.accent} strokeWidth={2.5} />
-              <Text style={styles.distanceBadgeText}>{distance}</Text>
-            </View>
-          )}
         </View>
 
         {/* ── Card Body ──────────────────────────────── */}
@@ -417,21 +356,52 @@ function StoreCard({ store, index = 0 }: { store: Store; index?: number }) {
             <Text style={styles.cardName} numberOfLines={1}>{store.name}</Text>
           </View>
 
-          <View style={styles.categoryTag}>
-            <Text style={styles.categoryTagText}>{store.category}</Text>
+          <View style={styles.categoryChipRow}>
+            {categoriesLoading ? (
+              <>
+                <SkeletonPulse width={52} height={19} radius={6} />
+                <SkeletonPulse width={66} height={19} radius={6} />
+              </>
+            ) : categoryNames ? (
+              <>
+                {categoryNames.slice(0, 3).map((name) => (
+                  <View key={name} style={styles.categoryTag}>
+                    <Text style={styles.categoryTagText} numberOfLines={1}>{name}</Text>
+                  </View>
+                ))}
+                {categoryNames.length > 3 && (
+                  <View style={[styles.categoryTag, styles.categoryTagMore]}>
+                    <Text style={[styles.categoryTagText, styles.categoryTagMoreText]}>
+                      +{categoryNames.length - 3}
+                    </Text>
+                  </View>
+                )}
+              </>
+            ) : (
+              <View style={styles.categoryTag}>
+                <Text style={styles.categoryTagText}>{store.category}</Text>
+              </View>
+            )}
           </View>
+
+          {lowestPrice != null && (
+            <View style={styles.priceRow}>
+              <Text style={styles.priceLabel}>Starting from</Text>
+              <Text style={styles.priceValue}>{fmtPrice(lowestPrice)}</Text>
+            </View>
+          )}
 
           {/* Footer: timing / address + Directions button */}
           <View style={styles.cardFooter}>
             <View style={styles.cardMeta}>
               {distance != null ? (
                 <View style={styles.metaItem}>
-                  <MapPin size={11} color={C.accent} strokeWidth={2} />
+                  <MapPin size={10} color={C.accent} strokeWidth={2} />
                   <Text style={[styles.metaText, styles.metaDistance]}>{distance}</Text>
                 </View>
               ) : timing != null ? (
                 <View style={styles.metaItem}>
-                  <Clock size={11} color={C.muted} strokeWidth={2} />
+                  <Clock size={10} color={C.muted} strokeWidth={2} />
                   <Text style={styles.metaText}>{timing}</Text>
                 </View>
               ) : store.address ? (
@@ -445,14 +415,99 @@ function StoreCard({ store, index = 0 }: { store: Store; index?: number }) {
                 onPress={() => openDirections(store.latitude!, store.longitude!)}
                 hitSlop={6}
               >
-                <Navigation size={13} color={C.accent} strokeWidth={2.2} />
+                <Navigation size={12} color={C.accent} strokeWidth={2.2} />
                 <Text style={styles.cardDirectionsBtnText}>Directions</Text>
               </Pressable>
             ) : null}
           </View>
         </View>
-      </ScalePressable>
-    </FadeIn>
+      </PressableScale>
+    </FadeInView>
+  );
+}
+
+// ─── Filter Chips ──────────────────────────────────────────────────────────────
+
+function FilterChipsBar({
+  categories,
+  selectedCategory,
+  onSelectCategory,
+  openNowOnly,
+  onToggleOpenNow,
+  hasActiveFilters,
+  onClear,
+}: {
+  categories: string[];
+  selectedCategory: string | null;
+  onSelectCategory: (c: string | null) => void;
+  openNowOnly: boolean;
+  onToggleOpenNow: () => void;
+  hasActiveFilters: boolean;
+  onClear: () => void;
+}) {
+  if (categories.length === 0) return null;
+
+  return (
+    <View style={styles.filterBarRow}>
+      <View style={[styles.filterBarIconWrap, hasActiveFilters && styles.filterBarIconWrapActive]}>
+        <SlidersHorizontal
+          size={14}
+          color={hasActiveFilters ? '#FFFFFF' : C.accent}
+          strokeWidth={2.2}
+        />
+      </View>
+
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.filterBar}
+        contentContainerStyle={styles.filterBarContent}
+      >
+        <Pressable
+          style={[styles.filterChip, openNowOnly && styles.filterChipActive]}
+          onPress={onToggleOpenNow}
+          hitSlop={4}
+        >
+          <Clock size={12} color={openNowOnly ? '#FFFFFF' : C.secondary} strokeWidth={2.4} />
+          <Text style={[styles.filterChipText, openNowOnly && styles.filterChipTextActive]}>
+            Open Now
+          </Text>
+        </Pressable>
+
+        <Pressable
+          style={[styles.filterChip, selectedCategory === null && styles.filterChipActive]}
+          onPress={() => onSelectCategory(null)}
+          hitSlop={4}
+        >
+          <Text style={[styles.filterChipText, selectedCategory === null && styles.filterChipTextActive]}>
+            All
+          </Text>
+        </Pressable>
+
+        {categories.map((cat) => {
+          const active = selectedCategory === cat;
+          return (
+            <Pressable
+              key={cat}
+              style={[styles.filterChip, active && styles.filterChipActive]}
+              onPress={() => onSelectCategory(active ? null : cat)}
+              hitSlop={4}
+            >
+              <Text style={[styles.filterChipText, active && styles.filterChipTextActive]} numberOfLines={1}>
+                {cat}
+              </Text>
+            </Pressable>
+          );
+        })}
+
+        {hasActiveFilters && (
+          <Pressable style={styles.filterClearChip} onPress={onClear} hitSlop={4}>
+            <X size={12} color={C.accent} strokeWidth={2.6} />
+            <Text style={styles.filterClearChipText}>Clear</Text>
+          </Pressable>
+        )}
+      </ScrollView>
+    </View>
   );
 }
 
@@ -480,17 +535,32 @@ function SectionHeader({ title, count, icon }: {
 
 // ─── Empty State ───────────────────────────────────────────────────────────────
 
-function EmptyState({ title, subtitle }: { title: string; subtitle?: string }) {
+function EmptyState({
+  title,
+  subtitle,
+  actionLabel,
+  onAction,
+}: {
+  title: string;
+  subtitle?: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
   return (
-    <FadeIn>
+    <FadeInView>
       <View style={styles.emptyWrap}>
         <View style={styles.emptyIconWrap}>
           <Sparkles size={20} color={C.muted} strokeWidth={1.5} />
         </View>
         <Text style={styles.emptyTitle}>{title}</Text>
         {subtitle ? <Text style={styles.emptySub}>{subtitle}</Text> : null}
+        {actionLabel && onAction ? (
+          <PressableScale style={styles.emptyActionBtn} onPress={onAction}>
+            <Text style={styles.emptyActionBtnText}>{actionLabel}</Text>
+          </PressableScale>
+        ) : null}
       </View>
-    </FadeIn>
+    </FadeInView>
   );
 }
 
@@ -549,7 +619,7 @@ function LocationPermissionBanner({
   if (!cfg) return null;
 
   return (
-    <FadeIn style={{ marginHorizontal: 16, marginTop: 18 }}>
+    <FadeInView style={{ marginHorizontal: 16, marginTop: 18 }}>
       <View style={[styles.permissionCard, cfg.borderColor ? { borderColor: cfg.borderColor } : {}]}>
         <View style={styles.permissionLeft}>
           <View style={[styles.permissionIconWrap, { backgroundColor: cfg.iconBg }]}>
@@ -561,15 +631,15 @@ function LocationPermissionBanner({
           </View>
         </View>
         <View style={styles.permissionActions}>
-          <ScalePressable style={styles.permissionBtn} onPress={cfg.action}>
+          <PressableScale style={styles.permissionBtn} onPress={cfg.action}>
             <Text style={styles.permissionBtnText}>{cfg.actionLabel}</Text>
-          </ScalePressable>
+          </PressableScale>
           <Pressable onPress={onContinueWithAll} style={styles.permissionSkip}>
             <Text style={styles.permissionSkipText}>Skip</Text>
           </Pressable>
         </View>
       </View>
-    </FadeIn>
+    </FadeInView>
   );
 }
 
@@ -702,7 +772,7 @@ function ActiveLocationSheet({
       </View>
 
       <View style={styles.sheetOptionGroup}>
-        <ScalePressable
+        <PressableScale
           style={styles.sheetOptionRow}
           onPress={() => { onDetect(); onClose(); }}
         >
@@ -714,11 +784,11 @@ function ActiveLocationSheet({
             <Text style={styles.sheetOptionSub}>Detect GPS position</Text>
           </View>
           <ChevronRight size={14} color={C.muted} strokeWidth={2} />
-        </ScalePressable>
+        </PressableScale>
 
         <View style={styles.sheetOptionDivider} />
 
-        <ScalePressable style={styles.sheetOptionRow} onPress={handleOpenSearch}>
+        <PressableScale style={styles.sheetOptionRow} onPress={handleOpenSearch}>
           <View style={[styles.sheetOptionIcon, { backgroundColor: C.greenBg }]}>
             <Search size={16} color={C.green} strokeWidth={2} />
           </View>
@@ -727,7 +797,7 @@ function ActiveLocationSheet({
             <Text style={styles.sheetOptionSub}>Locality, landmark, or city</Text>
           </View>
           <ChevronRight size={14} color={C.muted} strokeWidth={2} />
-        </ScalePressable>
+        </PressableScale>
 
         <View style={styles.sheetOptionDivider} />
 
@@ -903,9 +973,11 @@ function ActiveLocationSheet({
 // ─── Home Screen ───────────────────────────────────────────────────────────────
 
 export default function HomeScreen() {
-  const { locationStatus, coords, locationName } = useAppStore();
+  const router = useRouter();
+  const { locationStatus, coords, locationName, locationSynced } = useAppStore();
   const { initLocation, requestPermissionAndLocate, openSettings, refresh, applyLocation } = useLocation();
   const invalidateStores = useInvalidateStores();
+  const { unreadCount } = useNotificationHistory();
 
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -913,6 +985,12 @@ export default function HomeScreen() {
   const [skipLocation, setSkipLocation] = useState(false);
   const [locationPickerVisible, setLocationPickerVisible] = useState(false);
   const [locationHistory, setLocationHistory] = useState<RecentLocation[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [openNowOnly, setOpenNowOnly] = useState(false);
+  // Distinct from selectedCategory above (that's the store-level FilterChipsBar filter,
+  // matched against Store.category). This is the home-screen category-icon row, matched
+  // against each store's actual MENU categories via useStoresByCategory.
+  const [selectedHomeCategory, setSelectedHomeCategory] = useState<string | null>(null);
 
   const searchBarFocused = useRef(false);
   const headerScale = useRef(new Animated.Value(1)).current;
@@ -968,12 +1046,42 @@ export default function HomeScreen() {
     data: allStores, isLoading: allLoading, error: allError, refetch: refetchAll,
   } = useAllStores();
 
+  const storesById = useMemo(
+    () => Object.fromEntries((allStores ?? []).map((s) => [s.id, s])) as Record<number, Store>,
+    [allStores],
+  );
+
+  // Wait for locationSynced too, not just locationReady — GPS resolving
+  // doesn't mean the backend has the location on file yet (see appStore's
+  // locationSynced doc comment). Without this, a brand-new account's very
+  // first nearby-stores fetch can race the location PATCH and 400.
   const {
     data: nearbyStores, isLoading: nearbyLoading, error: nearbyError, refetch: refetchNearby,
-  } = useNearbyStores({ enabled: locationReady });
+  } = useNearbyStores({ enabled: locationReady && locationSynced });
 
   const isSearching = debouncedQuery.trim().length >= 2;
   const { data: searchResults, isLoading: searchLoading } = useSearchStores(debouncedQuery);
+
+  const {
+    data: homeCategoryStores, isLoading: homeCategoryLoading, error: homeCategoryError,
+    refetch: refetchHomeCategory,
+  } = useStoresByCategory(selectedHomeCategory);
+
+  const handleSelectHomeCategory = useCallback((name: string) => {
+    setSelectedHomeCategory((prev) => (prev === name ? null : name));
+    clearSearch();
+  }, [clearSearch]);
+
+  // "Starting from ₹X" needs the cheapest PURCHASABLE CARD per store (card-service),
+  // not a menu item price — batched across every store currently on screen.
+  const visibleStoreIds = useMemo(() => {
+    const ids = new Set<number>();
+    (allStores ?? []).forEach((s) => ids.add(s.id));
+    (searchResults ?? []).forEach((s) => ids.add(s.id));
+    (homeCategoryStores ?? []).forEach((s) => ids.add(s.id));
+    return Array.from(ids);
+  }, [allStores, searchResults, homeCategoryStores]);
+  const { data: lowestPrices } = useLowestCardPricesByStores(visibleStoreIds);
 
   // "All stores" is every store in the catalogue, which always includes
   // whatever's in "Nearby" — filter those out so a store doesn't render
@@ -983,6 +1091,40 @@ export default function HomeScreen() {
     const nearbyIds = new Set(nearbyStores.map((s) => s.id));
     return (allStores ?? []).filter((s) => !nearbyIds.has(s.id));
   }, [allStores, nearbyStores, locationReady]);
+
+  // ── Filters (category + open-now) ─────────────────────────────────────────
+
+  const categories = useMemo(() => {
+    const set = new Set<string>();
+    (allStores ?? []).forEach((s) => { if (s.category) set.add(s.category); });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [allStores]);
+
+  const hasActiveFilters = selectedCategory != null || openNowOnly;
+
+  const matchesFilters = useCallback((s: Store) => {
+    if (selectedCategory && s.category !== selectedCategory) return false;
+    if (openNowOnly && !isStoreOpenNow(s)) return false;
+    return true;
+  }, [selectedCategory, openNowOnly]);
+
+  const filteredNearby = useMemo(() => {
+    const base = hasActiveFilters ? nearbyStores?.filter(matchesFilters) : nearbyStores;
+    return base ? sortStoresByAvailability(base) : base;
+  }, [nearbyStores, matchesFilters, hasActiveFilters]);
+  const filteredOthers = useMemo(() => {
+    const base = hasActiveFilters ? otherStores?.filter(matchesFilters) : otherStores;
+    return base ? sortStoresByAvailability(base) : base;
+  }, [otherStores, matchesFilters, hasActiveFilters]);
+  const filteredSearchResults = useMemo(() => {
+    const base = hasActiveFilters ? searchResults?.filter(matchesFilters) : searchResults;
+    return base ? sortStoresByAvailability(base) : base;
+  }, [searchResults, matchesFilters, hasActiveFilters]);
+
+  const clearFilters = useCallback(() => {
+    setSelectedCategory(null);
+    setOpenNowOnly(false);
+  }, []);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -1036,11 +1178,10 @@ export default function HomeScreen() {
         )}
       </View>
 
-      <ScalePressable style={styles.bellBtn}>
+      <PressableScale style={styles.bellBtn} onPress={() => router.push(ROUTES.NOTIFICATIONS as never)}>
         <Bell size={19} color={C.primary} strokeWidth={1.7} />
-        {/* Notification dot */}
-        <View style={styles.bellDot} />
-      </ScalePressable>
+        {unreadCount > 0 && <View style={styles.bellDot} />}
+      </PressableScale>
     </View>
   );
 
@@ -1073,6 +1214,16 @@ export default function HomeScreen() {
           </Pressable>
         ) : null}
       </View>
+
+      <FilterChipsBar
+        categories={categories}
+        selectedCategory={selectedCategory}
+        onSelectCategory={setSelectedCategory}
+        openNowOnly={openNowOnly}
+        onToggleOpenNow={() => setOpenNowOnly((v) => !v)}
+        hasActiveFilters={hasActiveFilters}
+        onClear={clearFilters}
+      />
     </View>
   );
 
@@ -1088,6 +1239,7 @@ export default function HomeScreen() {
     emptyTitle: string,
     emptySub?: string,
     onRetry?: () => void,
+    filteredOutOf?: number,
   ) => {
     if (loading) return <>{renderSkeletons()}</>;
     if (error) {
@@ -1099,17 +1251,28 @@ export default function HomeScreen() {
           <Text style={styles.errorText}>
             {(error as Error)?.message ?? 'Failed to load stores.'}
           </Text>
-          <ScalePressable style={styles.retryBtn} onPress={() => void (onRetry ?? refetchAll)()}>
+          <PressableScale style={styles.retryBtn} onPress={() => void (onRetry ?? refetchAll)()}>
             <RefreshCw size={13} color={C.accent} strokeWidth={2} />
             <Text style={styles.retryBtnText}>Try again</Text>
-          </ScalePressable>
+          </PressableScale>
         </View>
       );
     }
     if (!stores || stores.length === 0) {
+      // Underlying (pre-filter) list had items — the filters are what emptied it.
+      if (filteredOutOf) {
+        return (
+          <EmptyState
+            title="No stores match your filters"
+            subtitle="Try a different category or clear filters to see everything"
+            actionLabel="Clear filters"
+            onAction={clearFilters}
+          />
+        );
+      }
       return <EmptyState title={emptyTitle} subtitle={emptySub} />;
     }
-    return stores.map((s, i) => <StoreCard key={s.id} store={s} index={i} />);
+    return stores.map((s, i) => <StoreCard key={s.id} store={s} index={i} lowestPrice={lowestPrices?.[s.id]} />);
   };
 
   // ── Search Results ─────────────────────────────────────────────────────────
@@ -1118,14 +1281,79 @@ export default function HomeScreen() {
     <View style={styles.section}>
       <SectionHeader
         title="Results"
-        count={searchResults?.length}
+        count={filteredSearchResults?.length}
         icon={<Search size={14} color={C.accent} strokeWidth={2} />}
       />
       {searchLoading
         ? renderSkeletons(2)
-        : !searchResults || searchResults.length === 0
-        ? <EmptyState title="No stores found" subtitle={`Nothing matched "${debouncedQuery}"`} />
-        : searchResults.map((s, i) => <StoreCard key={s.id} store={s} index={i} />)
+        : !filteredSearchResults || filteredSearchResults.length === 0
+        ? hasActiveFilters && searchResults && searchResults.length > 0
+          ? (
+            <EmptyState
+              title="No stores match your filters"
+              subtitle="Try a different category or clear filters to see everything"
+              actionLabel="Clear filters"
+              onAction={clearFilters}
+            />
+          )
+          : <EmptyState title="No stores found" subtitle={`Nothing matched "${debouncedQuery}"`} />
+        : filteredSearchResults.map((s, i) => (
+            <StoreCard key={s.id} store={s} index={i} lowestPrice={lowestPrices?.[s.id]} />
+          ))
+      }
+    </View>
+  );
+
+  // ── Home Category Results ─────────────────────────────────────────────────
+
+  const renderHomeCategoryResults = () => (
+    <View style={styles.section}>
+      <View style={styles.homeCategoryHeaderRow}>
+        <View style={{ flex: 1 }}>
+          <SectionHeader
+            title={selectedHomeCategory ?? ''}
+            count={homeCategoryStores?.length}
+            icon={<UtensilsCrossed size={14} color={C.accent} strokeWidth={2} />}
+          />
+        </View>
+        <Pressable
+          style={styles.homeCategoryClearBtn}
+          onPress={() => setSelectedHomeCategory(null)}
+          hitSlop={8}
+        >
+          <X size={12} color={C.secondary} strokeWidth={2.5} />
+          <Text style={styles.homeCategoryClearText}>Clear</Text>
+        </Pressable>
+      </View>
+      {homeCategoryLoading
+        ? renderSkeletons(2)
+        : homeCategoryError
+        ? (
+          <View style={styles.errorWrap}>
+            <View style={styles.errorIconWrap}>
+              <AlertCircle size={20} color={C.muted} strokeWidth={1.5} />
+            </View>
+            <Text style={styles.errorText}>
+              {(homeCategoryError as Error)?.message ?? 'Failed to load stores.'}
+            </Text>
+            <PressableScale style={styles.retryBtn} onPress={() => void refetchHomeCategory()}>
+              <RefreshCw size={13} color={C.accent} strokeWidth={2} />
+              <Text style={styles.retryBtnText}>Try again</Text>
+            </PressableScale>
+          </View>
+        )
+        : !homeCategoryStores || homeCategoryStores.length === 0
+        ? (
+          <EmptyState
+            title="No stores in this category yet"
+            subtitle="Check back soon, or browse everything instead"
+            actionLabel="Clear filter"
+            onAction={() => setSelectedHomeCategory(null)}
+          />
+        )
+        : homeCategoryStores.map((s, i) => (
+            <StoreCard key={s.id} store={s} index={i} lowestPrice={lowestPrices?.[s.id]} />
+          ))
       }
     </View>
   );
@@ -1137,58 +1365,72 @@ export default function HomeScreen() {
 
     return (
       <>
-        {showPermissionBanner && (
-          <LocationPermissionBanner
-            status={locationStatus}
-            onRequestPermission={() => void requestPermissionAndLocate()}
-            onOpenSettings={openSettings}
-            onContinueWithAll={() => setSkipLocation(true)}
-            onRetry={() => void refresh()}
-          />
-        )}
+        <CategoriesRow selectedCategory={selectedHomeCategory} onSelectCategory={handleSelectHomeCategory} />
 
-        {locationReady && (
-          <View style={styles.section}>
-            <SectionHeader
-              title="Nearby"
-              count={nearbyStores?.length}
-              icon={<MapPin size={14} color={C.accent} strokeWidth={2} />}
-            />
-            {renderStoreList(
-              nearbyStores,
-              nearbyLoading,
-              nearbyError,
-              'No stores nearby',
-              'Try searching an area or browse all stores below',
-              () => void refetchNearby(),
+        {selectedHomeCategory ? renderHomeCategoryResults() : (
+          <>
+            <BannerCarousel />
+
+            {showPermissionBanner && (
+              <LocationPermissionBanner
+                status={locationStatus}
+                onRequestPermission={() => void requestPermissionAndLocate()}
+                onOpenSettings={openSettings}
+                onContinueWithAll={() => setSkipLocation(true)}
+                onRetry={() => void refresh()}
+              />
             )}
-          </View>
-        )}
 
-        <View style={styles.section}>
-          <SectionHeader
-            title="All stores"
-            count={otherStores?.length}
-          />
-          {renderStoreList(
-            otherStores,
-            allLoading,
-            allError,
-            'No stores available',
-            'Check back soon — new stores are added regularly',
-            () => void refetchAll(),
-          )}
-        </View>
+            {locationReady && (
+              <View style={styles.section}>
+                <SectionHeader
+                  title="Nearby"
+                  count={filteredNearby?.length}
+                  icon={<MapPin size={14} color={C.accent} strokeWidth={2} />}
+                />
+                {renderStoreList(
+                  filteredNearby,
+                  // useNearbyStores is disabled (isLoading:false) while it waits
+                  // on locationSynced — without this, that wait would flash the
+                  // "No stores nearby" empty state instead of a loading skeleton.
+                  nearbyLoading || !locationSynced,
+                  nearbyError,
+                  'No stores nearby',
+                  'Try searching an area or browse all stores below',
+                  () => void refetchNearby(),
+                  hasActiveFilters ? nearbyStores?.length : undefined,
+                )}
+              </View>
+            )}
+
+            <View style={styles.section}>
+              <SectionHeader
+                title="All stores"
+                count={filteredOthers?.length}
+              />
+              {renderStoreList(
+                filteredOthers,
+                allLoading,
+                allError,
+                'No stores available',
+                'Check back soon — new stores are added regularly',
+                () => void refetchAll(),
+                hasActiveFilters ? otherStores?.length : undefined,
+              )}
+            </View>
+          </>
+        )}
       </>
     );
   };
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
+      <AnimatedHomeBackground />
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
-        stickyHeaderIndices={[1]}
+        stickyHeaderIndices={[2]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         refreshControl={
@@ -1201,8 +1443,13 @@ export default function HomeScreen() {
         }
       >
         {renderHeader()}
+        <PurchasedCardsCarousel storesById={storesById} />
         {renderSearchBar()}
         <View style={styles.content}>{renderContent()}</View>
+        <View style={styles.footerBrand}>
+          <Text style={styles.footerBrandName}>STRIKE</Text>
+          <Text style={styles.footerBrandCredit}>designed by scalatechnologies</Text>
+        </View>
       </ScrollView>
 
       <ActiveLocationSheet
@@ -1221,14 +1468,34 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: C.surface,
+    backgroundColor: 'transparent',
   },
   scroll: {
     flex: 1,
-    backgroundColor: C.bg,
+    backgroundColor: 'transparent',
   },
   scrollContent: {
     flexGrow: 1,
+  },
+
+  // ── Footer branding ──
+  footerBrand: {
+    alignItems: 'center',
+    paddingTop: 28,
+    paddingBottom: 20,
+    backgroundColor: C.surface,
+  },
+  footerBrandName: {
+    fontSize: 15,
+    fontFamily: ManropeWeights.extraBold,
+    color: C.muted,
+    letterSpacing: 3,
+  },
+  footerBrandCredit: {
+    fontSize: 11,
+    fontFamily: ManropeWeights.medium,
+    color: C.muted,
+    marginTop: 4,
   },
 
   // ── Header ──
@@ -1248,6 +1515,7 @@ const styles = StyleSheet.create({
   greeting: {
     fontSize: 12,
     fontWeight: '500',
+    fontFamily: ManropeWeights.medium,
     color: C.muted,
     letterSpacing: 0.2,
     marginBottom: 5,
@@ -1261,6 +1529,7 @@ const styles = StyleSheet.create({
   locationName: {
     fontSize: 22,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: C.primary,
     flexShrink: 1,
     letterSpacing: -0.7,
@@ -1269,12 +1538,14 @@ const styles = StyleSheet.create({
   locationLoading: {
     fontSize: 20,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.secondary,
     letterSpacing: -0.4,
   },
   locationEmpty: {
     fontSize: 20,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.secondary,
     letterSpacing: -0.4,
   },
@@ -1290,6 +1561,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: C.muted,
     fontWeight: '400',
+    fontFamily: ManropeWeights.regular,
     marginTop: 4,
     letterSpacing: 0.1,
   },
@@ -1329,17 +1601,19 @@ const styles = StyleSheet.create({
   searchWrap: {
     backgroundColor: C.surface,
     paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: C.border,
+    paddingTop: 22,
+    paddingBottom: 10,
+    marginTop: -12,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     ...Platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 3 },
-        shadowOpacity: 0.07,
-        shadowRadius: 8,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.04,
+        shadowRadius: 6,
       },
-      android: { elevation: 4 },
+      android: { elevation: 2 },
     }),
   },
   searchBar: {
@@ -1356,6 +1630,7 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     fontSize: 15,
+    fontFamily: ManropeWeights.regular,
     color: C.primary,
     paddingVertical: 0,
   },
@@ -1368,9 +1643,100 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 
+  // ── Filter chips ──
+  filterBarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+    gap: 10,
+  },
+  filterBarIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 11,
+    backgroundColor: C.accentSoft,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexShrink: 0,
+  },
+  filterBarIconWrapActive: {
+    backgroundColor: C.accent,
+  },
+  filterBar: {
+    flex: 1,
+  },
+  filterBarContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingRight: 8,
+  },
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    height: 34,
+    paddingHorizontal: 14,
+    borderRadius: 17,
+    backgroundColor: C.surface,
+    borderWidth: 1.2,
+    borderColor: C.border,
+  },
+  filterChipActive: {
+    backgroundColor: C.accent,
+    borderColor: C.accent,
+    ...Platform.select({
+      ios: { shadowColor: C.accent, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.28, shadowRadius: 8 },
+      android: { elevation: 3 },
+    }),
+  },
+  filterChipText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
+    color: C.secondary,
+  },
+  filterChipTextActive: {
+    color: '#FFFFFF',
+  },
+  filterClearChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    height: 34,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    backgroundColor: C.accentSoft,
+  },
+  filterClearChipText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
+    color: C.accent,
+  },
+
   // ── Content ──
-  content: { paddingBottom: 52 },
+  content: { paddingBottom: 52, backgroundColor: C.surface },
   section: { marginTop: 4 },
+  homeCategoryHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  homeCategoryClearBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    marginRight: 20,
+    backgroundColor: C.bg,
+    borderRadius: 20,
+  },
+  homeCategoryClearText: {
+    fontSize: 12,
+    fontFamily: ManropeWeights.semiBold,
+    color: C.secondary,
+  },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1390,6 +1756,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 17,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: C.primary,
     letterSpacing: -0.4,
   },
@@ -1406,32 +1773,44 @@ const styles = StyleSheet.create({
   sectionCountText: {
     fontSize: 12,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.muted,
   },
 
   // ── Store Card ──
   cardWrapper: {
     marginHorizontal: 16,
-    marginBottom: 16,
+    marginBottom: 14,
   },
   card: {
     backgroundColor: C.surface,
-    borderRadius: 20,
+    borderRadius: 16,
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: C.border,
     ...Platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.08,
-        shadowRadius: 18,
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.06,
+        shadowRadius: 12,
       },
-      android: { elevation: 4 },
+      android: { elevation: 3 },
+    }),
+  },
+  // Closed stores render as one disabled unit — true black & white via a
+  // grayscale filter over the whole card (photo, chips, Directions button,
+  // everything), plus a slight opacity fade. Not a separate "Closed" chip.
+  cardClosed: {
+    filter: [{ grayscale: 1 }],
+    opacity: 0.7,
+    ...Platform.select({
+      ios: { shadowOpacity: 0.02 },
+      android: { elevation: 1 },
     }),
   },
   banner: {
-    height: 188,
+    height: 124,
     position: 'relative',
     overflow: 'hidden',
   },
@@ -1439,24 +1818,26 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 10,
+    gap: 7,
   },
   bannerInitialCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     justifyContent: 'center',
     alignItems: 'center',
   },
   bannerFallbackInitial: {
-    fontSize: 36,
+    fontSize: 24,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     letterSpacing: -1,
-    lineHeight: 40,
+    lineHeight: 28,
   },
   bannerFallbackLabel: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '500',
+    fontFamily: ManropeWeights.medium,
     color: 'rgba(0,0,0,0.3)',
     letterSpacing: 0.3,
   },
@@ -1465,100 +1846,75 @@ const styles = StyleSheet.create({
     top: 0, left: 0, right: 0, bottom: 0,
     backgroundColor: 'rgba(0,0,0,0.06)',
   },
-  statusChip: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 20,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.08,
-        shadowRadius: 4,
-      },
-    }),
-  },
-  statusChipOpen: { backgroundColor: C.successBg },
-  statusChipClosed: { backgroundColor: C.dangerBg },
-  statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  statusChipText: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.1,
-  },
-  distanceBadge: {
-    position: 'absolute',
-    top: 12,
-    left: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 20,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.08,
-        shadowRadius: 4,
-      },
-    }),
-  },
-  distanceBadgeText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: C.primary,
-    letterSpacing: 0.1,
-  },
   cardBody: {
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 16,
+    paddingHorizontal: 14,
+    paddingTop: 11,
+    paddingBottom: 12,
   },
   cardTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 5,
   },
   cardName: {
-    fontSize: 16,
+    fontSize: 14.5,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: C.primary,
-    letterSpacing: -0.4,
+    letterSpacing: -0.3,
     flex: 1,
+  },
+  categoryChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 5,
+    marginBottom: 8,
   },
   categoryTag: {
     alignSelf: 'flex-start',
     backgroundColor: C.accentSoft,
-    borderRadius: 7,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    marginBottom: 10,
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    maxWidth: 140,
+  },
+  categoryTagMore: {
+    backgroundColor: C.bg,
   },
   categoryTagText: {
-    fontSize: 11,
+    fontSize: 10.5,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.accentDeep,
     textTransform: 'capitalize',
     letterSpacing: 0.2,
+  },
+  categoryTagMoreText: {
+    color: C.secondary,
+  },
+  priceRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 5,
+    marginTop: 8,
+  },
+  priceLabel: {
+    fontSize: 11,
+    fontFamily: ManropeWeights.medium,
+    color: C.secondary,
+  },
+  priceValue: {
+    fontSize: 15,
+    fontFamily: ManropeWeights.extraBold,
+    color: C.accent,
+    letterSpacing: -0.2,
   },
   cardFooter: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginTop: 10,
+    marginTop: 7,
   },
   cardMeta: {
     flex: 1,
@@ -1573,14 +1929,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
     backgroundColor: '#FEF2EF',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 10,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 9,
     flexShrink: 0,
   },
   cardDirectionsBtnText: {
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: '#D63527',
   },
   metaItem: {
@@ -1589,12 +1946,14 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   metaText: {
-    fontSize: 12,
+    fontSize: 11.5,
     color: C.secondary,
+    fontFamily: ManropeWeights.regular,
   },
   metaDistance: {
     color: C.primary,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
   },
   metaDivider: {
     width: 3,
@@ -1603,8 +1962,9 @@ const styles = StyleSheet.create({
     backgroundColor: C.muted,
   },
   cardAddress: {
-    fontSize: 12,
+    fontSize: 11.5,
     color: C.muted,
+    fontFamily: ManropeWeights.regular,
     flex: 1,
   },
 
@@ -1646,11 +2006,13 @@ const styles = StyleSheet.create({
   permissionTitle: {
     fontSize: 13,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: C.primary,
   },
   permissionSub: {
     fontSize: 12,
     color: C.muted,
+    fontFamily: ManropeWeights.regular,
   },
   permissionActions: {
     alignItems: 'flex-end',
@@ -1665,6 +2027,7 @@ const styles = StyleSheet.create({
   permissionBtnText: {
     fontSize: 12,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: '#FFF',
     letterSpacing: 0.1,
   },
@@ -1672,6 +2035,7 @@ const styles = StyleSheet.create({
   permissionSkipText: {
     fontSize: 11,
     color: C.muted,
+    fontFamily: ManropeWeights.regular,
   },
 
   // ── Active Location Sheet ──
@@ -1717,6 +2081,7 @@ const styles = StyleSheet.create({
   sheetTitle: {
     fontSize: 20,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: C.primary,
     letterSpacing: -0.5,
     marginBottom: 4,
@@ -1725,6 +2090,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: C.muted,
     lineHeight: 18,
+    fontFamily: ManropeWeights.regular,
   },
   sheetOptionGroup: {
     backgroundColor: C.bg,
@@ -1757,12 +2123,14 @@ const styles = StyleSheet.create({
   sheetOptionLabel: {
     fontSize: 14,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.primary,
     marginBottom: 2,
   },
   sheetOptionSub: {
     fontSize: 12,
     color: C.muted,
+    fontFamily: ManropeWeights.regular,
   },
   comingSoonBadge: {
     backgroundColor: C.divider,
@@ -1773,6 +2141,7 @@ const styles = StyleSheet.create({
   comingSoonText: {
     fontSize: 11,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.muted,
   },
   sheetRecentSection: {
@@ -1781,6 +2150,7 @@ const styles = StyleSheet.create({
   sheetSectionLabel: {
     fontSize: 11,
     fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
     color: C.muted,
     letterSpacing: 0.9,
     textTransform: 'uppercase',
@@ -1807,6 +2177,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: C.primary,
     fontWeight: '500',
+    fontFamily: ManropeWeights.medium,
     flex: 1,
   },
 
@@ -1844,6 +2215,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: C.primary,
     paddingVertical: 0,
+    fontFamily: ManropeWeights.regular,
   },
   sheetSearchResults: {
     flex: 1,
@@ -1868,12 +2240,14 @@ const styles = StyleSheet.create({
   sheetGeoName: {
     fontSize: 14,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.primary,
     marginBottom: 2,
   },
   sheetGeoSub: {
     fontSize: 12,
     color: C.muted,
+    fontFamily: ManropeWeights.regular,
   },
   sheetSearchStatus: {
     paddingVertical: 36,
@@ -1883,12 +2257,14 @@ const styles = StyleSheet.create({
   sheetSearchStatusTitle: {
     fontSize: 14,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.secondary,
   },
   sheetSearchStatusText: {
     fontSize: 13,
     color: C.muted,
     textAlign: 'center',
+    fontFamily: ManropeWeights.regular,
   },
   sheetInlineLoading: {
     flexDirection: 'row',
@@ -1900,6 +2276,7 @@ const styles = StyleSheet.create({
   sheetInlineLoadingText: {
     fontSize: 12,
     color: C.muted,
+    fontFamily: ManropeWeights.regular,
   },
 
   // ── Empty State ──
@@ -1923,6 +2300,7 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 15,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.secondary,
     textAlign: 'center',
   },
@@ -1931,6 +2309,20 @@ const styles = StyleSheet.create({
     color: C.muted,
     textAlign: 'center',
     lineHeight: 18,
+    fontFamily: ManropeWeights.regular,
+  },
+  emptyActionBtn: {
+    marginTop: 6,
+    backgroundColor: C.accentSoft,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+  },
+  emptyActionBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
+    color: C.accent,
   },
 
   // ── Error State ──
@@ -1952,6 +2344,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: C.secondary,
     textAlign: 'center',
+    fontFamily: ManropeWeights.regular,
   },
   retryBtn: {
     flexDirection: 'row',
@@ -1967,6 +2360,7 @@ const styles = StyleSheet.create({
   retryBtnText: {
     fontSize: 13,
     fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.accent,
   },
 });

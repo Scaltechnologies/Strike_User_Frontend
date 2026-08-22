@@ -76,6 +76,15 @@ export interface MenuCategory {
   items: MenuItem[];
 }
 
+// ── Home screen category row — GET /api/user/stores/categories ───────────────
+// Distinct category names deduped across every store's menu, each with a
+// representative image (not tied to any single store).
+
+export interface CategorySummary {
+  name: string;
+  imageUrl: string | null;
+}
+
 // ── Query param types ─────────────────────────────────────────────────────────
 
 export interface SearchStoresParams {

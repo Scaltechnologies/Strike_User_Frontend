@@ -1,5 +1,5 @@
 import { API_ENDPOINTS } from '@/constants/api';
-import type { MenuCategory, Store } from '@/types/store';
+import type { CategorySummary, MenuCategory, Store } from '@/types/store';
 import { apiClient } from './client';
 
 export const storeApi = {
@@ -33,6 +33,23 @@ export const storeApi = {
   // GET /api/user/stores/{id}/menu → list of categories each containing their items
   getStoreMenu: async (storeId: string | number): Promise<MenuCategory[]> => {
     const { data } = await apiClient.get<MenuCategory[]>(API_ENDPOINTS.USER_STORES.MENU(storeId));
+    return Array.isArray(data) ? data : [];
+  },
+
+  // GET /api/user/stores/categories — distinct category names deduped across
+  // every store's menu, for the home screen's category row.
+  getCategories: async (): Promise<CategorySummary[]> => {
+    const { data } = await apiClient.get<CategorySummary[]>(API_ENDPOINTS.USER_STORES.CATEGORIES);
+    return Array.isArray(data) ? data : [];
+  },
+
+  // GET /api/user/stores/by-category?name=… — stores whose MENU has a category
+  // matching this name (fuzzy-matched server-side). Distinct from searchStores'
+  // `category` param, which filters on each store's single business-level tag.
+  getStoresByCategory: async (name: string): Promise<Store[]> => {
+    const { data } = await apiClient.get<Store[]>(API_ENDPOINTS.USER_STORES.BY_CATEGORY, {
+      params: { name },
+    });
     return Array.isArray(data) ? data : [];
   },
 };
