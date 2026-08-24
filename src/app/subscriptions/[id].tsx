@@ -27,11 +27,13 @@ import {
   XCircle,
 } from 'lucide-react-native';
 import { useQueryClient } from '@tanstack/react-query';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useSubscriptionDetail, useEligibleMenu, subscriptionKeys } from '@/hooks/useSubscriptions';
 import { useCardDetail } from '@/hooks/useCards';
 import { useStoreDetail } from '@/hooks/useStores';
 import { redemptionKeys, useSubscriptionRedemptions } from '@/hooks/useRedemptions';
 import { getEffectiveStatus, getSubscriptionValidityDays, isSubscriptionRedeemable } from '@/utils/subscription';
+import { CARD_HEIGHT, CARD_RADIUS, CARD_SHINE, getCardColorTheme } from '@/utils/cardColorTheme';
 import { ROUTES } from '@/constants/routes';
 import { RedemptionDetailSheet } from '@/components/history/RedemptionDetailSheet';
 import { WalletConsumptionGrid } from '@/components/wallet/WalletConsumptionGrid';
@@ -65,18 +67,6 @@ const C = {
   heroSurface: '#111119',
   heroMuted:   'rgba(255,255,255,0.40)',
 } as const;
-
-// ── Card backgrounds ───────────────────────────────────────────────────────────
-
-const CARD_DARKS = [
-  '#1C1C2E', '#0A2342', '#1A1A2E',
-  '#0D1B2A', '#1B1B2F', '#0F2027', '#16213E',
-] as const;
-
-function cardBg(name: string): string {
-  const idx = name.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % CARD_DARKS.length;
-  return CARD_DARKS[idx];
-}
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -215,7 +205,10 @@ interface HeroProps {
 function MembershipHero({
   cardName, storeName, walletBalance, originalBalance, status, expiresAt,
 }: HeroProps) {
-  const bg     = cardBg(cardName);
+  // Same canonical per-card color as Card Details, My Cards and Vendor
+  // Available Cards (see @/utils/cardColorTheme), so the same card always
+  // renders the same color everywhere.
+  const theme  = getCardColorTheme(cardName);
   const days   = daysLeft(expiresAt);
   const ratio  = originalBalance != null ? pct(walletBalance, originalBalance) : null;
   const { label, color, bg: statusBg } = STATUS_CFG[status];
@@ -235,45 +228,59 @@ function MembershipHero({
   }, [walletBalance, pulseScale]);
 
   const progressColor = status === 'ACTIVE'
-    ? C.success
+    ? theme.glow
     : status === 'EXHAUSTED'
     ? C.warning
     : C.muted;
 
   return (
-    <View style={[styles.hero, { backgroundColor: bg }]}>
+    <LinearGradient
+      colors={theme.gradient}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={styles.hero}
+    >
+      {/* Subtle warm shine — same treatment on every card representation */}
+      <LinearGradient
+        colors={CARD_SHINE}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0.6, y: 0.7 }}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
+
       {/* Store + card name */}
       <View style={styles.heroHead}>
         <View style={styles.heroNames}>
           {storeName ? (
-            <Text style={styles.heroStore} numberOfLines={1}>{storeName}</Text>
+            <Text style={[styles.heroStore, { color: theme.textSecondary }]} numberOfLines={1}>{storeName}</Text>
           ) : null}
-          <Text style={styles.heroCard} numberOfLines={2}>{cardName}</Text>
+          <Text style={[styles.heroCard, { color: theme.textPrimary }]} numberOfLines={2}>{cardName}</Text>
         </View>
-        <View style={styles.heroChip}>
-          <CreditCard size={20} color="rgba(255,255,255,0.55)" strokeWidth={1.5} />
+        <View style={[styles.heroChip, { backgroundColor: theme.chipBg }]}>
+          <CreditCard size={15} color={theme.textSecondary} strokeWidth={1.5} />
         </View>
       </View>
 
       {/* Big balance — pulses gently when balance changes after a redemption */}
       <View style={styles.heroBalanceWrap}>
-        <Text style={styles.heroBalanceLabel}>Remaining Balance</Text>
-        <Animated.Text
-          style={[styles.heroBalance, { transform: [{ scale: pulseScale }] }]}
-        >
-          {fmt(walletBalance)}
-        </Animated.Text>
-        {originalBalance != null && (
-          <Text style={styles.heroOriginal}>
-            of {fmt(originalBalance)} original
-          </Text>
-        )}
+        <Text style={[styles.heroBalanceLabel, { color: theme.textMuted }]}>Remaining Balance</Text>
+        <View style={styles.heroBalanceRow}>
+          <Animated.Text
+            style={[styles.heroBalance, { color: theme.textPrimary, transform: [{ scale: pulseScale }] }]}
+          >
+            {fmt(walletBalance)}
+          </Animated.Text>
+          {originalBalance != null && (
+            <Text style={[styles.heroOriginal, { color: theme.textMuted }]}>of {fmt(originalBalance)}</Text>
+          )}
+        </View>
       </View>
 
       {/* Progress bar */}
       {ratio != null && (
         <View style={styles.progressWrap}>
-          <View style={styles.progressTrack}>
+          <View style={[styles.progressTrack, { backgroundColor: theme.trackBg }]}>
             <View
               style={[
                 styles.progressFill,
@@ -282,11 +289,11 @@ function MembershipHero({
             />
           </View>
           <View style={styles.progressLabels}>
-            <Text style={styles.progressPct}>
+            <Text style={[styles.progressPct, { color: theme.textSecondary }]}>
               {Math.round(ratio * 100)}% Available
             </Text>
             {originalBalance != null && (
-              <Text style={styles.progressUsed}>
+              <Text style={[styles.progressUsed, { color: theme.textMuted }]}>
                 {fmt(originalBalance - walletBalance)} used
               </Text>
             )}
@@ -297,10 +304,10 @@ function MembershipHero({
       {/* Bottom: expiry + status */}
       <View style={styles.heroBottom}>
         <View>
-          <Text style={styles.heroExpLabel}>
+          <Text style={[styles.heroExpLabel, { color: theme.textMuted }]}>
             {status === 'EXPIRED' ? 'Expired' : 'Expires'}
           </Text>
-          <Text style={styles.heroExpDate}>
+          <Text style={[styles.heroExpDate, { color: theme.textSecondary }]}>
             {fmtDate(expiresAt)}
             {status === 'ACTIVE' && days <= 7 && days > 0
               ? ` · ${days}d left`
@@ -316,10 +323,9 @@ function MembershipHero({
       </View>
 
       {/* Decorative circles */}
-      <View style={styles.decCircle1} pointerEvents="none" />
-      <View style={styles.decCircle2} pointerEvents="none" />
-      <View style={styles.decCircle3} pointerEvents="none" />
-    </View>
+      <View style={[styles.decCircle1, { backgroundColor: theme.decor1 }]} pointerEvents="none" />
+      <View style={[styles.decCircle2, { backgroundColor: theme.decor2 }]} pointerEvents="none" />
+    </LinearGradient>
   );
 }
 
@@ -587,14 +593,14 @@ function DetailSkeleton({ onBack }: { onBack: () => void }) {
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         {/* Hero skeleton */}
         <View style={styles.heroSkeleton}>
-          <SkeletonBone style={{ width: 110, height: 12, opacity: 0.25, marginBottom: 8 }} />
-          <SkeletonBone style={{ width: 200, height: 22, opacity: 0.3, marginBottom: 20 }} />
-          <SkeletonBone style={{ width: 130, height: 13, opacity: 0.2, marginBottom: 6 }} />
-          <SkeletonBone style={{ width: 180, height: 40, opacity: 0.3, marginBottom: 18 }} />
-          <SkeletonBone style={{ width: '100%', height: 6, borderRadius: 3, opacity: 0.2, marginBottom: 20 }} />
+          <SkeletonBone style={{ width: 110, height: 11, opacity: 0.25, marginBottom: 6 }} />
+          <SkeletonBone style={{ width: 170, height: 18, opacity: 0.3, marginBottom: 14 }} />
+          <SkeletonBone style={{ width: 100, height: 11, opacity: 0.2, marginBottom: 5 }} />
+          <SkeletonBone style={{ width: 140, height: 30, opacity: 0.3, marginBottom: 14 }} />
+          <SkeletonBone style={{ width: '100%', height: 4, borderRadius: 2, opacity: 0.2, marginBottom: 14 }} />
           <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-            <SkeletonBone style={{ width: 110, height: 13, opacity: 0.25 }} />
-            <SkeletonBone style={{ width: 70, height: 26, borderRadius: 13, opacity: 0.25 }} />
+            <SkeletonBone style={{ width: 100, height: 12, opacity: 0.25 }} />
+            <SkeletonBone style={{ width: 64, height: 22, borderRadius: 11, opacity: 0.25 }} />
           </View>
         </View>
 
@@ -1042,14 +1048,14 @@ const styles = StyleSheet.create({
   hero: {
     marginHorizontal: 16,
     marginTop: 20,
-    borderRadius: 22,
-    padding: 24,
-    minHeight: 260,
+    borderRadius: CARD_RADIUS,
+    padding: 16,
+    minHeight: CARD_HEIGHT,
     justifyContent: 'space-between',
     overflow: 'hidden',
     ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.22, shadowRadius: 20 },
-      android: { elevation: 8 },
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.18, shadowRadius: 14 },
+      android: { elevation: 6 },
     }),
   },
   heroHead: {
@@ -1057,63 +1063,60 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
   },
-  heroNames: { flex: 1, gap: 4, paddingRight: 12 },
+  heroNames: { flex: 1, gap: 2, paddingRight: 12 },
   heroStore: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '600',
     fontFamily: ManropeWeights.semiBold,
-    color: 'rgba(255,255,255,0.45)',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   heroCard: {
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: '700',
     fontFamily: ManropeWeights.bold,
-    color: '#FFFFFF',
-    letterSpacing: -0.4,
+    letterSpacing: -0.3,
   },
   heroChip: {
-    width: 42, height: 42, borderRadius: 13,
-    backgroundColor: 'rgba(255,255,255,0.10)',
+    width: 30, height: 30, borderRadius: 10,
     justifyContent: 'center', alignItems: 'center',
   },
-  heroBalanceWrap: { marginTop: 16 },
+  heroBalanceWrap: { marginTop: 8 },
   heroBalanceLabel: {
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.48)',
+    fontSize: 9.5,
     fontWeight: '500',
     fontFamily: ManropeWeights.medium,
     letterSpacing: 0.4,
-    marginBottom: 4,
+    marginBottom: 1,
     textTransform: 'uppercase',
   },
+  heroBalanceRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 6,
+  },
   heroBalance: {
-    fontSize: 40,
+    fontSize: 26,
     fontWeight: '700',
     fontFamily: ManropeWeights.bold,
-    color: '#FFFFFF',
-    letterSpacing: -1.5,
+    letterSpacing: -1,
   },
   heroOriginal: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.45)',
+    fontSize: 11.5,
     fontWeight: '500',
     fontFamily: ManropeWeights.medium,
-    marginTop: 4,
   },
 
   // Progress bar
-  progressWrap: { marginTop: 18 },
+  progressWrap: { marginTop: 9 },
   progressTrack: {
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    height: 4,
+    borderRadius: 2,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    borderRadius: 3,
+    borderRadius: 2,
   },
   progressLabels: {
     flexDirection: 'row',
@@ -1122,13 +1125,11 @@ const styles = StyleSheet.create({
   },
   progressPct: {
     fontSize: 11,
-    color: 'rgba(255,255,255,0.55)',
     fontWeight: '600',
     fontFamily: ManropeWeights.semiBold,
   },
   progressUsed: {
     fontSize: 11,
-    color: 'rgba(255,255,255,0.40)',
     fontWeight: '500',
     fontFamily: ManropeWeights.medium,
   },
@@ -1138,50 +1139,44 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-end',
-    marginTop: 18,
+    marginTop: 10,
   },
   heroExpLabel: {
-    fontSize: 10,
-    color: 'rgba(255,255,255,0.40)',
+    fontSize: 9,
     fontWeight: '500',
     fontFamily: ManropeWeights.medium,
     letterSpacing: 0.4,
-    marginBottom: 3,
+    marginBottom: 1,
     textTransform: 'uppercase',
   },
   heroExpDate: {
-    fontSize: 14,
+    fontSize: 12.5,
     fontWeight: '600',
     fontFamily: ManropeWeights.semiBold,
-    color: 'rgba(255,255,255,0.85)',
   },
   statusPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     borderRadius: 20,
   },
   statusPillText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
     fontFamily: ManropeWeights.bold,
     letterSpacing: 0.1,
   },
 
-  // Decorative circles
+  // Decorative circles — color set inline from the card's own theme.
   decCircle1: {
-    position: 'absolute', width: 160, height: 160, borderRadius: 80,
-    backgroundColor: 'rgba(255,255,255,0.04)', top: -40, right: -40,
+    position: 'absolute', width: 110, height: 110, borderRadius: 55,
+    top: -28, right: -28,
   },
   decCircle2: {
-    position: 'absolute', width: 100, height: 100, borderRadius: 50,
-    backgroundColor: 'rgba(255,255,255,0.03)', bottom: 20, right: 90,
-  },
-  decCircle3: {
-    position: 'absolute', width: 60, height: 60, borderRadius: 30,
-    backgroundColor: 'rgba(255,255,255,0.03)', bottom: -10, left: 40,
+    position: 'absolute', width: 64, height: 64, borderRadius: 32,
+    bottom: -12, right: 46,
   },
 
   // ── Section ────────────────────────────────────────────────────────────────
@@ -1322,10 +1317,10 @@ const styles = StyleSheet.create({
   // ── Hero skeleton ──────────────────────────────────────────────────────────
   heroSkeleton: {
     margin: 16,
-    borderRadius: 22,
+    borderRadius: 20,
     backgroundColor: '#1A1A2A',
-    padding: 24,
-    minHeight: 260,
+    padding: 18,
+    minHeight: 175,
     justifyContent: 'flex-end',
   },
 

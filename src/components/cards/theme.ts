@@ -1,5 +1,9 @@
 // Design tokens for card discovery components.
 // Mirror the store/theme.ts palette so surfaces feel unified.
+//
+// Per-card color identity lives in @/utils/cardColorTheme — the single
+// source of truth shared by Card Details, Membership and Vendor Available
+// Cards, so the same card always renders the same color everywhere.
 
 export const CC = {
   accent:      '#D63527',
@@ -14,22 +18,6 @@ export const CC = {
   gold:        '#C9973A',
   goldSoft:    '#FDF6E8',
 } as const;
-
-// Premium dark card backgrounds — deterministic from card name hash.
-const CARD_DARKS = [
-  '#1C1C2E',
-  '#0A2342',
-  '#1A1A2E',
-  '#0D1B2A',
-  '#1B1B2F',
-  '#0F2027',
-  '#16213E',
-] as const;
-
-export function cardBgColor(name: string): string {
-  const idx = name.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % CARD_DARKS.length;
-  return CARD_DARKS[idx];
-}
 
 export function formatCardPrice(n: number): string {
   return n % 1 === 0 ? `₹${n}` : `₹${n.toFixed(2)}`;

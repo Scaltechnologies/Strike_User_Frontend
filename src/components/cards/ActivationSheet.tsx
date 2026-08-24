@@ -17,8 +17,10 @@ import { Check, ChevronDown, Info, Tag, X } from 'lucide-react-native';
 import { subscriptionApi } from '@/api/subscription.api';
 import { useCreatePayment, useVerifyPayment, useCancelPayment } from '@/hooks/usePayments';
 import { useValidateCoupon } from '@/hooks/useCoupons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { RazorpayCheckout } from './RazorpayCheckout';
-import { cardBgColor, formatCardPrice, CC } from './theme';
+import { formatCardPrice, CC } from './theme';
+import { CARD_SHINE, getCardColorTheme } from '@/utils/cardColorTheme';
 import { ManropeWeights } from '@/constants/theme';
 import type { CardDefinition } from '@/types/card';
 import type { MenuCategory } from '@/types/store';
@@ -160,6 +162,7 @@ export function ActivationSheet({
   }, [visible, slideAnim]);
 
   const hasBonus = card.bonusAmount > 0;
+  const cardTheme = getCardColorTheme(card.name);
   const eligibleCategories = menuCategories.filter((cat) =>
     (card.categoryIds ?? []).includes(cat.id),
   );
@@ -329,32 +332,45 @@ export function ActivationSheet({
             bounces={false}
             keyboardShouldPersistTaps="handled"
           >
-            {/* Mini card preview */}
-            <View style={[styles.miniCard, { backgroundColor: cardBgColor(card.name) }]}>
-              <Text style={styles.miniCardStore} numberOfLines={1}>
+            {/* Mini card preview — same canonical color/gradient/text-contrast
+                theme as My Cards, Card Details, Membership and Vendor Available Cards */}
+            <LinearGradient
+              colors={cardTheme.gradient}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.miniCard}
+            >
+              <LinearGradient
+                colors={CARD_SHINE}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 0.6, y: 0.7 }}
+                style={StyleSheet.absoluteFill}
+                pointerEvents="none"
+              />
+              <Text style={[styles.miniCardStore, { color: cardTheme.textSecondary }]} numberOfLines={1}>
                 {storeName ?? `Store #${card.storeId}`}
               </Text>
-              <Text style={styles.miniCardName} numberOfLines={2}>
+              <Text style={[styles.miniCardName, { color: cardTheme.textPrimary }]} numberOfLines={2}>
                 {card.name}
               </Text>
               <View style={styles.miniCardRow}>
                 <View>
-                  <Text style={styles.miniCardMetaLabel}>Wallet Credit</Text>
-                  <Text style={styles.miniCardBalance}>
+                  <Text style={[styles.miniCardMetaLabel, { color: cardTheme.textMuted }]}>Wallet Credit</Text>
+                  <Text style={[styles.miniCardBalance, { color: cardTheme.textPrimary }]}>
                     {formatCardPrice(card.walletAmount)}
                   </Text>
                 </View>
                 {hasBonus && (
-                  <View style={styles.miniCardBonusPill}>
-                    <Text style={styles.miniCardBonusText}>
+                  <View style={[styles.miniCardBonusPill, { backgroundColor: cardTheme.chipBg }]}>
+                    <Text style={[styles.miniCardBonusText, { color: cardTheme.textPrimary }]}>
                       +{formatCardPrice(card.bonusAmount)} bonus
                     </Text>
                   </View>
                 )}
               </View>
-              <View style={styles.miniCircle1} pointerEvents="none" />
-              <View style={styles.miniCircle2} pointerEvents="none" />
-            </View>
+              <View style={[styles.miniCircle1, { backgroundColor: cardTheme.decor1 }]} pointerEvents="none" />
+              <View style={[styles.miniCircle2, { backgroundColor: cardTheme.decor2 }]} pointerEvents="none" />
+            </LinearGradient>
 
             {/* Summary card */}
             <View style={styles.summaryCard}>
@@ -614,14 +630,12 @@ const styles = StyleSheet.create({
   miniCardStore: {
     fontSize: 11,
     fontFamily: ManropeWeights.semiBold,
-    color: 'rgba(255,255,255,0.45)',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   miniCardName: {
     fontSize: 19,
     fontFamily: ManropeWeights.bold,
-    color: '#FFF',
     letterSpacing: -0.4,
   },
   miniCardRow: {
@@ -632,7 +646,6 @@ const styles = StyleSheet.create({
   },
   miniCardMetaLabel: {
     fontSize: 10,
-    color: 'rgba(255,255,255,0.40)',
     fontFamily: ManropeWeights.medium,
     letterSpacing: 0.4,
     marginBottom: 3,
@@ -641,11 +654,9 @@ const styles = StyleSheet.create({
   miniCardBalance: {
     fontSize: 30,
     fontFamily: ManropeWeights.bold,
-    color: '#FFF',
     letterSpacing: -1,
   },
   miniCardBonusPill: {
-    backgroundColor: 'rgba(201,151,58,0.22)',
     borderRadius: 20,
     paddingHorizontal: 10,
     paddingVertical: 5,
@@ -653,14 +664,12 @@ const styles = StyleSheet.create({
   miniCardBonusText: {
     fontSize: 12,
     fontFamily: ManropeWeights.semiBold,
-    color: '#FFD580',
   },
   miniCircle1: {
     position: 'absolute',
     width: 120,
     height: 120,
     borderRadius: 60,
-    backgroundColor: 'rgba(255,255,255,0.05)',
     top: -30,
     right: -30,
   },
@@ -669,7 +678,6 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: 'rgba(255,255,255,0.04)',
     bottom: 8,
     right: 80,
   },

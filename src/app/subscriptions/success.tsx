@@ -11,7 +11,8 @@ import Animated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
-import { cardBgColor, formatCardPrice } from '@/components/cards/theme';
+import { formatCardPrice } from '@/components/cards/theme';
+import { getCardColorTheme } from '@/utils/cardColorTheme';
 import { PurchaseCardReveal } from '@/components/cards/PurchaseCardReveal';
 import { ROUTES, buildRoute } from '@/constants/routes';
 import { ManropeWeights } from '@/constants/theme';
@@ -65,7 +66,9 @@ export default function ActivationSuccessScreen() {
   const balance    = parseFloat(walletBalance) || 0;
   const days       = expiresAt ? daysLeft(expiresAt) : 0;
   const expiryFmt  = expiresAt ? fmtDate(expiresAt) : '';
-  const cardBg     = cardBgColor(cardName);
+  // Same canonical per-card theme as Card Details / Membership / My Cards /
+  // Vendor Available Cards (see @/utils/cardColorTheme).
+  const cardTheme  = getCardColorTheme(cardName);
 
   // ── Entrance choreography ──────────────────────────────────────────────────
   // Runs entirely on the UI thread via Reanimated worklets: checkmark pops,
@@ -143,7 +146,7 @@ export default function ActivationSuccessScreen() {
         {/* Membership card — flip-in reveal, gloss sweep, idle glow, touch-tilt */}
         <PurchaseCardReveal
           cardName={cardName}
-          cardBg={cardBg}
+          theme={cardTheme}
           balanceLabel={formatCardPrice(balance)}
           expiryLabel={expiryFmt || undefined}
           daysLabel={expiryFmt ? `${days}d remaining` : undefined}
