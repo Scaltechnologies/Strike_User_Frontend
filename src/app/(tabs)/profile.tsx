@@ -37,6 +37,7 @@ import { useProfile, useUpdateProfile, useUploadAvatar } from '@/hooks/useProfil
 import { useMyActiveSubscriptions } from '@/hooks/useSubscriptions';
 import { useUserRedemptions } from '@/hooks/useRedemptions';
 import { apiClient } from '@/api/client';
+import { disableCurrentDevice } from '@/services/notificationService';
 import { API_ENDPOINTS } from '@/constants/api';
 import { ROUTES } from '@/constants/routes';
 import { ManropeWeights } from '@/constants/theme';
@@ -578,6 +579,11 @@ export default function ProfileScreen() {
           .post(API_ENDPOINTS.AUTH.LOGOUT, { refreshToken })
           .catch(() => {});
       }
+      // Must run before clearAuth() below — disabling the device row needs
+      // this account's still-valid bearer token to authenticate the request.
+      // Best-effort: a failure here just leaves the row active until the
+      // next account registers the same token and reclaims it.
+      await disableCurrentDevice();
     } finally {
       setLogoutConfirmVisible(false);
       clearAuth();

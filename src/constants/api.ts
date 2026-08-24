@@ -30,7 +30,18 @@ export const API_ENDPOINTS = {
     AVATAR:  `${P}/user/me/avatar`,
     // Backend device registration lives in notification-service, not user-service.
     PUSH_TOKEN: `${P}/notifications/me/devices`,
+    PUSH_DEVICE_BY_ID: (id: string | number) => `${P}/notifications/me/devices/${id}`,
     LOCATION: `${P}/user/me/location`,
+  },
+
+  // notification-service self-service inbox — GET/PATCH are scoped server-side to the
+  // authenticated principal (JWT), never a client-supplied userId. No ApiSuccessResponse
+  // wrapper (mirrors admin-service's PageMapper convention — plain JSON body).
+  NOTIFICATIONS: {
+    INBOX:        `${P}/notifications/me`,
+    UNREAD_COUNT: `${P}/notifications/me/unread-count`,
+    READ:         (id: string | number) => `${P}/notifications/me/${id}/read`,
+    READ_ALL:     `${P}/notifications/me/read-all`,
   },
 
   USER_STORES: {

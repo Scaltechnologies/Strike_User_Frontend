@@ -46,7 +46,7 @@ import { PurchasedCardsCarousel } from '@/components/home/PurchasedCardsCarousel
 import { PressableScale } from '@/components/ui/PressableScale';
 import { FadeInView } from '@/components/ui/FadeInView';
 import { useLocation } from '@/hooks/useLocation';
-import { useNotificationHistory } from '@/hooks/useNotificationHistory';
+import { useUnreadNotificationCount } from '@/hooks/useNotificationInbox';
 import {
   useAllStores, useInvalidateStores, useNearbyStores, useSearchStores, useStoreMenu, useStoresByCategory,
 } from '@/hooks/useStores';
@@ -977,7 +977,11 @@ export default function HomeScreen() {
   const { locationStatus, coords, locationName, locationSynced } = useAppStore();
   const { initLocation, requestPermissionAndLocate, openSettings, refresh, applyLocation } = useLocation();
   const invalidateStores = useInvalidateStores();
-  const { unreadCount } = useNotificationHistory();
+  // Backend is the source of truth — never inferred from local state. FCM
+  // foreground messages invalidate this query directly (notificationService's
+  // onMessage handler), so it updates live without polling; the global
+  // focus-refetch (QueryProvider) covers app-foreground/screen revisit.
+  const { data: unreadCount = 0 } = useUnreadNotificationCount();
 
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -1180,7 +1184,11 @@ export default function HomeScreen() {
 
       <PressableScale style={styles.bellBtn} onPress={() => router.push(ROUTES.NOTIFICATIONS as never)}>
         <Bell size={19} color={C.primary} strokeWidth={1.7} />
-        {unreadCount > 0 && <View style={styles.bellDot} />}
+        {unreadCount > 0 ? (
+          <View style={styles.bellBadge}>
+            <Text style={styles.bellBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+          </View>
+        ) : null}
       </PressableScale>
     </View>
   );
@@ -1585,16 +1593,26 @@ const styles = StyleSheet.create({
       android: { elevation: 1 },
     }),
   },
-  bellDot: {
+  bellBadge: {
     position: 'absolute',
-    top: 10,
-    right: 10,
-    width: 7,
-    height: 7,
-    borderRadius: 4,
+    top: 4,
+    right: 4,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 3,
     backgroundColor: C.accent,
     borderWidth: 1.5,
     borderColor: C.bg,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  bellBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
+    color: '#FFFFFF',
+    letterSpacing: -0.2,
   },
 
   // ── Search Bar ──

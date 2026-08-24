@@ -3,10 +3,9 @@
 // Mirrors useLocation.ts's permission → status → backend-PATCH shape.
 
 import { useCallback } from 'react';
-import { Linking, Platform } from 'react-native';
+import { Linking } from 'react-native';
 
 import { useAppStore } from '@/store/appStore';
-import { userApi } from '@/api/user.api';
 import { storageService } from '@/services/storageService';
 import * as notificationService from '@/services/notificationService';
 
@@ -21,13 +20,13 @@ export function useNotifications() {
   } = useAppStore();
 
   // Best-effort — a failed/unavailable push token must never undo the toggle
-  // the user already switched on.
+  // the user already switched on. Routes through notificationService's shared
+  // registerCurrentDeviceToken() so this toggle and the auto-sync-on-login
+  // path (AuthProvider) both keep the same in-memory device-id bookkeeping
+  // logout's disableCurrentDevice() depends on.
   const syncPushToken = useCallback(async () => {
     try {
-      const token = await notificationService.getFcmToken();
-      if (token) {
-        await userApi.registerPushToken(token, Platform.OS === 'ios' ? 'ios' : 'android');
-      }
+      await notificationService.registerCurrentDeviceToken();
     } catch {
       // Silent — same best-effort pattern as useLocation's backend PATCH.
     }
