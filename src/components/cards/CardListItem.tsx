@@ -2,8 +2,10 @@ import type { CardDefinition } from '@/types/card';
 import type { MenuCategory } from '@/types/store';
 import { CreditCard } from 'lucide-react-native';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { ManropeWeights } from '@/constants/theme';
-import { cardBgColor, formatCardPrice } from './theme';
+import { CARD_HEIGHT, CARD_RADIUS, CARD_SHINE, getCardColorTheme } from '@/utils/cardColorTheme';
+import { formatCardPrice } from './theme';
 
 interface Props {
   card: CardDefinition;
@@ -15,79 +17,76 @@ interface Props {
   layout?: 'grid' | 'list';
 }
 
-// Premium dark widget, Apple Wallet / CRED aesthetic.
-export function CardListItem({ card, categories, onPress, isOwned = false, layout = 'grid' }: Props) {
-  const bg = cardBgColor(card.name);
+// Premium gradient widget, Apple Wallet / CRED aesthetic. Color is the
+// card's canonical identity (@/utils/cardColorTheme) — the same card
+// renders the same color here, on Card Details and on the Membership screen.
+export function CardListItem({ card, onPress, isOwned = false, layout = 'grid' }: Props) {
+  const theme = getCardColorTheme(card.name);
   const hasBonus = card.bonusAmount > 0;
   const isList = layout === 'list';
 
-  // Resolve category names covered by this card.
-  // Guard: backend may omit categoryIds on older card records.
-  const covered = categories
-    .filter((cat) => (card.categoryIds ?? []).includes(cat.id))
-    .map((cat) => cat.name);
-
-  const catLabel =
-    covered.length === 0
-      ? null
-      : covered.length <= 2
-        ? covered.join(' · ')
-        : `${covered.slice(0, 2).join(' · ')} +${covered.length - 2}`;
-
   return (
     <Pressable
-      style={({ pressed }) => [
-        styles.card,
-        isList && styles.cardList,
-        { backgroundColor: bg, opacity: pressed ? 0.9 : 1 },
-      ]}
+      style={({ pressed }) => ({ opacity: pressed ? 0.9 : 1 })}
       onPress={onPress}
     >
-      {/* Top row: brand label + chip icon (or owned badge) */}
-      <View style={styles.topRow}>
-        <Text style={styles.brand}>Strike</Text>
-        {isOwned ? (
-          <View style={styles.ownedBadge}>
-            <Text style={styles.ownedBadgeText}>Active</Text>
-          </View>
-        ) : (
-          <View style={styles.chip}>
-            <CreditCard size={15} color="rgba(255,255,255,0.6)" strokeWidth={1.5} />
-          </View>
-        )}
-      </View>
+      <LinearGradient
+        colors={theme.gradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={[styles.card, isList && styles.cardList]}
+      >
+        {/* Subtle warm shine — same treatment on every card representation */}
+        <LinearGradient
+          colors={CARD_SHINE}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0.6, y: 0.7 }}
+          style={StyleSheet.absoluteFill}
+          pointerEvents="none"
+        />
 
-      {/* Card name */}
-      <Text style={styles.name} numberOfLines={2}>
-        {card.name}
-      </Text>
+        {/* Top row: brand label + chip icon (or owned badge) */}
+        <View style={styles.topRow}>
+          <Text style={[styles.brand, { color: theme.textMuted }]}>Strike</Text>
+          {isOwned ? (
+            <View style={styles.ownedBadge}>
+              <Text style={styles.ownedBadgeText}>Active</Text>
+            </View>
+          ) : (
+            <View style={[styles.chip, { backgroundColor: theme.chipBg }]}>
+              <CreditCard size={15} color={theme.textSecondary} strokeWidth={1.5} />
+            </View>
+          )}
+        </View>
 
-      {/* Wallet + bonus line */}
-      <Text style={styles.walletLine} numberOfLines={1}>
-        {formatCardPrice(card.walletAmount)} wallet
-        {hasBonus ? (
-          <Text style={styles.bonusText}>{'  '}+{formatCardPrice(card.bonusAmount)} bonus</Text>
-        ) : null}
-      </Text>
+        {/* Card name */}
+        <Text style={[styles.name, { color: theme.textPrimary }]} numberOfLines={2}>
+          {card.name}
+        </Text>
 
-      {/* Bottom: price + validity pill */}
-      <View style={styles.bottomRow}>
-        <View>
-          {catLabel ? (
-            <Text style={styles.catLabel} numberOfLines={1}>
-              {catLabel}
-            </Text>
+        {/* Wallet + bonus line — the card's own credit, distinct from what the user pays */}
+        <Text style={[styles.walletLine, { color: theme.textPrimary }]} numberOfLines={1}>
+          {formatCardPrice(card.walletAmount)} <Text style={[styles.walletLineCaption, { color: theme.textSecondary }]}>wallet</Text>
+          {hasBonus ? (
+            <Text style={[styles.bonusText, { color: theme.textPrimary }]}>{'  '}+{formatCardPrice(card.bonusAmount)} bonus</Text>
           ) : null}
-          <Text style={styles.price}>{formatCardPrice(card.cardPrice)}</Text>
-        </View>
-        <View style={styles.validityPill}>
-          <Text style={styles.validityText}>{card.validityInDays}d</Text>
-        </View>
-      </View>
+        </Text>
 
-      {/* Decorative background circles */}
-      <View style={styles.circle1} />
-      <View style={styles.circle2} />
+        {/* Bottom: clearly labeled price + validity pill */}
+        <View style={styles.bottomRow}>
+          <View>
+            <Text style={[styles.priceLabel, { color: theme.textMuted }]}>Price</Text>
+            <Text style={[styles.price, { color: theme.textPrimary }]}>{formatCardPrice(card.cardPrice)}</Text>
+          </View>
+          <View style={[styles.validityPill, { backgroundColor: theme.chipBg }]}>
+            <Text style={[styles.validityText, { color: theme.textSecondary }]}>{card.validityInDays}d</Text>
+          </View>
+        </View>
+
+        {/* Decorative background circles */}
+        <View style={[styles.circle1, { backgroundColor: theme.decor1 }]} />
+        <View style={[styles.circle2, { backgroundColor: theme.decor2 }]} />
+      </LinearGradient>
     </Pressable>
   );
 }
@@ -95,26 +94,26 @@ export function CardListItem({ card, categories, onPress, isOwned = false, layou
 const styles = StyleSheet.create({
   card: {
     width: 220,
-    height: 175,
-    borderRadius: 18,
-    padding: 18,
+    height: CARD_HEIGHT,
+    borderRadius: CARD_RADIUS,
+    padding: 16,
     marginRight: 12,
     justifyContent: 'space-between',
     overflow: 'hidden',
     ...Platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.2,
-        shadowRadius: 12,
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.18,
+        shadowRadius: 14,
       },
       android: { elevation: 6 },
     }),
   },
   cardList: {
     width: '100%',
-    height: 168,
-    padding: 20,
+    height: CARD_HEIGHT,
+    padding: 16,
     marginRight: 0,
     marginBottom: 14,
   },
@@ -128,7 +127,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
     fontFamily: ManropeWeights.bold,
-    color: 'rgba(255,255,255,0.42)',
     letterSpacing: 1.6,
     textTransform: 'uppercase',
   },
@@ -136,28 +134,31 @@ const styles = StyleSheet.create({
     width: 30,
     height: 30,
     borderRadius: 9,
-    backgroundColor: 'rgba(255,255,255,0.10)',
     justifyContent: 'center',
     alignItems: 'center',
   },
 
   name: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '700',
     fontFamily: ManropeWeights.bold,
-    color: '#FFFFFF',
     letterSpacing: -0.3,
     marginTop: 2,
   },
 
   walletLine: {
+    fontSize: 12,
+    fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
+    letterSpacing: -0.1,
+  },
+  walletLineCaption: {
     fontSize: 11,
-    color: 'rgba(255,255,255,0.58)',
     fontWeight: '500',
     fontFamily: ManropeWeights.medium,
   },
   bonusText: {
-    color: '#FFD580',
+    fontSize: 11,
     fontWeight: '600',
     fontFamily: ManropeWeights.semiBold,
   },
@@ -167,22 +168,21 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-end',
   },
-  catLabel: {
+  priceLabel: {
     fontSize: 10,
-    color: 'rgba(255,255,255,0.40)',
-    marginBottom: 4,
-    letterSpacing: 0.2,
-    fontFamily: ManropeWeights.regular,
+    fontWeight: '500',
+    fontFamily: ManropeWeights.medium,
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
+    marginBottom: 2,
   },
   price: {
     fontSize: 18,
     fontWeight: '800',
     fontFamily: ManropeWeights.extraBold,
-    color: '#FFFFFF',
     letterSpacing: -0.5,
   },
   validityPill: {
-    backgroundColor: 'rgba(255,255,255,0.12)',
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 20,
@@ -192,7 +192,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     fontFamily: ManropeWeights.bold,
-    color: 'rgba(255,255,255,0.82)',
   },
 
   ownedBadge: {
@@ -211,25 +210,25 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
 
-  // Decorative depth circles
+  // Decorative circles — same treatment as every other card representation
+  // (My Cards, Card Details, Membership) for one consistent decorative
+  // language across the card system. Color set inline from the card's own theme.
   circle1: {
     position: 'absolute',
     width: 110,
     height: 110,
     borderRadius: 55,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    top: -25,
-    right: -25,
+    top: -28,
+    right: -28,
     pointerEvents: 'none',
   },
   circle2: {
     position: 'absolute',
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    bottom: 12,
-    right: 65,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    bottom: -12,
+    right: 46,
     pointerEvents: 'none',
   },
 });

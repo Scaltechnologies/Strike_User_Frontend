@@ -42,8 +42,8 @@ export function CardDetailHeroSkeleton() {
 const styles = StyleSheet.create({
   card: {
     width: 220,
-    height: 175,
-    borderRadius: 18,
+    height: 172,
+    borderRadius: 20,
     backgroundColor: CC.skeleton,
     marginRight: 12,
     padding: 18,
@@ -51,8 +51,8 @@ const styles = StyleSheet.create({
   },
   cardList: {
     width: '100%',
-    height: 168,
-    padding: 20,
+    height: 172,
+    padding: 18,
     marginRight: 0,
   },
   topRow: {
@@ -68,10 +68,10 @@ const styles = StyleSheet.create({
   hero: {
     marginHorizontal: 16,
     marginTop: 16,
-    height: 215,
-    borderRadius: 22,
+    height: 172,
+    borderRadius: 20,
     backgroundColor: CC.skeleton,
-    padding: 24,
+    padding: 16,
     justifyContent: 'space-between',
   },
   heroBottom: {

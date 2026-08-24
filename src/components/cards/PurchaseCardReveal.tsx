@@ -19,13 +19,18 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { CreditCard } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { ManropeWeights } from '@/constants/theme';
+import { CARD_SHINE, type CardColorTheme } from '@/utils/cardColorTheme';
 
 const TILT_DEG = 9;
 
 type PurchaseCardRevealProps = {
   cardName: string;
-  cardBg: string;
+  /** Same canonical per-card theme as My Cards, Card Details, Membership
+   *  and Vendor Available Cards — keeps text/decoration contrast-safe
+   *  across the whole approved palette. */
+  theme: CardColorTheme;
   balanceLabel: string;
   expiryLabel?: string;
   daysLabel?: string;
@@ -35,7 +40,7 @@ type PurchaseCardRevealProps = {
 
 export function PurchaseCardReveal({
   cardName,
-  cardBg,
+  theme,
   balanceLabel,
   expiryLabel,
   daysLabel,
@@ -130,32 +135,47 @@ export function PurchaseCardReveal({
 
   return (
     <View style={styles.wrap}>
-      <Animated.View style={[styles.glow, { backgroundColor: cardBg }, glowStyle]} pointerEvents="none" />
+      <Animated.View style={[styles.glow, { backgroundColor: theme.gradient[0] }, glowStyle]} pointerEvents="none" />
 
       <GestureDetector gesture={pan}>
-        <Animated.View onLayout={onLayout} style={[styles.card, { backgroundColor: cardBg }, cardStyle]}>
+        <Animated.View onLayout={onLayout} style={[styles.card, cardStyle]}>
+          <LinearGradient
+            colors={theme.gradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
+          {/* Subtle warm shine — same treatment on every card representation */}
+          <LinearGradient
+            colors={CARD_SHINE}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0.6, y: 0.7 }}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
+          />
+
           <View style={styles.top}>
             <View style={styles.names}>
-              <Text style={styles.brand}>Membership</Text>
-              <Text style={styles.name} numberOfLines={2}>
+              <Text style={[styles.brand, { color: theme.textMuted }]}>Membership</Text>
+              <Text style={[styles.name, { color: theme.textPrimary }]} numberOfLines={2}>
                 {cardName}
               </Text>
             </View>
-            <View style={styles.chip}>
-              <CreditCard size={20} color="rgba(255,255,255,0.55)" strokeWidth={1.5} />
+            <View style={[styles.chip, { backgroundColor: theme.chipBg }]}>
+              <CreditCard size={20} color={theme.textSecondary} strokeWidth={1.5} />
             </View>
           </View>
 
           <View style={styles.balanceWrap}>
-            <Text style={styles.balLabel}>Wallet Balance</Text>
-            <Text style={styles.balValue}>{balanceLabel}</Text>
+            <Text style={[styles.balLabel, { color: theme.textMuted }]}>Wallet Balance</Text>
+            <Text style={[styles.balValue, { color: theme.textPrimary }]}>{balanceLabel}</Text>
           </View>
 
           {expiryLabel ? (
             <View style={styles.bottom}>
               <View>
-                <Text style={styles.metaLabel}>Valid Until</Text>
-                <Text style={styles.metaValue}>{expiryLabel}</Text>
+                <Text style={[styles.metaLabel, { color: theme.textMuted }]}>Valid Until</Text>
+                <Text style={[styles.metaValue, { color: theme.textSecondary }]}>{expiryLabel}</Text>
               </View>
               {daysLabel ? (
                 <View style={styles.daysPill}>
@@ -165,8 +185,8 @@ export function PurchaseCardReveal({
             </View>
           ) : null}
 
-          <View style={styles.decCircle1} pointerEvents="none" />
-          <View style={styles.decCircle2} pointerEvents="none" />
+          <View style={[styles.decCircle1, { backgroundColor: theme.decor1 }]} pointerEvents="none" />
+          <View style={[styles.decCircle2, { backgroundColor: theme.decor2 }]} pointerEvents="none" />
 
           <Animated.View style={[styles.shimmer, shimmerStyle]} pointerEvents="none" />
         </Animated.View>
@@ -213,7 +233,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
     fontFamily: ManropeWeights.bold,
-    color: 'rgba(255,255,255,0.35)',
     textTransform: 'uppercase',
     letterSpacing: 1.5,
   },
@@ -221,21 +240,18 @@ const styles = StyleSheet.create({
     fontSize: 19,
     fontWeight: '700',
     fontFamily: ManropeWeights.bold,
-    color: '#FFF',
     letterSpacing: -0.4,
   },
   chip: {
     width: 40,
     height: 40,
     borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.10)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   balanceWrap: { gap: 4 },
   balLabel: {
     fontSize: 10,
-    color: 'rgba(255,255,255,0.45)',
     fontWeight: '500',
     fontFamily: ManropeWeights.medium,
     textTransform: 'uppercase',
@@ -245,7 +261,6 @@ const styles = StyleSheet.create({
     fontSize: 36,
     fontWeight: '800',
     fontFamily: ManropeWeights.extraBold,
-    color: '#FFF',
     letterSpacing: -1.5,
   },
   bottom: {
@@ -255,7 +270,6 @@ const styles = StyleSheet.create({
   },
   metaLabel: {
     fontSize: 10,
-    color: 'rgba(255,255,255,0.35)',
     fontWeight: '500',
     fontFamily: ManropeWeights.medium,
     letterSpacing: 0.4,
@@ -266,7 +280,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     fontFamily: ManropeWeights.semiBold,
-    color: 'rgba(255,255,255,0.85)',
   },
   daysPill: {
     backgroundColor: 'rgba(52,199,89,0.20)',
@@ -285,7 +298,6 @@ const styles = StyleSheet.create({
     width: 150,
     height: 150,
     borderRadius: 75,
-    backgroundColor: 'rgba(255,255,255,0.04)',
     top: -40,
     right: -40,
   },
@@ -294,7 +306,6 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: 'rgba(255,255,255,0.03)',
     bottom: 10,
     right: 80,
   },

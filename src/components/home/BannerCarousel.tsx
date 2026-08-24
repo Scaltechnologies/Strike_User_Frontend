@@ -27,7 +27,8 @@ import { openBrowserAsync, WebBrowserPresentationStyle } from 'expo-web-browser'
 import { useActiveBanners } from '@/hooks/useBanners';
 import { useNewArrivals } from '@/hooks/useCards';
 import { useMediaSource, logMediaError } from '@/utils/media';
-import { cardBgColor, formatCardPrice } from '@/components/cards/theme';
+import { formatCardPrice } from '@/components/cards/theme';
+import { getCardColorTheme } from '@/utils/cardColorTheme';
 import { buildRoute } from '@/constants/routes';
 import { ManropeWeights } from '@/constants/theme';
 import { C } from '../store/theme';
@@ -79,45 +80,45 @@ function NewArrivalCardSlide({
   card, width, storeName,
 }: { card: CardDefinition; width: number; storeName: string | undefined }) {
   const router = useRouter();
-  const bg = cardBgColor(card.name);
+  const theme = getCardColorTheme(card.name);
   const hasBonus = card.bonusAmount > 0;
 
   return (
     <Pressable
-      style={[styles.slide, styles.cardSlide, { width, backgroundColor: bg }]}
+      style={[styles.slide, styles.cardSlide, { width, backgroundColor: theme.gradient[0] }]}
       onPress={() => router.push(buildRoute.cardDetail(card.id) as never)}
     >
       <View style={styles.cardSlideLeft}>
-        <View style={styles.newPill}>
-          <Text style={styles.newPillText}>NEW</Text>
+        <View style={[styles.newPill, { backgroundColor: theme.chipBg }]}>
+          <Text style={[styles.newPillText, { color: theme.textPrimary }]}>NEW</Text>
         </View>
-        <Text style={styles.cardSlideName} numberOfLines={1}>
+        <Text style={[styles.cardSlideName, { color: theme.textPrimary }]} numberOfLines={1}>
           {card.name}
         </Text>
         {storeName ? (
-          <Text style={styles.cardSlideStore} numberOfLines={1}>
+          <Text style={[styles.cardSlideStore, { color: theme.textSecondary }]} numberOfLines={1}>
             {storeName}
           </Text>
         ) : null}
-        <Text style={styles.cardSlideWallet} numberOfLines={1}>
+        <Text style={[styles.cardSlideWallet, { color: theme.textSecondary }]} numberOfLines={1}>
           {formatCardPrice(card.walletAmount)} wallet
           {hasBonus ? (
-            <Text style={styles.cardSlideBonus}>{'  '}+{formatCardPrice(card.bonusAmount)} bonus</Text>
+            <Text style={[styles.cardSlideBonus, { color: theme.textPrimary }]}>{'  '}+{formatCardPrice(card.bonusAmount)} bonus</Text>
           ) : null}
         </Text>
       </View>
 
       <View style={styles.cardSlideRight}>
-        <Text style={styles.cardSlidePriceLabel}>Price</Text>
-        <Text style={styles.cardSlidePrice}>{formatCardPrice(card.cardPrice)}</Text>
-        <View style={styles.cardSlideValidityPill}>
-          <Text style={styles.cardSlideValidityText}>{card.validityInDays}d</Text>
+        <Text style={[styles.cardSlidePriceLabel, { color: theme.textMuted }]}>Price</Text>
+        <Text style={[styles.cardSlidePrice, { color: theme.textPrimary }]}>{formatCardPrice(card.cardPrice)}</Text>
+        <View style={[styles.cardSlideValidityPill, { backgroundColor: theme.chipBg }]}>
+          <Text style={[styles.cardSlideValidityText, { color: theme.textSecondary }]}>{card.validityInDays}d</Text>
         </View>
       </View>
 
       {/* Decorative depth circles — same treatment as CardListItem */}
-      <View style={styles.circle1} pointerEvents="none" />
-      <View style={styles.circle2} pointerEvents="none" />
+      <View style={[styles.circle1, { backgroundColor: theme.decor1 }]} pointerEvents="none" />
+      <View style={[styles.circle2, { backgroundColor: theme.decor2 }]} pointerEvents="none" />
     </Pressable>
   );
 }
@@ -269,45 +270,37 @@ const styles = StyleSheet.create({
   },
   newPill: {
     alignSelf: 'flex-start',
-    backgroundColor: 'rgba(255,213,128,0.18)',
     borderRadius: 8,
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderWidth: 1,
-    borderColor: 'rgba(255,213,128,0.32)',
     marginBottom: 2,
   },
   newPillText: {
     fontSize: 10,
     fontWeight: '700',
     fontFamily: ManropeWeights.bold,
-    color: '#FFD580',
     letterSpacing: 0.4,
   },
   cardSlideName: {
     fontSize: 16,
     fontWeight: '700',
     fontFamily: ManropeWeights.bold,
-    color: '#FFFFFF',
     letterSpacing: -0.3,
   },
   cardSlideStore: {
     fontSize: 10,
     fontWeight: '600',
     fontFamily: ManropeWeights.semiBold,
-    color: 'rgba(255,255,255,0.52)',
     letterSpacing: 0.3,
     textTransform: 'uppercase',
   },
   cardSlideWallet: {
     fontSize: 11,
-    color: 'rgba(255,255,255,0.6)',
     fontWeight: '500',
     fontFamily: ManropeWeights.medium,
     marginTop: 4,
   },
   cardSlideBonus: {
-    color: '#FFD580',
     fontWeight: '600',
     fontFamily: ManropeWeights.semiBold,
   },
@@ -317,7 +310,6 @@ const styles = StyleSheet.create({
   },
   cardSlidePriceLabel: {
     fontSize: 9,
-    color: 'rgba(255,255,255,0.45)',
     fontFamily: ManropeWeights.medium,
     letterSpacing: 0.4,
     textTransform: 'uppercase',
@@ -326,11 +318,9 @@ const styles = StyleSheet.create({
     fontSize: 19,
     fontWeight: '800',
     fontFamily: ManropeWeights.extraBold,
-    color: '#FFFFFF',
     letterSpacing: -0.5,
   },
   cardSlideValidityPill: {
-    backgroundColor: 'rgba(255,255,255,0.12)',
     paddingHorizontal: 9,
     paddingVertical: 4,
     borderRadius: 20,
@@ -339,7 +329,6 @@ const styles = StyleSheet.create({
     fontSize: 10.5,
     fontWeight: '700',
     fontFamily: ManropeWeights.bold,
-    color: 'rgba(255,255,255,0.82)',
   },
 
   // Decorative depth circles — same treatment as CardListItem
@@ -348,7 +337,6 @@ const styles = StyleSheet.create({
     width: 110,
     height: 110,
     borderRadius: 55,
-    backgroundColor: 'rgba(255,255,255,0.04)',
     top: -35,
     right: -25,
   },
@@ -357,7 +345,6 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: 'rgba(255,255,255,0.03)',
     bottom: -20,
     right: 55,
   },

@@ -35,6 +35,7 @@ import { useAllStores } from '@/hooks/useStores';
 import { buildRoute } from '@/constants/routes';
 import { ManropeWeights } from '@/constants/theme';
 import { getEffectiveStatus } from '@/utils/subscription';
+import { getCardColorTheme } from '@/utils/cardColorTheme';
 import { EmptyState } from '@/components/common/EmptyState';
 import { PremiumSubscriptionCard } from '@/components/cards/PremiumSubscriptionCard';
 import type { Store } from '@/types/store';
@@ -67,22 +68,6 @@ const C = {
   heroMuted:   'rgba(255,255,255,0.55)',
   heroSub:     'rgba(255,255,255,0.72)',
 } as const;
-
-// ── Card face gradients + accent glows ───────────────────────────────────────────
-
-const CARD_GRADIENTS: readonly [string, string][] = [
-  ['#160821', '#3B1264'],
-  ['#03101F', '#0B3D66'],
-  ['#0A0A1F', '#241E5E'],
-  ['#1F0705', '#5C1810'],
-  ['#02140F', '#0A4D38'],
-  ['#0E0A21', '#3B1466'],
-  ['#1A0F04', '#5A2E0A'],
-];
-
-function cardVariant(name: string): number {
-  return name.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % CARD_GRADIENTS.length;
-}
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -131,7 +116,9 @@ function SubscriptionRow({
   onPress: () => void;
 }) {
   const { label, color, bg } = STATUS_CFG[sub.status];
-  const [gradFrom, gradTo] = CARD_GRADIENTS[cardVariant(sub.cardName)];
+  // Same canonical per-card color as My Cards' active-card widgets, Card
+  // Details, Membership and Vendor Available Cards.
+  const cardTheme = getCardColorTheme(sub.cardName);
 
   return (
     <Pressable
@@ -144,12 +131,12 @@ function SubscriptionRow({
     >
       {/* Colored icon */}
       <LinearGradient
-        colors={[gradFrom, gradTo]}
+        colors={cardTheme.gradient}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.pastIconWrap}
       >
-        <CreditCard size={15} color="rgba(255,255,255,0.85)" strokeWidth={1.5} />
+        <CreditCard size={15} color={cardTheme.textSecondary} strokeWidth={1.5} />
       </LinearGradient>
 
       {/* Name + meta */}
@@ -499,7 +486,6 @@ export default function CardsScreen() {
                     onPress={() => navToSub(sub.id)}
                     index={i}
                     showExpiry
-                    showDirections
                   />
                 ))
               )}
@@ -524,7 +510,6 @@ export default function CardsScreen() {
                       urgency
                       index={i}
                       showExpiry
-                      showDirections
                     />
                   ))}
                 </CollapsibleSection>
@@ -874,7 +859,7 @@ const styles = StyleSheet.create({
   cardSkeletonWrap: {
     marginHorizontal: 16,
     marginBottom: 14,
-    borderRadius: 22,
+    borderRadius: 20,
     backgroundColor: '#1A1A2A',
     padding: 22,
     minHeight: 192,

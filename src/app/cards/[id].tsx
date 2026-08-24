@@ -1,16 +1,18 @@
 import { ActivationSheet } from '@/components/cards/ActivationSheet';
 import { CardDetailHeroSkeleton } from '@/components/cards/CardSkeleton';
-import { cardBgColor, CC, formatCardPrice } from '@/components/cards/theme';
+import { CC, formatCardPrice } from '@/components/cards/theme';
 import { buildRoute } from '@/constants/routes';
 import { ManropeWeights } from '@/constants/theme';
 import { useCardDetail } from '@/hooks/useCards';
 import { useStoreDetail, useStoreMenu } from '@/hooks/useStores';
 import { useMyActiveSubscriptions } from '@/hooks/useSubscriptions';
 import { notify } from '@/services/notificationService';
+import { CARD_HEIGHT, CARD_RADIUS, CARD_SHINE, getCardColorTheme } from '@/utils/cardColorTheme';
 import type { CardDefinition } from '@/types/card';
 import type { MenuCategory, MenuItem } from '@/types/store';
 import type { Subscription } from '@/types/subscription';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
 import {
   AlertCircle,
   ArrowLeft,
@@ -62,31 +64,45 @@ function TopBar({ onBack }: { onBack: () => void }) {
 // ── Premium hero card ─────────────────────────────────────────────────────────
 
 function CardHero({ card }: { card: CardDefinition }) {
-  const bg = cardBgColor(card.name);
+  const theme = getCardColorTheme(card.name);
   const hasBonus = card.bonusAmount > 0;
 
   return (
-    <View style={[styles.hero, { backgroundColor: bg }]}>
+    <LinearGradient
+      colors={theme.gradient}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={styles.hero}
+    >
+      {/* Subtle warm shine — same treatment on every card representation */}
+      <LinearGradient
+        colors={CARD_SHINE}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0.6, y: 0.7 }}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
+
       {/* Top row: brand + chip */}
       <View style={styles.heroTopRow}>
         <View>
-          <Text style={styles.heroBrand}>Strike</Text>
-          <Text style={styles.heroName} numberOfLines={2}>
+          <Text style={[styles.heroBrand, { color: theme.textMuted }]}>Strike</Text>
+          <Text style={[styles.heroName, { color: theme.textPrimary }]} numberOfLines={2}>
             {card.name}
           </Text>
         </View>
-        <View style={styles.heroChip}>
-          <CreditCard size={22} color="rgba(255,255,255,0.65)" strokeWidth={1.5} />
+        <View style={[styles.heroChip, { backgroundColor: theme.chipBg }]}>
+          <CreditCard size={16} color={theme.textSecondary} strokeWidth={1.5} />
         </View>
       </View>
 
       {/* Wallet amount — the headline number */}
       <View style={styles.heroMid}>
-        <Text style={styles.heroWalletLabel}>Wallet Credit</Text>
-        <Text style={styles.heroWalletAmount}>{formatCardPrice(card.walletAmount)}</Text>
+        <Text style={[styles.heroWalletLabel, { color: theme.textMuted }]}>Wallet Credit</Text>
+        <Text style={[styles.heroWalletAmount, { color: theme.textPrimary }]}>{formatCardPrice(card.walletAmount)}</Text>
         {hasBonus ? (
-          <View style={styles.heroBonusPill}>
-            <Text style={styles.heroBonusText}>
+          <View style={[styles.heroBonusPill, { backgroundColor: theme.chipBg }]}>
+            <Text style={[styles.heroBonusText, { color: theme.textPrimary }]}>
               +{formatCardPrice(card.bonusAmount)} bonus included
             </Text>
           </View>
@@ -96,21 +112,20 @@ function CardHero({ card }: { card: CardDefinition }) {
       {/* Bottom row: price + validity */}
       <View style={styles.heroBottomRow}>
         <View>
-          <Text style={styles.heroMetaLabel}>Price</Text>
-          <Text style={styles.heroMetaValue}>{formatCardPrice(card.cardPrice)}</Text>
+          <Text style={[styles.heroMetaLabel, { color: theme.textMuted }]}>Price</Text>
+          <Text style={[styles.heroMetaValue, { color: theme.textSecondary }]}>{formatCardPrice(card.cardPrice)}</Text>
         </View>
-        <View style={styles.heroDot} />
+        <View style={[styles.heroDot, { backgroundColor: theme.textMuted }]} />
         <View>
-          <Text style={styles.heroMetaLabel}>Valid for</Text>
-          <Text style={styles.heroMetaValue}>{card.validityInDays} days</Text>
+          <Text style={[styles.heroMetaLabel, { color: theme.textMuted }]}>Valid for</Text>
+          <Text style={[styles.heroMetaValue, { color: theme.textSecondary }]}>{card.validityInDays} days</Text>
         </View>
       </View>
 
       {/* Decorative depth circles */}
-      <View style={styles.heroCircle1} />
-      <View style={styles.heroCircle2} />
-      <View style={styles.heroCircle3} />
-    </View>
+      <View style={[styles.heroCircle1, { backgroundColor: theme.decor1 }]} />
+      <View style={[styles.heroCircle2, { backgroundColor: theme.decor2 }]} />
+    </LinearGradient>
   );
 }
 
@@ -683,19 +698,19 @@ const styles = StyleSheet.create({
   hero: {
     marginHorizontal: 16,
     marginTop: 20,
-    borderRadius: 22,
-    padding: 24,
-    minHeight: 215,
+    borderRadius: CARD_RADIUS,
+    padding: 16,
+    minHeight: CARD_HEIGHT,
     justifyContent: 'space-between',
     overflow: 'hidden',
     ...Platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.22,
-        shadowRadius: 20,
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.18,
+        shadowRadius: 14,
       },
-      android: { elevation: 8 },
+      android: { elevation: 6 },
     }),
   },
   heroTopRow: {
@@ -704,121 +719,102 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   heroBrand: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
     fontFamily: ManropeWeights.bold,
-    color: 'rgba(255,255,255,0.40)',
-    letterSpacing: 2,
+    letterSpacing: 1.6,
     textTransform: 'uppercase',
-    marginBottom: 6,
+    marginBottom: 2,
   },
   heroName: {
-    fontSize: 22,
+    fontSize: 16,
     fontWeight: '700',
     fontFamily: ManropeWeights.bold,
-    color: '#FFFFFF',
-    letterSpacing: -0.5,
+    letterSpacing: -0.4,
     maxWidth: 220,
   },
   heroChip: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255,255,255,0.10)',
+    width: 30,
+    height: 30,
+    borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
   },
   heroMid: {
-    marginTop: 20,
+    marginTop: 9,
   },
   heroWalletLabel: {
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.48)',
+    fontSize: 9.5,
     fontWeight: '500',
     fontFamily: ManropeWeights.medium,
     letterSpacing: 0.4,
-    marginBottom: 4,
+    marginBottom: 1,
     textTransform: 'uppercase',
   },
   heroWalletAmount: {
-    fontSize: 38,
+    fontSize: 26,
     fontWeight: '700',
     fontFamily: ManropeWeights.bold,
-    color: '#FFFFFF',
-    letterSpacing: -1.5,
+    letterSpacing: -1,
   },
   heroBonusPill: {
-    marginTop: 8,
+    marginTop: 5,
     alignSelf: 'flex-start',
-    backgroundColor: 'rgba(201,151,58,0.22)',
     borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
   },
   heroBonusText: {
-    fontSize: 11,
+    fontSize: 10.5,
     fontWeight: '600',
     fontFamily: ManropeWeights.semiBold,
-    color: '#FFD580',
     letterSpacing: 0.2,
   },
   heroBottomRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     gap: 20,
-    marginTop: 20,
+    marginTop: 10,
   },
   heroDot: {
     width: 4,
     height: 4,
     borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.25)',
     marginBottom: 6,
   },
   heroMetaLabel: {
-    fontSize: 10,
-    color: 'rgba(255,255,255,0.40)',
+    fontSize: 9,
     fontWeight: '500',
     fontFamily: ManropeWeights.medium,
     letterSpacing: 0.4,
-    marginBottom: 3,
+    marginBottom: 1,
     textTransform: 'uppercase',
   },
   heroMetaValue: {
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '700',
     fontFamily: ManropeWeights.bold,
-    color: 'rgba(255,255,255,0.90)',
-    letterSpacing: -0.3,
+    letterSpacing: -0.2,
   },
+  // Decorative circles — same treatment as every other card representation
+  // (My Cards, Membership, Vendor Available Cards) for one consistent
+  // decorative language across the card system. Color set inline from theme.
   heroCircle1: {
     position: 'absolute',
-    width: 160,
-    height: 160,
-    borderRadius: 80,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    top: -40,
-    right: -40,
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    top: -28,
+    right: -28,
     pointerEvents: 'none',
   },
   heroCircle2: {
     position: 'absolute',
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    bottom: 20,
-    right: 90,
-    pointerEvents: 'none',
-  },
-  heroCircle3: {
-    position: 'absolute',
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    bottom: -10,
-    left: 40,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    bottom: -12,
+    right: 46,
     pointerEvents: 'none',
   },
 
