@@ -87,14 +87,18 @@ interface PremiumSubscriptionCardProps {
 export function PremiumSubscriptionCard({
   sub, store, onPress, index = 0, width, urgency, showExpiry, showDirections,
 }: PremiumSubscriptionCardProps) {
-  // originalAmount is null for a handful of legacy/test subscriptions that
-  // predate the backend field — falling back to walletBalance as the "total"
-  // would silently force used = total - walletBalance = 0 every time,
-  // masking any real redemptions on exactly those cards.
-  const hasOriginalAmount = sub.originalAmount != null;
-  const total = sub.originalAmount ?? sub.walletBalance;
-  const used = Math.max(0, total - sub.walletBalance);
-  const progressPct = total > 0 ? Math.min(1, used / total) * 100 : 0;
+  // originalWalletAmount is the purchase-time wallet snapshot (never
+  // CardDefinition.walletAmount, which can drift after purchase) — null only
+  // for a handful of legacy/test subscriptions that predate the backend
+  // field. Falling back to walletBalance as the "total" would silently force
+  // used = total - walletBalance = 0 every time, masking any real
+  // redemptions on exactly those cards. consumedAmount/consumptionPercentage
+  // are trusted straight from the backend when present, matching
+  // WalletConsumptionGrid, rather than re-derived here.
+  const hasOriginalAmount = sub.originalWalletAmount != null;
+  const total = sub.originalWalletAmount ?? sub.walletBalance;
+  const used = sub.consumedAmount ?? Math.max(0, total - sub.walletBalance);
+  const progressPct = sub.consumptionPercentage ?? (total > 0 ? Math.min(1, used / total) * 100 : 0);
 
   const variant = cardVariant(sub.cardName);
   const [gradFrom, gradTo] = CARD_GRADIENTS[variant];

@@ -9,11 +9,6 @@ import { LogBox } from 'react-native';
 import { getAuth, signInWithPhoneNumber, getIdToken } from '@react-native-firebase/auth';
 import type { ConfirmationResult } from '@react-native-firebase/auth';
 
-// TEMPORARY — fires the instant this module is evaluated (app startup, well before any
-// button press), so its presence/absence in the log proves whether the running bundle
-// actually contains this file's current code. Remove alongside the other [OTP-DIAG] logging.
-console.log('[OTP-DIAG] authService.ts module loaded — build marker: bundle-verify-1');
-
 // Firebase auth errors below are always caught and surfaced as friendly UI
 // copy (see login.tsx / otp.tsx's FIREBASE_ERROR_MESSAGES maps) — they're
 // expected, handled errors, not crashes. Without this, the console.error a

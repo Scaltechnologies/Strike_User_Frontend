@@ -18,6 +18,13 @@ export interface Subscription {
   cardName: string;        // denormalized from CardDefinition at query time
   storeId: number;
   walletBalance: number;   // remaining balance (BigDecimal → number)
+  // Wallet Consumption Grid fields — frozen at purchase time, never derived from
+  // CardDefinition.walletAmount (which can drift after purchase) or cardPrice.
+  // All three are null together for subscriptions purchased before this snapshot
+  // column existed; treat null as "unknown historical entitlement", not zero.
+  originalWalletAmount: number | null;
+  consumedAmount: number | null;
+  consumptionPercentage: number | null;
   couponCode: string | null;
   originalAmount: number | null;
   discountApplied: number | null;

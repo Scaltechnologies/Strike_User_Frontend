@@ -19,3 +19,17 @@ export function getEffectiveStatus(sub: Pick<Subscription, 'status' | 'expiresAt
 export function isSubscriptionRedeemable(sub: Pick<Subscription, 'status' | 'expiresAt'>): boolean {
   return getEffectiveStatus(sub) === 'ACTIVE';
 }
+
+// Wallet-grid box count for a subscription: one box per day of the card's
+// validity, derived from the subscription's own purchasedAt/expiresAt —
+// never from the live CardDefinition.validityInDays, which may have since
+// changed for new purchases. Matches the vendor app's box-count logic so a
+// ₹3000/30-day card reads as 30 boxes on both sides of a redemption, while a
+// 7-day card reads as 7. Falls back to 1 defensively so a bad/missing
+// timestamp never divides a wallet amount by zero.
+export function getSubscriptionValidityDays(sub: Pick<Subscription, 'purchasedAt' | 'expiresAt'>): number {
+  const start = toUtcMs(sub.purchasedAt);
+  const end = toUtcMs(sub.expiresAt);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 1;
+  return Math.max(1, Math.round((end - start) / 86_400_000));
+}

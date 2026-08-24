@@ -3,7 +3,7 @@
 
 import { useEffect } from 'react';
 import { NotificationBanner } from '@/components/notifications/NotificationBanner';
-import { initNotifications } from '@/services/notificationService';
+import { initNotifications, initRemoteMessaging } from '@/services/notificationService';
 import { useNotificationHistoryStore } from '@/store/notificationHistoryStore';
 
 interface NotificationProviderProps {
@@ -13,6 +13,7 @@ interface NotificationProviderProps {
 export function NotificationProvider({ children }: NotificationProviderProps) {
   useEffect(() => {
     void initNotifications();
+    void initRemoteMessaging();
     void useNotificationHistoryStore.getState().hydrate();
   }, []);
 

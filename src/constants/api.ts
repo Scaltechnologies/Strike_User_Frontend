@@ -54,6 +54,9 @@ export const API_ENDPOINTS = {
     BY_STORE: (storeId: string | number) => `${P}/cards/store/${storeId}`,
     BY_ID:    (id: string | number)      => `${P}/cards/${id}`,
     LOWEST_PRICE_BY_STORES: `${P}/cards/lowest-price-by-stores`,
+    // Active cards created in the last 3 days, newest first — backs Home's
+    // "New Arrivals" section. Eligibility is computed server-side.
+    NEW_ARRIVALS: `${P}/cards/new-arrivals`,
   },
 
   // Card-service subscriptions.
