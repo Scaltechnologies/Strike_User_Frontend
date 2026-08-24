@@ -31,9 +31,11 @@ import { useSubscriptionDetail, useEligibleMenu, subscriptionKeys } from '@/hook
 import { useCardDetail } from '@/hooks/useCards';
 import { useStoreDetail } from '@/hooks/useStores';
 import { redemptionKeys, useSubscriptionRedemptions } from '@/hooks/useRedemptions';
-import { getEffectiveStatus, isSubscriptionRedeemable } from '@/utils/subscription';
+import { getEffectiveStatus, getSubscriptionValidityDays, isSubscriptionRedeemable } from '@/utils/subscription';
 import { ROUTES } from '@/constants/routes';
 import { RedemptionDetailSheet } from '@/components/history/RedemptionDetailSheet';
+import { WalletConsumptionGrid } from '@/components/wallet/WalletConsumptionGrid';
+import { CellRedemptionChooser } from '@/components/wallet/CellRedemptionChooser';
 import { EmptyState } from '@/components/common/EmptyState';
 import type { EligibleCategory, EligibleMenuItem, SubscriptionStatus } from '@/types/subscription';
 import type { Redemption } from '@/types/redemption';
@@ -692,6 +694,19 @@ export default function SubscriptionDetailScreen() {
   const insets      = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [gridSelectedRedemption, setGridSelectedRedemption] = useState<Redemption | null>(null);
+  const [gridCellChoices, setGridCellChoices] = useState<Redemption[] | null>(null);
+
+  // A tapped box maps to 1+ redemptions (see WalletConsumptionGrid's
+  // mapRedemptionsToCells) — a single one opens its detail directly; a box
+  // split between two or more opens a short chooser first.
+  const handleGridCellPress = useCallback((redemptions: Redemption[]) => {
+    if (redemptions.length === 1) {
+      setGridSelectedRedemption(redemptions[0]);
+    } else {
+      setGridCellChoices(redemptions);
+    }
+  }, []);
 
   const handleBack = useCallback(() => {
     if (router.canGoBack()) router.back();
@@ -767,7 +782,12 @@ export default function SubscriptionDetailScreen() {
     );
   }
 
-  const originalBalance = cardDef?.walletAmount;
+  // originalWalletAmount is the purchase-time snapshot — the correct source for
+  // this specific subscription's entitlement. CardDefinition.walletAmount is only
+  // a fallback for subscriptions purchased before that snapshot column existed
+  // (it's a live, mutable template value and can drift from what was actually
+  // granted at purchase time).
+  const originalBalance = sub.originalWalletAmount ?? cardDef?.walletAmount;
   const days = daysLeft(sub.expiresAt);
   const effectiveStatus = getEffectiveStatus(sub);
 
@@ -813,6 +833,40 @@ export default function SubscriptionDetailScreen() {
             isLast
           />
         </Section>
+
+        {/* ── Wallet consumption grid — hidden for historical subscriptions
+             predating the originalWalletAmount snapshot (component no-ops).
+             Tapping a filled box opens the redemption that consumed it. ── */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Wallet Consumption</Text>
+          <WalletConsumptionGrid
+            originalWalletAmount={sub.originalWalletAmount}
+            walletBalance={sub.walletBalance}
+            consumedAmount={sub.consumedAmount}
+            consumptionPercentage={sub.consumptionPercentage}
+            totalCells={getSubscriptionValidityDays(sub)}
+            redemptions={redemptions}
+            onCellPress={handleGridCellPress}
+          />
+        </View>
+
+        <CellRedemptionChooser
+          visible={!!gridCellChoices}
+          onClose={() => setGridCellChoices(null)}
+          redemptions={gridCellChoices ?? []}
+          onSelect={(r) => {
+            setGridCellChoices(null);
+            setGridSelectedRedemption(r);
+          }}
+        />
+
+        <RedemptionDetailSheet
+          visible={!!gridSelectedRedemption}
+          onClose={() => setGridSelectedRedemption(null)}
+          redemption={gridSelectedRedemption}
+          cardName={sub.cardName}
+          storeName={store?.name ?? ''}
+        />
 
         {/* ── Latest redemption (APPROVED/COMPLETED only) ─────────── */}
         {(() => {

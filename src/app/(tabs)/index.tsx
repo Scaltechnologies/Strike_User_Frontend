@@ -1369,7 +1369,7 @@ export default function HomeScreen() {
 
         {selectedHomeCategory ? renderHomeCategoryResults() : (
           <>
-            <BannerCarousel />
+            <BannerCarousel storesById={storesById} />
 
             {showPermissionBanner && (
               <LocationPermissionBanner

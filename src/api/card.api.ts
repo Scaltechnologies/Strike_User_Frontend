@@ -18,6 +18,17 @@ export const cardApi = {
     return data.data;
   },
 
+  // GET /api/cards/new-arrivals — active cards created in the last 3 days,
+  // newest first. Eligibility is entirely server-computed; the app never
+  // decides expiry itself.
+  getNewArrivals: async (limit = 10): Promise<CardDefinition[]> => {
+    const { data } = await apiClient.get<ApiSuccessResponse<CardDefinition[]>>(
+      API_ENDPOINTS.CARDS.NEW_ARRIVALS,
+      { params: { limit } },
+    );
+    return data.data;
+  },
+
   // GET /api/cards/lowest-price-by-stores?storeIds=1,2,3 — cheapest active card
   // per store, batched. Backs "Starting from ₹X" on the home screen's store
   // list. Stores with no active card are simply absent from the response.

@@ -21,10 +21,10 @@ export function useNotifications() {
   } = useAppStore();
 
   // Best-effort — a failed/unavailable push token must never undo the toggle
-  // the user already switched on (no EAS projectId is configured yet).
+  // the user already switched on.
   const syncPushToken = useCallback(async () => {
     try {
-      const token = await notificationService.getExpoPushToken();
+      const token = await notificationService.getFcmToken();
       if (token) {
         await userApi.registerPushToken(token, Platform.OS === 'ios' ? 'ios' : 'android');
       }
@@ -60,7 +60,15 @@ export function useNotifications() {
     setNotificationPermission(perm?.status === 'granted' || perm === null ? 'granted' : 'not-asked');
     setNotificationsEnabled(stored);
     setNotificationStatus(stored ? 'ready' : 'idle');
-  }, [setNotificationPermission, setNotificationsEnabled, setNotificationStatus]);
+
+    // Re-registering here (not just in enable()) matters because a stored "on" from a previous
+    // install doesn't mean a token was ever registered against *this* build/device — e.g. a dev
+    // client rebuild that adds/changes the FCM native module leaves the toggle already on with
+    // no way to notice nothing actually got (re-)registered. Cheap and idempotent either way.
+    if (stored && (perm?.status === 'granted' || perm === null)) {
+      void syncPushToken();
+    }
+  }, [setNotificationPermission, setNotificationsEnabled, setNotificationStatus, syncPushToken]);
 
   // Toggled ON: request OS permission if needed, then best-effort register the push token.
   const enable = useCallback(async () => {

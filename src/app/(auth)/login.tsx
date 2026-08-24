@@ -33,9 +33,6 @@ export default function LoginScreen() {
   };
 
   const handleGetOtp = async () => {
-    // TEMPORARY — proves the button press is actually reaching this handler and, separately,
-    // that it's actually calling authService.sendOtp (vs. e.g. bailing out on the isValid guard).
-    console.log('[OTP-DIAG] handleGetOtp() pressed. isValid =', isValid);
     if (!isValid) {
       setError('Enter a valid 10-digit Indian mobile number.');
       return;
@@ -43,15 +40,12 @@ export default function LoginScreen() {
     setLoading(true);
     setError('');
     try {
-      console.log('[OTP-DIAG] calling authService.sendOtp()');
       await authService.sendOtp(toIndianE164(phone));
-      console.log('[OTP-DIAG] authService.sendOtp() returned without throwing');
       router.push({
         pathname: ROUTES.AUTH.OTP,
         params: { phone },
       });
     } catch (err: unknown) {
-      console.log('[OTP-DIAG] authService.sendOtp() threw:', err instanceof Error ? err.message : String(err));
       setError(getFirebaseAuthErrorMessage(err));
     } finally {
       setLoading(false);
@@ -69,14 +63,6 @@ export default function LoginScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* TEMPORARY — unmissable on-screen proof of which JS bundle is running.
-              Remove alongside the other [OTP-DIAG] diagnostics. */}
-          <View style={{ backgroundColor: '#FF00FF', padding: 8, marginBottom: 12 }}>
-            <Text style={{ color: '#FFFFFF', fontWeight: '900', textAlign: 'center' }}>
-              BUNDLE-VERIFY-1 (login.tsx / Front_End)
-            </Text>
-          </View>
-
           {/* Logo */}
           <View style={styles.logoRow}>
             <View style={styles.badge}>

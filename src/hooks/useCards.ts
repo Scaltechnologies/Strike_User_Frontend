@@ -7,6 +7,7 @@ export const cardKeys = {
   byId:    (id: string | number)      => [...cardKeys.all, 'detail', String(id)] as const,
   lowestPriceByStores: (storeIds: (string | number)[]) =>
     [...cardKeys.all, 'lowestPriceByStores', ...storeIds.map(String).sort()] as const,
+  newArrivals: (limit: number) => [...cardKeys.all, 'newArrivals', limit] as const,
 };
 
 export function useStoreCards(storeId: string | number | undefined) {
@@ -35,5 +36,20 @@ export function useLowestCardPricesByStores(storeIds: (string | number)[]) {
     queryFn:  () => cardApi.getLowestPricesByStores(storeIds),
     enabled:  storeIds.length > 0,
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+// "New Arrivals" — active cards created in the last 3 days, newest first.
+// Rendered as extra slides inside BannerCarousel (same size, same rail),
+// not a separate section. staleTime is intentionally short relative to the
+// 3-day window: a card should stop appearing within a reasonable time of
+// aging out even if the user just leaves the app open, without polling. The
+// global focus-refetch (see QueryProvider) covers app-foreground/screen
+// revisit; retry follows the app default (2 attempts).
+export function useNewArrivals(limit = 10) {
+  return useQuery({
+    queryKey: cardKeys.newArrivals(limit),
+    queryFn:  () => cardApi.getNewArrivals(limit),
+    staleTime: 60 * 1000,
   });
 }
