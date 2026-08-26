@@ -1,11 +1,16 @@
 import { Image } from 'expo-image';
 import {
   AlertCircle,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
   Bell,
+  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clock,
+  Gift,
   Map,
   MapPin,
   Navigation,
@@ -35,8 +40,9 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { formatDistance, openDirections } from '@/utils/maps';
+import { formatDistanceCompact, haversineDistanceKm, openDirections } from '@/utils/maps';
 import { useMediaSource, logMediaError } from '@/utils/media';
+import { tapLight, tapSelect } from '@/utils/haptics';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AnimatedHomeBackground } from '@/components/home/AnimatedHomeBackground';
@@ -50,14 +56,14 @@ import { useUnreadNotificationCount } from '@/hooks/useNotificationInbox';
 import {
   useAllStores, useInvalidateStores, useNearbyStores, useSearchStores, useStoreMenu, useStoresByCategory,
 } from '@/hooks/useStores';
-import { useLowestCardPricesByStores } from '@/hooks/useCards';
+import { useLowestCardPricesByStores, useStoresHaveOffer } from '@/hooks/useCards';
 import { ROUTES } from '@/constants/routes';
 import { ManropeWeights } from '@/constants/theme';
 import type { RecentLocation } from '@/services/storageService';
 import { storageService } from '@/services/storageService';
 import { useAppStore } from '@/store/appStore';
 import { isStoreOpenNow } from '@/utils/storeTiming';
-import type { Store, StoreTiming } from '@/types/store';
+import type { Store } from '@/types/store';
 
 // ─── Design Tokens ─────────────────────────────────────────────────────────────
 
@@ -115,22 +121,6 @@ function getGreeting(): string {
   return 'Good evening';
 }
 
-function getTodayTiming(timings: StoreTiming[]): string | null {
-  if (!timings || timings.length === 0) return null;
-  const days = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
-  const today = days[new Date().getDay()];
-  const t = timings.find((x) => x.dayOfWeek === today);
-  if (!t) return null;
-  if (t.isClosed) return 'Closed today';
-  if (!t.openTime || !t.closeTime) return null;
-  const fmt = (s: string) => {
-    const [h, m] = s.split(':').map(Number);
-    const ampm = h >= 12 ? 'PM' : 'AM';
-    return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${ampm}`;
-  };
-  return `${fmt(t.openTime)} – ${fmt(t.closeTime)}`;
-}
-
 function getStoreFallbackColor(name: string): string {
   const palette = [
     '#EEF2FF', '#F0FDF4', '#FFF7ED', '#FDF4FF', '#F0F9FF',
@@ -149,16 +139,38 @@ function getStoreInitialColor(name: string): string {
   return palette[idx];
 }
 
-// Open stores first, nearest first within each group — closed stores sink to
-// the bottom instead of interrupting the "closest to you" ordering.
-function sortStoresByAvailability(stores: Store[]): Store[] {
+type SortMode = 'default' | 'nearMe' | 'priceLowHigh' | 'priceHighLow';
+
+// Open stores first, always. Beyond that, only the active sort mode moves
+// cards: 'nearMe' sorts by distance, price modes sort by lowest price, and
+// 'default' does nothing further — ties keep their incoming (recommended)
+// order since Array.prototype.sort is stable. Previously this fell through
+// to a distance tie-break unconditionally, which silently overrode the
+// recommended ordering the moment any store carried a distanceKm.
+function sortStores(stores: Store[], mode: SortMode, lowestPrices?: Record<number, number>): Store[] {
   return [...stores].sort((a, b) => {
     const aOpen = isStoreOpenNow(a) ? 0 : 1;
     const bOpen = isStoreOpenNow(b) ? 0 : 1;
     if (aOpen !== bOpen) return aOpen - bOpen;
-    const aDist = a.distanceKm ?? Number.POSITIVE_INFINITY;
-    const bDist = b.distanceKm ?? Number.POSITIVE_INFINITY;
-    return aDist - bDist;
+
+    if (mode === 'priceLowHigh' || mode === 'priceHighLow') {
+      const aPrice = lowestPrices?.[a.id];
+      const bPrice = lowestPrices?.[b.id];
+      if (aPrice == null && bPrice != null) return 1;
+      if (aPrice != null && bPrice == null) return -1;
+      if (aPrice != null && bPrice != null && aPrice !== bPrice) {
+        return mode === 'priceLowHigh' ? aPrice - bPrice : bPrice - aPrice;
+      }
+      return 0;
+    }
+
+    if (mode === 'nearMe') {
+      const aDist = a.distanceKm ?? Number.POSITIVE_INFINITY;
+      const bDist = b.distanceKm ?? Number.POSITIVE_INFINITY;
+      return aDist - bDist;
+    }
+
+    return 0;
   });
 }
 
@@ -278,7 +290,7 @@ function SkeletonPulse({ width, height, style, radius = 8 }: {
 function StoreCardSkeleton() {
   return (
     <View style={[styles.card, { overflow: 'hidden' }]}>
-      <SkeletonPulse height={124} radius={0} style={{ width: '100%' }} />
+      <SkeletonPulse height={146} radius={0} style={{ width: '100%' }} />
       <View style={styles.cardBody}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8, gap: 8 }}>
           <SkeletonPulse height={14} width="55%" />
@@ -296,8 +308,7 @@ function StoreCardSkeleton() {
 function StoreCard({ store, index = 0, lowestPrice }: { store: Store; index?: number; lowestPrice?: number }) {
   const router = useRouter();
   const isOpen = isStoreOpenNow(store);
-  const timing = getTodayTiming(store.timings);
-  const distance = store.distanceKm != null ? formatDistance(store.distanceKm) : null;
+  const distance = store.distanceKm != null ? formatDistanceCompact(store.distanceKm) : null;
   const initial = store.name.charAt(0).toUpperCase();
   const fallbackBg = getStoreFallbackColor(store.name);
   const initialColor = getStoreInitialColor(store.name);
@@ -347,14 +358,32 @@ function StoreCard({ store, index = 0, lowestPrice }: { store: Store; index?: nu
 
           {/* Subtle scrim for photos */}
           {showPhoto ? <View style={styles.bannerPhotoScrim} /> : null}
+
+          {/* Distance pill — real distance (backend-provided where available,
+              otherwise computed from the store's own lat/lng), and the whole
+              pill opens Google/Apple Maps directions to this exact store. */}
+          {distance != null && (
+            <Pressable
+              style={({ pressed }) => [styles.distanceBadge, pressed && { opacity: 0.7 }]}
+              onPress={() => {
+                if (store.latitude == null || store.longitude == null) return;
+                tapLight();
+                openDirections(store.latitude, store.longitude);
+              }}
+              hitSlop={6}
+            >
+              <Navigation size={10.5} color={C.accent} strokeWidth={2.4} />
+              <Text style={styles.distanceBadgeText}>{distance}</Text>
+            </Pressable>
+          )}
         </View>
 
         {/* ── Card Body ──────────────────────────────── */}
         <View style={styles.cardBody}>
-          {/* Name + category row */}
-          <View style={styles.cardTitleRow}>
-            <Text style={styles.cardName} numberOfLines={1}>{store.name}</Text>
-          </View>
+          <Text style={styles.cardName} numberOfLines={1}>{store.name}</Text>
+          {store.address ? (
+            <Text style={styles.cardAddress} numberOfLines={1}>{store.address}</Text>
+          ) : null}
 
           <View style={styles.categoryChipRow}>
             {categoriesLoading ? (
@@ -385,41 +414,14 @@ function StoreCard({ store, index = 0, lowestPrice }: { store: Store; index?: nu
           </View>
 
           {lowestPrice != null && (
-            <View style={styles.priceRow}>
+            <View style={styles.priceBlock}>
               <Text style={styles.priceLabel}>Starting from</Text>
-              <Text style={styles.priceValue}>{fmtPrice(lowestPrice)}</Text>
+              <Text style={styles.priceValue}>
+                {fmtPrice(lowestPrice)}
+                <Text style={styles.priceUnit}> / card</Text>
+              </Text>
             </View>
           )}
-
-          {/* Footer: timing / address + Directions button */}
-          <View style={styles.cardFooter}>
-            <View style={styles.cardMeta}>
-              {distance != null ? (
-                <View style={styles.metaItem}>
-                  <MapPin size={10} color={C.accent} strokeWidth={2} />
-                  <Text style={[styles.metaText, styles.metaDistance]}>{distance}</Text>
-                </View>
-              ) : timing != null ? (
-                <View style={styles.metaItem}>
-                  <Clock size={10} color={C.muted} strokeWidth={2} />
-                  <Text style={styles.metaText}>{timing}</Text>
-                </View>
-              ) : store.address ? (
-                <Text style={styles.cardAddress} numberOfLines={1}>{store.address}</Text>
-              ) : null}
-            </View>
-
-            {store.latitude != null && store.longitude != null ? (
-              <Pressable
-                style={styles.cardDirectionsBtn}
-                onPress={() => openDirections(store.latitude!, store.longitude!)}
-                hitSlop={6}
-              >
-                <Navigation size={12} color={C.accent} strokeWidth={2.2} />
-                <Text style={styles.cardDirectionsBtnText}>Directions</Text>
-              </Pressable>
-            ) : null}
-          </View>
         </View>
       </PressableScale>
     </FadeInView>
@@ -427,87 +429,356 @@ function StoreCard({ store, index = 0, lowestPrice }: { store: Store; index?: nu
 }
 
 // ─── Filter Chips ──────────────────────────────────────────────────────────────
+//
+// Each chip has exactly ONE job:
+//   Filters   → opens the complete sheet (Sort by / Availability / Category)
+//   Near Me   → directly toggles nearest-first sorting, no popover
+//   Price     → opens a PRICE-ONLY popover (never the complete sheet)
+//   Offers    → directly toggles the offers attribute filter, no popover
+//   Open Now  → directly toggles the open-now attribute filter, no popover
 
 function FilterChipsBar({
-  categories,
-  selectedCategory,
-  onSelectCategory,
+  categoryCount,
+  onOpenFilters,
   openNowOnly,
   onToggleOpenNow,
+  offersOnly,
+  onToggleOffers,
+  offersSupported,
+  sortMode,
+  onToggleNearMe,
+  onOpenPriceSort,
   hasActiveFilters,
   onClear,
 }: {
-  categories: string[];
-  selectedCategory: string | null;
-  onSelectCategory: (c: string | null) => void;
+  categoryCount: number;
+  onOpenFilters: () => void;
   openNowOnly: boolean;
   onToggleOpenNow: () => void;
+  offersOnly: boolean;
+  onToggleOffers: () => void;
+  offersSupported: boolean;
+  sortMode: SortMode;
+  onToggleNearMe: () => void;
+  onOpenPriceSort: () => void;
   hasActiveFilters: boolean;
   onClear: () => void;
 }) {
-  if (categories.length === 0) return null;
+  const nearMeActive = sortMode === 'nearMe';
+  const priceActive = sortMode === 'priceLowHigh' || sortMode === 'priceHighLow';
+  const PriceIcon = sortMode === 'priceLowHigh' ? ArrowUp : sortMode === 'priceHighLow' ? ArrowDown : ArrowUpDown;
 
   return (
-    <View style={styles.filterBarRow}>
-      <View style={[styles.filterBarIconWrap, hasActiveFilters && styles.filterBarIconWrapActive]}>
-        <SlidersHorizontal
-          size={14}
-          color={hasActiveFilters ? '#FFFFFF' : C.accent}
-          strokeWidth={2.2}
-        />
-      </View>
-
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.filterBar}
-        contentContainerStyle={styles.filterBarContent}
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={styles.filterBar}
+      contentContainerStyle={styles.filterBarContent}
+    >
+      <Pressable
+        style={[styles.filterChip, categoryCount > 0 && styles.filterChipActive]}
+        onPress={() => { tapSelect(); onOpenFilters(); }}
+        hitSlop={4}
       >
+        <SlidersHorizontal size={14} color={categoryCount > 0 ? '#FFFFFF' : C.secondary} strokeWidth={2.3} />
+        <Text style={[styles.filterChipText, categoryCount > 0 && styles.filterChipTextActive]}>
+          {categoryCount > 0 ? `Filters · ${categoryCount}` : 'Filters'}
+        </Text>
+      </Pressable>
+
+      <Pressable
+        style={[styles.filterChip, nearMeActive && styles.filterChipActive]}
+        onPress={() => { tapSelect(); onToggleNearMe(); }}
+        hitSlop={4}
+      >
+        <Navigation size={14} color={nearMeActive ? '#FFFFFF' : C.secondary} strokeWidth={2.3} />
+        <Text style={[styles.filterChipText, nearMeActive && styles.filterChipTextActive]}>
+          Near Me
+        </Text>
+      </Pressable>
+
+      {/* Opens a price-only popover — never the complete Filters sheet. */}
+      <Pressable
+        style={[styles.filterChip, priceActive && styles.filterChipActive]}
+        onPress={() => { tapSelect(); onOpenPriceSort(); }}
+        hitSlop={4}
+      >
+        <PriceIcon size={14} color={priceActive ? '#FFFFFF' : C.secondary} strokeWidth={2.3} />
+        <Text style={[styles.filterChipText, priceActive && styles.filterChipTextActive]}>
+          {sortMode === 'priceLowHigh' ? 'Low to High' : sortMode === 'priceHighLow' ? 'High to Low' : 'Price'}
+        </Text>
+      </Pressable>
+
+      {offersSupported && (
         <Pressable
-          style={[styles.filterChip, openNowOnly && styles.filterChipActive]}
-          onPress={onToggleOpenNow}
+          style={[styles.filterChip, offersOnly && styles.filterChipActive]}
+          onPress={() => { tapSelect(); onToggleOffers(); }}
           hitSlop={4}
         >
-          <Clock size={12} color={openNowOnly ? '#FFFFFF' : C.secondary} strokeWidth={2.4} />
-          <Text style={[styles.filterChipText, openNowOnly && styles.filterChipTextActive]}>
-            Open Now
+          <Gift size={14} color={offersOnly ? '#FFFFFF' : C.secondary} strokeWidth={2.3} />
+          <Text style={[styles.filterChipText, offersOnly && styles.filterChipTextActive]}>
+            Offers
           </Text>
         </Pressable>
+      )}
 
-        <Pressable
-          style={[styles.filterChip, selectedCategory === null && styles.filterChipActive]}
-          onPress={() => onSelectCategory(null)}
-          hitSlop={4}
-        >
-          <Text style={[styles.filterChipText, selectedCategory === null && styles.filterChipTextActive]}>
-            All
-          </Text>
+      <Pressable
+        style={[styles.filterChip, openNowOnly && styles.filterChipActive]}
+        onPress={() => { tapSelect(); onToggleOpenNow(); }}
+        hitSlop={4}
+      >
+        <Clock size={14} color={openNowOnly ? '#FFFFFF' : C.secondary} strokeWidth={2.3} />
+        <Text style={[styles.filterChipText, openNowOnly && styles.filterChipTextActive]}>
+          Open Now
+        </Text>
+      </Pressable>
+
+      {hasActiveFilters && (
+        <Pressable style={styles.filterClearChip} onPress={() => { tapSelect(); onClear(); }} hitSlop={4}>
+          <X size={12} color={C.accent} strokeWidth={2.6} />
+          <Text style={styles.filterClearChipText}>Clear</Text>
         </Pressable>
+      )}
+    </ScrollView>
+  );
+}
 
-        {categories.map((cat) => {
-          const active = selectedCategory === cat;
-          return (
-            <Pressable
-              key={cat}
-              style={[styles.filterChip, active && styles.filterChipActive]}
-              onPress={() => onSelectCategory(active ? null : cat)}
-              hitSlop={4}
-            >
-              <Text style={[styles.filterChipText, active && styles.filterChipTextActive]} numberOfLines={1}>
-                {cat}
-              </Text>
+// ─── Price Sort Sheet (Price chip's OWN popover — price choices only) ─────────
+
+function PriceSortSheet({
+  visible,
+  onClose,
+  sortMode,
+  onSelect,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  sortMode: SortMode;
+  onSelect: (mode: SortMode) => void;
+}) {
+  const sheetTranslateY = useRef(new Animated.Value(400)).current;
+  const backdropOpacity = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      Animated.parallel([
+        Animated.spring(sheetTranslateY, {
+          toValue: 0, useNativeDriver: true, damping: 22, stiffness: 280, mass: 0.8,
+        }),
+        Animated.timing(backdropOpacity, {
+          toValue: 1, duration: 260, easing: Easing.out(Easing.ease), useNativeDriver: true,
+        }),
+      ]).start();
+    } else {
+      Animated.parallel([
+        Animated.timing(sheetTranslateY, {
+          toValue: 400, duration: 220, easing: Easing.in(Easing.cubic), useNativeDriver: true,
+        }),
+        Animated.timing(backdropOpacity, { toValue: 0, duration: 180, useNativeDriver: true }),
+      ]).start();
+    }
+  }, [visible, sheetTranslateY, backdropOpacity]);
+
+  const handleSelect = (mode: SortMode) => {
+    tapSelect();
+    onSelect(mode);
+    onClose();
+  };
+
+  return (
+    <Modal visible={visible} animationType="none" transparent onRequestClose={onClose} statusBarTranslucent>
+      <View style={styles.filterSheetWrap}>
+        <Animated.View style={[styles.sheetBackdrop, { opacity: backdropOpacity }]} pointerEvents="box-none">
+          <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        </Animated.View>
+
+        <Animated.View style={[styles.filterSheet, { transform: [{ translateY: sheetTranslateY }], paddingBottom: 28 }]}>
+          <View style={styles.sheetHandle} />
+          <View style={styles.filterSheetHeader}>
+            <Text style={styles.filterSheetTitle}>Sort by Price</Text>
+            <Pressable onPress={onClose} hitSlop={10} style={styles.filterSheetCloseBtn}>
+              <X size={16} color={C.secondary} strokeWidth={2.4} />
             </Pressable>
-          );
-        })}
+          </View>
 
-        {hasActiveFilters && (
-          <Pressable style={styles.filterClearChip} onPress={onClear} hitSlop={4}>
-            <X size={12} color={C.accent} strokeWidth={2.6} />
-            <Text style={styles.filterClearChipText}>Clear</Text>
-          </Pressable>
-        )}
-      </ScrollView>
-    </View>
+          <RadioRow label="Recommended" selected={sortMode === 'default'} onPress={() => handleSelect('default')} />
+          <RadioRow label="Lowest to Highest" selected={sortMode === 'priceLowHigh'} onPress={() => handleSelect('priceLowHigh')} />
+          <RadioRow label="Highest to Lowest" selected={sortMode === 'priceHighLow'} onPress={() => handleSelect('priceHighLow')} />
+        </Animated.View>
+      </View>
+    </Modal>
+  );
+}
+
+// ─── Filters Sheet (Sort + Availability + Category, with Select All) ──────────
+
+function RadioRow({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) {
+  return (
+    <Pressable style={styles.filterOptionRow} onPress={() => { tapSelect(); onPress(); }}>
+      <View style={[styles.radioCircle, selected && styles.radioCircleActive]}>
+        {selected && <View style={styles.radioDot} />}
+      </View>
+      <Text style={styles.filterOptionLabel}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function CheckRow({ label, checked, onPress }: { label: string; checked: boolean; onPress: () => void }) {
+  return (
+    <Pressable style={styles.filterOptionRow} onPress={() => { tapSelect(); onPress(); }}>
+      <View style={[styles.checkBox, checked && styles.checkBoxActive]}>
+        {checked && <Check size={12} color="#FFFFFF" strokeWidth={3} />}
+      </View>
+      <Text style={styles.filterOptionLabel}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function FiltersSheet({
+  visible,
+  onClose,
+  categories,
+  sortMode,
+  openNowOnly,
+  offersOnly,
+  offersSupported,
+  selectedCategories,
+  onApply,
+  onClearAll,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  categories: string[];
+  sortMode: SortMode;
+  openNowOnly: boolean;
+  offersOnly: boolean;
+  offersSupported: boolean;
+  selectedCategories: string[];
+  onApply: (sort: SortMode, openNow: boolean, offers: boolean, cats: string[]) => void;
+  onClearAll: () => void;
+}) {
+  const [draftSort, setDraftSort] = useState<SortMode>(sortMode);
+  const [draftOpenNow, setDraftOpenNow] = useState(openNowOnly);
+  const [draftOffers, setDraftOffers] = useState(offersOnly);
+  const [draftCategories, setDraftCategories] = useState<string[]>(selectedCategories);
+
+  const sheetTranslateY = useRef(new Animated.Value(600)).current;
+  const backdropOpacity = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      setDraftSort(sortMode);
+      setDraftOpenNow(openNowOnly);
+      setDraftOffers(offersOnly);
+      setDraftCategories(selectedCategories);
+      Animated.parallel([
+        Animated.spring(sheetTranslateY, {
+          toValue: 0, useNativeDriver: true, damping: 22, stiffness: 280, mass: 0.8,
+        }),
+        Animated.timing(backdropOpacity, {
+          toValue: 1, duration: 260, easing: Easing.out(Easing.ease), useNativeDriver: true,
+        }),
+      ]).start();
+    } else {
+      Animated.parallel([
+        Animated.timing(sheetTranslateY, {
+          toValue: 600, duration: 240, easing: Easing.in(Easing.cubic), useNativeDriver: true,
+        }),
+        Animated.timing(backdropOpacity, { toValue: 0, duration: 200, useNativeDriver: true }),
+      ]).start();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
+
+  const allCategoriesSelected = draftCategories.length === 0;
+
+  const handleToggleCategory = useCallback((cat: string) => {
+    setDraftCategories((prev) => {
+      if (prev.length === 0) return [cat];
+      if (prev.includes(cat)) return prev.filter((c) => c !== cat);
+      return [...prev, cat];
+    });
+  }, []);
+
+  const handleApply = () => {
+    tapSelect();
+    onApply(draftSort, draftOpenNow, draftOffers, draftCategories);
+  };
+
+  const handleClearAll = () => {
+    tapSelect();
+    setDraftSort('default');
+    setDraftOpenNow(false);
+    setDraftOffers(false);
+    setDraftCategories([]);
+    onClearAll();
+  };
+
+  return (
+    <Modal visible={visible} animationType="none" transparent onRequestClose={onClose} statusBarTranslucent>
+      <View style={styles.filterSheetWrap}>
+        <Animated.View style={[styles.sheetBackdrop, { opacity: backdropOpacity }]} pointerEvents="box-none">
+          <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        </Animated.View>
+
+        <Animated.View style={[styles.filterSheet, { transform: [{ translateY: sheetTranslateY }] }]}>
+          <View style={styles.sheetHandle} />
+
+          <View style={styles.filterSheetHeader}>
+            <Text style={styles.filterSheetTitle}>Filters</Text>
+            <Pressable onPress={onClose} hitSlop={10} style={styles.filterSheetCloseBtn}>
+              <X size={16} color={C.secondary} strokeWidth={2.4} />
+            </Pressable>
+          </View>
+
+          <ScrollView showsVerticalScrollIndicator={false} bounces={false} style={{ maxHeight: '70%' }}>
+            <Text style={styles.filterSectionLabel}>Sort by</Text>
+            <RadioRow label="Recommended" selected={draftSort === 'default'} onPress={() => setDraftSort('default')} />
+            <RadioRow label="Nearest" selected={draftSort === 'nearMe'} onPress={() => setDraftSort('nearMe')} />
+            <RadioRow label="Price: Low to High" selected={draftSort === 'priceLowHigh'} onPress={() => setDraftSort('priceLowHigh')} />
+            <RadioRow label="Price: High to Low" selected={draftSort === 'priceHighLow'} onPress={() => setDraftSort('priceHighLow')} />
+
+            <View style={styles.filterSectionDivider} />
+
+            <Text style={styles.filterSectionLabel}>Availability</Text>
+            <CheckRow label="Open Now" checked={draftOpenNow} onPress={() => setDraftOpenNow((v) => !v)} />
+            {offersSupported && (
+              <CheckRow label="Offers" checked={draftOffers} onPress={() => setDraftOffers((v) => !v)} />
+            )}
+
+            {categories.length > 0 && (
+              <>
+                <View style={styles.filterSectionDivider} />
+                <Text style={styles.filterSectionLabel}>Category</Text>
+                <CheckRow
+                  label="Select All"
+                  checked={allCategoriesSelected}
+                  onPress={() => setDraftCategories([])}
+                />
+                {categories.map((cat) => (
+                  <CheckRow
+                    key={cat}
+                    label={cat}
+                    checked={allCategoriesSelected || draftCategories.includes(cat)}
+                    onPress={() => handleToggleCategory(cat)}
+                  />
+                ))}
+              </>
+            )}
+            <View style={{ height: 8 }} />
+          </ScrollView>
+
+          <View style={styles.filterSheetFooter}>
+            <Pressable style={styles.filterClearAllBtn} onPress={handleClearAll} hitSlop={8}>
+              <Text style={styles.filterClearAllBtnText}>Clear All</Text>
+            </Pressable>
+            <PressableScale style={styles.filterApplyBtn} onPress={handleApply}>
+              <Text style={styles.filterApplyBtnText}>Apply Filters</Text>
+            </PressableScale>
+          </View>
+        </Animated.View>
+      </View>
+    </Modal>
   );
 }
 
@@ -989,9 +1260,14 @@ export default function HomeScreen() {
   const [skipLocation, setSkipLocation] = useState(false);
   const [locationPickerVisible, setLocationPickerVisible] = useState(false);
   const [locationHistory, setLocationHistory] = useState<RecentLocation[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  // Empty array = "Select All" / no restriction — matches every store's category.
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [openNowOnly, setOpenNowOnly] = useState(false);
-  // Distinct from selectedCategory above (that's the store-level FilterChipsBar filter,
+  const [offersOnly, setOffersOnly] = useState(false);
+  const [sortMode, setSortMode] = useState<SortMode>('default');
+  const [filterSheetVisible, setFilterSheetVisible] = useState(false);
+  const [priceSheetVisible, setPriceSheetVisible] = useState(false);
+  // Distinct from selectedCategories above (that's the Filters sheet's multi-select,
   // matched against Store.category). This is the home-screen category-icon row, matched
   // against each store's actual MENU categories via useStoresByCategory.
   const [selectedHomeCategory, setSelectedHomeCategory] = useState<string | null>(null);
@@ -1059,9 +1335,10 @@ export default function HomeScreen() {
   // doesn't mean the backend has the location on file yet (see appStore's
   // locationSynced doc comment). Without this, a brand-new account's very
   // first nearby-stores fetch can race the location PATCH and 400.
-  const {
-    data: nearbyStores, isLoading: nearbyLoading, error: nearbyError, refetch: refetchNearby,
-  } = useNearbyStores({ enabled: locationReady && locationSynced });
+  // Only consumed here for its authoritative per-store distanceKm (merged
+  // into storesWithDistance below) — there's no separate "Nearby" section
+  // or list on the home screen any more.
+  const { data: nearbyStores } = useNearbyStores({ enabled: locationReady && locationSynced });
 
   const isSearching = debouncedQuery.trim().length >= 2;
   const { data: searchResults, isLoading: searchLoading } = useSearchStores(debouncedQuery);
@@ -1087,14 +1364,39 @@ export default function HomeScreen() {
   }, [allStores, searchResults, homeCategoryStores]);
   const { data: lowestPrices } = useLowestCardPricesByStores(visibleStoreIds);
 
-  // "All stores" is every store in the catalogue, which always includes
-  // whatever's in "Nearby" — filter those out so a store doesn't render
-  // twice on the home screen.
-  const otherStores = useMemo(() => {
-    if (!locationReady || !nearbyStores?.length) return allStores;
-    const nearbyIds = new Set(nearbyStores.map((s) => s.id));
-    return (allStores ?? []).filter((s) => !nearbyIds.has(s.id));
-  }, [allStores, nearbyStores, locationReady]);
+  // "Offers" filter — no batched per-store offer endpoint exists, so this is
+  // assembled from the same single-store cards endpoint useStoreCards already
+  // uses elsewhere (shared cache/query key, same staleTime). See useCards.ts.
+  const storeHasOffer = useStoresHaveOffer(visibleStoreIds);
+  const offersSupported = visibleStoreIds.length > 0;
+
+  // Single unified store list for the home screen (no more separate
+  // "Nearby" / "All stores" arrays). Every store gets a real distanceKm
+  // when possible: the authoritative backend value from /nearby/me where
+  // available, otherwise computed client-side via haversine from the
+  // store's own lat/lng and the user's current coords — never invented,
+  // never hardcoded. This is what makes "Near Me" actually reorder the
+  // full list instead of only the handful of stores /nearby/me happens
+  // to return.
+  const storesWithDistance = useMemo(() => {
+    // Plain object, not a JS Map — `Map` here would resolve to the lucide-react-native
+    // icon imported under that same name above, not the built-in collection.
+    const nearbyDistanceById: Record<number, number> = {};
+    (nearbyStores ?? []).forEach((s) => {
+      if (s.distanceKm != null) nearbyDistanceById[s.id] = s.distanceKm;
+    });
+
+    return (allStores ?? []).map((s) => {
+      const backendDist = nearbyDistanceById[s.id];
+      if (backendDist != null) {
+        return backendDist === s.distanceKm ? s : { ...s, distanceKm: backendDist };
+      }
+      if (s.distanceKm == null && coords && s.latitude != null && s.longitude != null) {
+        return { ...s, distanceKm: haversineDistanceKm(coords.latitude, coords.longitude, s.latitude, s.longitude) };
+      }
+      return s;
+    });
+  }, [allStores, nearbyStores, coords]);
 
   // ── Filters (category + open-now) ─────────────────────────────────────────
 
@@ -1104,30 +1406,63 @@ export default function HomeScreen() {
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [allStores]);
 
-  const hasActiveFilters = selectedCategory != null || openNowOnly;
+  // Filters that actually remove stores from a list — kept separate from
+  // sortMode (which only reorders) so the "no stores match your filters"
+  // empty state doesn't fire just because a sort pill is active.
+  const hasActiveFilters = selectedCategories.length > 0 || openNowOnly || offersOnly;
+  const hasActiveFiltersOrSort = hasActiveFilters || sortMode !== 'default';
 
   const matchesFilters = useCallback((s: Store) => {
-    if (selectedCategory && s.category !== selectedCategory) return false;
+    if (selectedCategories.length > 0 && !selectedCategories.includes(s.category)) return false;
     if (openNowOnly && !isStoreOpenNow(s)) return false;
+    if (offersOnly && !storeHasOffer[String(s.id)]) return false;
     return true;
-  }, [selectedCategory, openNowOnly]);
+  }, [selectedCategories, openNowOnly, offersOnly, storeHasOffer]);
 
-  const filteredNearby = useMemo(() => {
-    const base = hasActiveFilters ? nearbyStores?.filter(matchesFilters) : nearbyStores;
-    return base ? sortStoresByAvailability(base) : base;
-  }, [nearbyStores, matchesFilters, hasActiveFilters]);
-  const filteredOthers = useMemo(() => {
-    const base = hasActiveFilters ? otherStores?.filter(matchesFilters) : otherStores;
-    return base ? sortStoresByAvailability(base) : base;
-  }, [otherStores, matchesFilters, hasActiveFilters]);
+  const handleToggleNearMe = useCallback(() => {
+    setSortMode((m) => (m === 'nearMe' ? 'default' : 'nearMe'));
+  }, []);
+
+  const handleToggleOffers = useCallback(() => {
+    setOffersOnly((v) => !v);
+  }, []);
+
+  const handleOpenPriceSort = useCallback(() => {
+    setPriceSheetVisible(true);
+  }, []);
+
+  const handleOpenFilters = useCallback(() => {
+    setFilterSheetVisible(true);
+  }, []);
+
+  const handleApplyFiltersSheet = useCallback((sort: SortMode, openNow: boolean, offers: boolean, cats: string[]) => {
+    setSortMode(sort);
+    setOpenNowOnly(openNow);
+    setOffersOnly(offers);
+    setSelectedCategories(cats);
+    setFilterSheetVisible(false);
+  }, []);
+
+  // The exact array the home screen's store cards render: attribute filters
+  // (category / open-now / offers) first, then the active sort mode. This is
+  // the only list rendered for the default home view — no separate "Nearby"
+  // array feeding a second, independently-filtered section any more.
+  const visibleStores = useMemo(() => {
+    const base = hasActiveFilters ? storesWithDistance.filter(matchesFilters) : storesWithDistance;
+    return sortStores(base, sortMode, lowestPrices);
+  }, [storesWithDistance, matchesFilters, hasActiveFilters, sortMode, lowestPrices]);
   const filteredSearchResults = useMemo(() => {
     const base = hasActiveFilters ? searchResults?.filter(matchesFilters) : searchResults;
-    return base ? sortStoresByAvailability(base) : base;
-  }, [searchResults, matchesFilters, hasActiveFilters]);
+    return base ? sortStores(base, sortMode, lowestPrices) : base;
+  }, [searchResults, matchesFilters, hasActiveFilters, sortMode, lowestPrices]);
 
   const clearFilters = useCallback(() => {
-    setSelectedCategory(null);
+    setSelectedCategories([]);
     setOpenNowOnly(false);
+    setOffersOnly(false);
+    setSortMode('default');
+    setFilterSheetVisible(false);
+    setPriceSheetVisible(false);
   }, []);
 
   const handleRefresh = useCallback(async () => {
@@ -1157,6 +1492,9 @@ export default function HomeScreen() {
             onPress={() => void openLocationPicker()}
             hitSlop={8}
           >
+            <View style={styles.locationPinWrap}>
+              <MapPin size={12} color={C.accent} strokeWidth={2.4} />
+            </View>
             <Text style={styles.locationName} numberOfLines={1}>
               {locationName ?? 'Current Location'}
             </Text>
@@ -1222,14 +1560,25 @@ export default function HomeScreen() {
           </Pressable>
         ) : null}
       </View>
+    </View>
+  );
 
+  // ── Filter Bar (sits directly above the Nearby list, not the sticky header) ─
+
+  const renderFilterBar = () => (
+    <View style={styles.filterBarSection}>
       <FilterChipsBar
-        categories={categories}
-        selectedCategory={selectedCategory}
-        onSelectCategory={setSelectedCategory}
+        categoryCount={selectedCategories.length}
+        onOpenFilters={handleOpenFilters}
         openNowOnly={openNowOnly}
         onToggleOpenNow={() => setOpenNowOnly((v) => !v)}
-        hasActiveFilters={hasActiveFilters}
+        offersOnly={offersOnly}
+        onToggleOffers={handleToggleOffers}
+        offersSupported={offersSupported}
+        sortMode={sortMode}
+        onToggleNearMe={handleToggleNearMe}
+        onOpenPriceSort={handleOpenPriceSort}
+        hasActiveFilters={hasActiveFiltersOrSort}
         onClear={clearFilters}
       />
     </View>
@@ -1389,41 +1738,20 @@ export default function HomeScreen() {
               />
             )}
 
-            {locationReady && (
-              <View style={styles.section}>
-                <SectionHeader
-                  title="Nearby"
-                  count={filteredNearby?.length}
-                  icon={<MapPin size={14} color={C.accent} strokeWidth={2} />}
-                />
-                {renderStoreList(
-                  filteredNearby,
-                  // useNearbyStores is disabled (isLoading:false) while it waits
-                  // on locationSynced — without this, that wait would flash the
-                  // "No stores nearby" empty state instead of a loading skeleton.
-                  nearbyLoading || !locationSynced,
-                  nearbyError,
-                  'No stores nearby',
-                  'Try searching an area or browse all stores below',
-                  () => void refetchNearby(),
-                  hasActiveFilters ? nearbyStores?.length : undefined,
-                )}
-              </View>
-            )}
+            {renderFilterBar()}
 
+            {/* Single unified list — no "Nearby" section, no separate
+                "All stores" section. The filter bar above controls exactly
+                this array (see visibleStores). */}
             <View style={styles.section}>
-              <SectionHeader
-                title="All stores"
-                count={filteredOthers?.length}
-              />
               {renderStoreList(
-                filteredOthers,
+                visibleStores,
                 allLoading,
                 allError,
-                'No stores available',
+                'No stores found',
                 'Check back soon — new stores are added regularly',
                 () => void refetchAll(),
-                hasActiveFilters ? otherStores?.length : undefined,
+                hasActiveFilters ? storesWithDistance.length : undefined,
               )}
             </View>
           </>
@@ -1466,6 +1794,26 @@ export default function HomeScreen() {
         onClose={() => setLocationPickerVisible(false)}
         onDetect={handlePickerDetect}
         onSelectHistory={handlePickerSelectHistory}
+      />
+
+      <FiltersSheet
+        visible={filterSheetVisible}
+        onClose={() => setFilterSheetVisible(false)}
+        categories={categories}
+        sortMode={sortMode}
+        openNowOnly={openNowOnly}
+        offersOnly={offersOnly}
+        offersSupported={offersSupported}
+        selectedCategories={selectedCategories}
+        onApply={handleApplyFiltersSheet}
+        onClearAll={clearFilters}
+      />
+
+      <PriceSortSheet
+        visible={priceSheetVisible}
+        onClose={() => setPriceSheetVisible(false)}
+        sortMode={sortMode}
+        onSelect={setSortMode}
       />
     </SafeAreaView>
   );
@@ -1512,8 +1860,8 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     backgroundColor: C.surface,
     paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 16,
+    paddingTop: 14,
+    paddingBottom: 18,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: C.border,
   },
@@ -1522,11 +1870,11 @@ const styles = StyleSheet.create({
   },
   greeting: {
     fontSize: 12,
-    fontWeight: '500',
-    fontFamily: ManropeWeights.medium,
+    fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
     color: C.muted,
-    letterSpacing: 0.2,
-    marginBottom: 5,
+    letterSpacing: 0.8,
+    marginBottom: 6,
     textTransform: 'uppercase',
   },
   locationRow: {
@@ -1534,14 +1882,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
+  locationPinWrap: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: C.accentSoft,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   locationName: {
-    fontSize: 22,
-    fontWeight: '700',
-    fontFamily: ManropeWeights.bold,
+    fontSize: 21,
+    fontWeight: '800',
+    fontFamily: ManropeWeights.extraBold,
     color: C.primary,
     flexShrink: 1,
-    letterSpacing: -0.7,
-    lineHeight: 26,
+    letterSpacing: -0.6,
+    lineHeight: 25,
   },
   locationLoading: {
     fontSize: 20,
@@ -1618,9 +1974,9 @@ const styles = StyleSheet.create({
   // ── Search Bar ──
   searchWrap: {
     backgroundColor: C.surface,
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingTop: 22,
-    paddingBottom: 10,
+    paddingBottom: 12,
     marginTop: -12,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
@@ -1638,12 +1994,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: C.bg,
-    borderRadius: 16,
-    height: 48,
-    paddingHorizontal: 14,
+    borderRadius: 18,
+    height: 52,
+    paddingHorizontal: 16,
     gap: 10,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: C.border,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.03,
+        shadowRadius: 3,
+      },
+      android: { elevation: 0 },
+    }),
   },
   searchInput: {
     flex: 1,
@@ -1661,44 +2026,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 
-  // ── Filter chips ──
-  filterBarRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 12,
-    gap: 10,
+  // ── Filter Bar section (sits between the banners and the store list) ──
+  filterBarSection: {
+    marginTop: 22,
+    marginBottom: 14,
   },
-  filterBarIconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 11,
-    backgroundColor: C.accentSoft,
-    justifyContent: 'center',
-    alignItems: 'center',
-    flexShrink: 0,
-  },
-  filterBarIconWrapActive: {
-    backgroundColor: C.accent,
-  },
-  filterBar: {
-    flex: 1,
-  },
+  filterBar: {},
   filterBarContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingRight: 8,
+    gap: 10,
+    paddingHorizontal: 20,
   },
   filterChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    height: 34,
-    paddingHorizontal: 14,
-    borderRadius: 17,
+    gap: 7,
+    height: 38,
+    paddingHorizontal: 15,
+    borderRadius: 19,
     backgroundColor: C.surface,
-    borderWidth: 1.2,
+    borderWidth: 1.3,
     borderColor: C.border,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3 },
+      android: { elevation: 1 },
+    }),
   },
   filterChipActive: {
     backgroundColor: C.accent,
@@ -1713,6 +2066,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontFamily: ManropeWeights.bold,
     color: C.secondary,
+    letterSpacing: 0.1,
   },
   filterChipTextActive: {
     color: '#FFFFFF',
@@ -1721,9 +2075,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    height: 34,
-    paddingHorizontal: 12,
-    borderRadius: 16,
+    height: 37,
+    paddingHorizontal: 13,
+    borderRadius: 18,
     backgroundColor: C.accentSoft,
   },
   filterClearChipText: {
@@ -1731,6 +2085,140 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontFamily: ManropeWeights.bold,
     color: C.accent,
+  },
+
+  // ── Filters Sheet ──
+  filterSheetWrap: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  filterSheet: {
+    backgroundColor: C.surface,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingTop: 12,
+    paddingHorizontal: 20,
+    maxHeight: '82%',
+    paddingBottom: Platform.OS === 'ios' ? 32 : 24,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 20,
+      },
+      android: { elevation: 12 },
+    }),
+  },
+  filterSheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  filterSheetTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
+    color: C.primary,
+    letterSpacing: -0.4,
+  },
+  filterSheetCloseBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: C.bg,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  filterSectionLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
+    color: C.muted,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  filterSectionDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: C.border,
+    marginTop: 14,
+  },
+  filterOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 10,
+  },
+  filterOptionLabel: {
+    fontSize: 14.5,
+    fontFamily: ManropeWeights.medium,
+    color: C.primary,
+  },
+  radioCircle: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1.6,
+    borderColor: C.border,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  radioCircleActive: {
+    borderColor: C.accent,
+  },
+  radioDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: C.accent,
+  },
+  checkBox: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    borderWidth: 1.6,
+    borderColor: C.border,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  checkBoxActive: {
+    backgroundColor: C.accent,
+    borderColor: C.accent,
+  },
+  filterSheetFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingTop: 16,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: C.border,
+  },
+  filterClearAllBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+  },
+  filterClearAllBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
+    color: C.secondary,
+  },
+  filterApplyBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: C.accent,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  filterApplyBtnText: {
+    fontSize: 14.5,
+    fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
+    color: '#FFFFFF',
   },
 
   // ── Content ──
@@ -1797,28 +2285,28 @@ const styles = StyleSheet.create({
 
   // ── Store Card ──
   cardWrapper: {
-    marginHorizontal: 16,
-    marginBottom: 14,
+    marginHorizontal: 12,
+    marginBottom: 16,
   },
   card: {
     backgroundColor: C.surface,
-    borderRadius: 16,
+    borderRadius: 22,
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: C.border,
     ...Platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 3 },
-        shadowOpacity: 0.06,
-        shadowRadius: 12,
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.09,
+        shadowRadius: 16,
       },
-      android: { elevation: 3 },
+      android: { elevation: 4 },
     }),
   },
   // Closed stores render as one disabled unit — true black & white via a
-  // grayscale filter over the whole card (photo, chips, Directions button,
-  // everything), plus a slight opacity fade. Not a separate "Closed" chip.
+  // grayscale filter over the whole card (photo, chips, everything), plus a
+  // slight opacity fade. Not a separate "Closed" chip.
   cardClosed: {
     filter: [{ grayscale: 1 }],
     opacity: 0.7,
@@ -1828,7 +2316,7 @@ const styles = StyleSheet.create({
     }),
   },
   banner: {
-    height: 124,
+    height: 146,
     position: 'relative',
     overflow: 'hidden',
   },
@@ -1864,37 +2352,67 @@ const styles = StyleSheet.create({
     top: 0, left: 0, right: 0, bottom: 0,
     backgroundColor: 'rgba(0,0,0,0.06)',
   },
-  cardBody: {
-    paddingHorizontal: 14,
-    paddingTop: 11,
-    paddingBottom: 12,
-  },
-  cardTitleRow: {
+  // Replaces the old "Directions" footer button — shows the real,
+  // backend-provided distance directly on the image, food-app style.
+  distanceBadge: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 5,
+    gap: 4,
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 14,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.14,
+        shadowRadius: 5,
+      },
+      android: { elevation: 2 },
+    }),
   },
-  cardName: {
-    fontSize: 14.5,
+  distanceBadgeText: {
+    fontSize: 11.5,
     fontWeight: '700',
     fontFamily: ManropeWeights.bold,
     color: C.primary,
-    letterSpacing: -0.3,
-    flex: 1,
+  },
+  cardBody: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 12,
+  },
+  cardName: {
+    fontSize: 17,
+    fontWeight: '800',
+    fontFamily: ManropeWeights.extraBold,
+    color: C.primary,
+    letterSpacing: -0.4,
+    marginBottom: 2,
+  },
+  cardAddress: {
+    fontSize: 12.5,
+    color: C.secondary,
+    fontFamily: ManropeWeights.regular,
+    marginBottom: 6,
   },
   categoryChipRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
-    gap: 5,
-    marginBottom: 8,
+    gap: 6,
+    marginBottom: 6,
   },
   categoryTag: {
     alignSelf: 'flex-start',
     backgroundColor: C.accentSoft,
-    borderRadius: 6,
-    paddingHorizontal: 7,
-    paddingVertical: 2.5,
+    borderRadius: 8,
+    paddingHorizontal: 9,
+    paddingVertical: 3.5,
     maxWidth: 140,
   },
   categoryTagMore: {
@@ -1911,79 +2429,29 @@ const styles = StyleSheet.create({
   categoryTagMoreText: {
     color: C.secondary,
   },
-  priceRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 5,
-    marginTop: 8,
+  priceBlock: {
+    paddingTop: 6,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: C.divider,
   },
   priceLabel: {
-    fontSize: 11,
-    fontFamily: ManropeWeights.medium,
-    color: C.secondary,
+    fontSize: 10.5,
+    fontFamily: ManropeWeights.semiBold,
+    color: C.muted,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+    marginBottom: 2,
   },
   priceValue: {
-    fontSize: 15,
+    fontSize: 20,
     fontFamily: ManropeWeights.extraBold,
     color: C.accent,
-    letterSpacing: -0.2,
+    letterSpacing: -0.4,
   },
-  cardFooter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 7,
-  },
-  cardMeta: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    flexShrink: 1,
-    overflow: 'hidden',
-  },
-  cardDirectionsBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#FEF2EF',
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 9,
-    flexShrink: 0,
-  },
-  cardDirectionsBtnText: {
-    fontSize: 11.5,
-    fontWeight: '700',
-    fontFamily: ManropeWeights.bold,
-    color: '#D63527',
-  },
-  metaItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  metaText: {
-    fontSize: 11.5,
-    color: C.secondary,
-    fontFamily: ManropeWeights.regular,
-  },
-  metaDistance: {
-    color: C.primary,
-    fontWeight: '600',
+  priceUnit: {
+    fontSize: 13,
     fontFamily: ManropeWeights.semiBold,
-  },
-  metaDivider: {
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
-    backgroundColor: C.muted,
-  },
-  cardAddress: {
-    fontSize: 11.5,
-    color: C.muted,
-    fontFamily: ManropeWeights.regular,
-    flex: 1,
+    color: C.secondary,
   },
 
   // ── Location Permission Banner ──

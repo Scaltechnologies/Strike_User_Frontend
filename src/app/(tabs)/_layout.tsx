@@ -6,6 +6,7 @@ import { PayAtStorePendingBar } from '@/components/payment/PayAtStorePendingBar'
 import { usePendingRedemptions } from '@/hooks/useRedemptions';
 import { useAuthStore } from '@/store/authStore';
 import { ManropeWeights } from '@/constants/theme';
+import { tapSelect } from '@/utils/haptics';
 
 // A bar's own height (icon row + padding) plus the 10px gap PendingRedemptionBar/
 // PayAtStorePendingBar each sit above their `bottomOffset` — used to stack the second bar
@@ -49,6 +50,7 @@ export default function TabsLayout() {
           tabBarLabelStyle: styles.label,
           tabBarItemStyle: styles.tabItem,
         }}
+        screenListeners={{ tabPress: () => tapSelect() }}
       >
         <Tabs.Screen
           name="index"
@@ -122,11 +124,11 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   iconWrap: {
-    width: 40,
-    height: 32,
+    width: 44,
+    height: 34,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 10,
+    borderRadius: 12,
   },
   iconWrapActive: {
     backgroundColor: '#FEF2EF',

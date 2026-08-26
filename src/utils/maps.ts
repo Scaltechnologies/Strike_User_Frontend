@@ -16,6 +16,45 @@ export function formatDistance(km: number): string {
 }
 
 /**
+ * Compact distance format for badges/chips — same rounding as formatDistance
+ * but without the trailing "away", for contexts where a label already
+ * implies location (e.g. a distance badge overlaid on a card image).
+ *
+ * 0.25 → "250 m", 0.9 → "900 m", 1.26 → "1.2 km", 4.83 → "4.8 km"
+ */
+export function formatDistanceCompact(km: number): string {
+  if (km < 1) return `${Math.round(km * 1000)} m`;
+  return `${km.toFixed(1)} km`;
+}
+
+const EARTH_RADIUS_KM = 6371;
+
+function toRad(deg: number): number {
+  return (deg * Math.PI) / 180;
+}
+
+/**
+ * Great-circle distance between two coordinates, in kilometers.
+ * Used to compute a store's distance client-side when the backend hasn't
+ * already supplied one (e.g. the plain store list, unlike /nearby/me,
+ * carries no distanceKm) — real store lat/lng and real user coords in,
+ * nothing invented.
+ */
+export function haversineDistanceKm(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number,
+): number {
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return EARTH_RADIUS_KM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/**
  * Opens the device Maps app and starts turn-by-turn navigation to
  * the given store coordinates.
  *

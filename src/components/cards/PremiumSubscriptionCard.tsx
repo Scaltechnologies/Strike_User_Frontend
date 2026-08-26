@@ -19,6 +19,7 @@ import Animated, {
   Easing,
   FadeInDown,
   interpolate,
+  runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
@@ -30,6 +31,7 @@ import Animated, {
 import { ChevronRight } from 'lucide-react-native';
 import { ManropeWeights } from '@/constants/theme';
 import { CARD_HEIGHT, CARD_RADIUS, CARD_SHINE, getCardColorTheme } from '@/utils/cardColorTheme';
+import { tapLight } from '@/utils/haptics';
 import type { Store } from '@/types/store';
 import type { Subscription } from '@/types/subscription';
 
@@ -115,6 +117,7 @@ export function PremiumSubscriptionCard({
   function handlePressIn() {
     'worklet';
     press.value = withSpring(1, { damping: 18, stiffness: 260 });
+    runOnJS(tapLight)();
   }
 
   function handlePressOut() {

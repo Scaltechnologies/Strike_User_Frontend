@@ -21,6 +21,7 @@ import { usePayAtStoreSessionStore } from '@/store/payAtStoreSessionStore';
 import { buildRoute } from '@/constants/routes';
 import { formatCardPrice } from '@/components/cards/theme';
 import { ManropeWeights } from '@/constants/theme';
+import { tapLight } from '@/utils/haptics';
 import type { Redemption, RedemptionStatus } from '@/types/redemption';
 // ── Design tokens ──────────────────────────────────────────────────────────────
 
@@ -205,7 +206,7 @@ function RedemptionCard({
   return (
     <Pressable
       style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-      onPress={onPress}
+      onPress={() => { tapLight(); onPress(); }}
     >
       {/* Top row: items + amount */}
       <View style={styles.cardTop}>

@@ -5,6 +5,7 @@ import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ManropeWeights } from '@/constants/theme';
 import { CARD_HEIGHT, CARD_RADIUS, CARD_SHINE, getCardColorTheme } from '@/utils/cardColorTheme';
+import { tapLight } from '@/utils/haptics';
 import { formatCardPrice } from './theme';
 
 interface Props {
@@ -28,7 +29,7 @@ export function CardListItem({ card, onPress, isOwned = false, layout = 'grid' }
   return (
     <Pressable
       style={({ pressed }) => ({ opacity: pressed ? 0.9 : 1 })}
-      onPress={onPress}
+      onPress={() => { tapLight(); onPress(); }}
     >
       <LinearGradient
         colors={theme.gradient}

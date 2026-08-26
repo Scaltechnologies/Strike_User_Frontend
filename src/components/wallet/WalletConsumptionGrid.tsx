@@ -29,7 +29,7 @@
 // branching here.
 import { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Animated, Easing, Platform, Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
-import { Check, Sparkles } from 'lucide-react-native';
+import { ArrowDown, ArrowUp, Check, PieChart, Sparkles, Wallet as WalletIcon } from 'lucide-react-native';
 import { ManropeWeights } from '@/constants/theme';
 import type { Redemption } from '@/types/redemption';
 
@@ -56,6 +56,10 @@ export interface WalletConsumptionGridProps {
   // finishes when the percentage changes. Lets a screen defer revealing
   // content until the water has actually finished moving.
   onSettled?: () => void;
+  // Opt-in — off by default so existing callers (e.g. the post-redemption
+  // popup) keep their current plain stat row. Adds a small circular icon
+  // above each of the four stat labels.
+  showStatIcons?: boolean;
 }
 
 // Attributes each cell to every redemption whose cumulative amount touched
@@ -115,6 +119,23 @@ const C = {
   success:  '#16A34A',
 } as const;
 
+// Icon + soft-background pairs for the optional per-stat icon (showStatIcons) —
+// kept alongside the WATER/C tokens above so the stat row's icon colors stay
+// visually tied to the same red-for-used / green-for-remaining language used
+// by the fill and the "Remaining"/"Used" values themselves.
+const STAT_ICON_BG = {
+  original:  '#F1F2F4',
+  used:      '#FDECEA',
+  remaining: '#E9F9EF',
+  usage:     '#FDF3E3',
+} as const;
+const STAT_ICON_FG = {
+  original:  '#6B7280',
+  used:      WATER.bottom,
+  remaining: C.success,
+  usage:     '#C2810C',
+} as const;
+
 function fmt(n: number): string {
   const v = Math.round(n * 100) / 100;
   return v % 1 === 0 ? `₹${v}` : `₹${v.toFixed(2)}`;
@@ -124,9 +145,10 @@ function fmtPct(n: number): string {
   return `${(Math.round(n * 100) / 100).toFixed(2).replace(/\.00$/, '')}%`;
 }
 
-function StatBlock({ label, value, color }: { label: string; value: string; color?: string }) {
+function StatBlock({ label, value, color, icon }: { label: string; value: string; color?: string; icon?: React.ReactNode }) {
   return (
     <View style={styles.statBlock}>
+      {icon}
       <Text style={styles.statLabel}>{label}</Text>
       <Text style={[styles.statValue, color ? { color } : null]} numberOfLines={1}>{value}</Text>
     </View>
@@ -252,6 +274,7 @@ export function WalletConsumptionGrid({
   redemptions,
   onCellPress,
   onSettled,
+  showStatIcons,
 }: WalletConsumptionGridProps) {
   const cellCount = Math.max(1, Math.round(totalCells));
   const rows = Math.ceil(cellCount / COLUMNS);
@@ -331,10 +354,41 @@ export function WalletConsumptionGrid({
     <View style={styles.card}>
       {/* Stats row */}
       <View style={styles.statsRow}>
-        <StatBlock label="ORIGINAL"  value={fmt(originalWalletAmount)} />
-        <StatBlock label="USED"      value={fmt(usedAmount)} color={WATER.bottom} />
-        <StatBlock label="REMAINING" value={fmt(walletBalance)} color={C.success} />
-        <StatBlock label="USAGE"     value={fmtPct(consumptionPercentage)} />
+        <StatBlock
+          label="ORIGINAL" value={fmt(originalWalletAmount)}
+          icon={showStatIcons ? (
+            <View style={[styles.statIconWrap, { backgroundColor: STAT_ICON_BG.original }]}>
+              <WalletIcon size={14} color={STAT_ICON_FG.original} strokeWidth={2} />
+            </View>
+          ) : null}
+        />
+        {showStatIcons && <View style={styles.statDivider} />}
+        <StatBlock
+          label="USED" value={fmt(usedAmount)} color={WATER.bottom}
+          icon={showStatIcons ? (
+            <View style={[styles.statIconWrap, { backgroundColor: STAT_ICON_BG.used }]}>
+              <ArrowDown size={14} color={STAT_ICON_FG.used} strokeWidth={2.4} />
+            </View>
+          ) : null}
+        />
+        {showStatIcons && <View style={styles.statDivider} />}
+        <StatBlock
+          label="REMAINING" value={fmt(walletBalance)} color={C.success}
+          icon={showStatIcons ? (
+            <View style={[styles.statIconWrap, { backgroundColor: STAT_ICON_BG.remaining }]}>
+              <ArrowUp size={14} color={STAT_ICON_FG.remaining} strokeWidth={2.4} />
+            </View>
+          ) : null}
+        />
+        {showStatIcons && <View style={styles.statDivider} />}
+        <StatBlock
+          label="USAGE" value={fmtPct(consumptionPercentage)}
+          icon={showStatIcons ? (
+            <View style={[styles.statIconWrap, { backgroundColor: STAT_ICON_BG.usage }]}>
+              <PieChart size={14} color={STAT_ICON_FG.usage} strokeWidth={2} />
+            </View>
+          ) : null}
+        />
       </View>
 
       {/* Always-there tap cue — a small chip, no dismiss, nothing hidden
@@ -394,6 +448,19 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   statBlock: { flex: 1, alignItems: 'center', paddingVertical: 12 },
+  statDivider: {
+    width: 1,
+    alignSelf: 'stretch',
+    marginVertical: 12,
+    // Deliberately a shade darker than C.border — that color sits too close
+    // to the stats row's own cellBg background to read as a visible line.
+    backgroundColor: '#D7DBE0',
+  },
+  statIconWrap: {
+    width: 28, height: 28, borderRadius: 14,
+    justifyContent: 'center', alignItems: 'center',
+    marginBottom: 6,
+  },
   statLabel: {
     fontSize: 9, color: C.muted, fontFamily: ManropeWeights.bold,
     textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4,

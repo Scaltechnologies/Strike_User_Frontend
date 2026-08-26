@@ -13,6 +13,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { formatCardPrice } from '@/components/cards/theme';
 import { getCardColorTheme } from '@/utils/cardColorTheme';
+import { tapSuccess } from '@/utils/haptics';
 import { PurchaseCardReveal } from '@/components/cards/PurchaseCardReveal';
 import { ROUTES, buildRoute } from '@/constants/routes';
 import { ManropeWeights } from '@/constants/theme';
@@ -86,6 +87,7 @@ export default function ActivationSuccessScreen() {
   const ctaY         = useSharedValue(10);
 
   useEffect(() => {
+    tapSuccess();
     checkScale.value = withSpring(1, {
       damping: 9,
       stiffness: 150,

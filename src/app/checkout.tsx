@@ -22,7 +22,6 @@ import {
   useCancelPayment,
   useCreatePayment,
   usePayment,
-  useRetryPayment,
   useVerifyPayment,
 } from '@/hooks/usePayments';
 import { subscriptionApi } from '@/api/subscription.api';
@@ -85,7 +84,6 @@ export default function CheckoutScreen() {
   const idempotencyKeyRef = useRef(genIdempotencyKey());
   const [paymentId, setPaymentId] = useState<number | null>(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const [hasAttempted, setHasAttempted] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [navigated, setNavigated] = useState(false);
@@ -94,10 +92,13 @@ export default function CheckoutScreen() {
   const { data: profile } = useProfile();
 
   const { mutate: createPayment, isPending: creating } = useCreatePayment();
-  const { data: payment } = usePayment(paymentId ?? undefined, { poll: hasAttempted });
-  const { mutateAsync: verifyPayment, isPending: verifying } = useVerifyPayment(paymentId ?? undefined);
-  const { mutateAsync: cancelPayment, isPending: reconciling } = useCancelPayment(paymentId ?? undefined);
-  const { mutateAsync: retryPayment, isPending: retrying } = useRetryPayment(paymentId ?? undefined);
+  // Retry has no dedicated endpoint — it opens a brand-new gateway attempt via the
+  // same create endpoint, in its own mutation instance so its pending state doesn't
+  // drive the initial "Setting up your payment…" full-screen loader.
+  const { mutateAsync: retryPayment, isPending: retrying } = useCreatePayment();
+  const { data: payment } = usePayment(paymentId ?? undefined);
+  const { mutateAsync: verifyPayment, isPending: verifying } = useVerifyPayment();
+  const { mutateAsync: cancelPayment, isPending: reconciling } = useCancelPayment();
 
   const busy = creating || verifying || reconciling || retrying;
   const status: PaymentStatus | undefined = payment?.status;
@@ -170,16 +171,18 @@ export default function CheckoutScreen() {
 
   function handleOpenCheckout() {
     setActionError(null);
-    setHasAttempted(true);
     setCheckoutOpen(true);
   }
 
   function handleRazorpaySuccess(result: RazorpayCheckoutResult) {
     setCheckoutOpen(false);
     verifyPayment({
-      gatewayOrderId: result.razorpay_order_id,
-      gatewayPaymentId: result.razorpay_payment_id,
-      gatewaySignature: result.razorpay_signature,
+      paymentId: paymentId!,
+      body: {
+        gatewayOrderId: result.razorpay_order_id,
+        gatewayPaymentId: result.razorpay_payment_id,
+        gatewaySignature: result.razorpay_signature,
+      },
     }).catch((err) => setActionError(extractActionError(err)));
   }
 
@@ -187,15 +190,26 @@ export default function CheckoutScreen() {
     setCheckoutOpen(false);
     // Never assume "dismissed" means "failed" — the backend checks the gateway directly
     // before deciding; a charge that actually landed still resolves to SUCCESS.
-    cancelPayment().catch(() => {
+    cancelPayment(paymentId!).catch(() => {
       /* reconciliation failure is surfaced via the polled payment status, not here */
     });
   }
 
   function handleRetry() {
     setActionError(null);
-    retryPayment()
-      .then(() => setCheckoutOpen(true))
+    idempotencyKeyRef.current = genIdempotencyKey();
+    retryPayment({
+      body: {
+        cardDefinitionId: Number(cardDefinitionId),
+        storeId: Number(storeId),
+        ...(couponCode ? { couponCode } : {}),
+      },
+      idempotencyKey: idempotencyKeyRef.current,
+    })
+      .then((data) => {
+        setPaymentId(data.paymentId);
+        setCheckoutOpen(true);
+      })
       .catch((err) => setActionError(extractActionError(err)));
   }
 
