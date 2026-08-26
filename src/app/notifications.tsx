@@ -1,11 +1,29 @@
-import { FlatList, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+// Notification center — 100% backend-driven (GET /api/notifications/me).
+// Read/unread state, icons, and tap-navigation all come from the real
+// notification-service inbox row, not any client-side history.
+
+import { useMemo } from 'react';
+import {
+  ActivityIndicator,
+  FlatList,
+  Platform,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { AlertTriangle, ArrowLeft, Bell, CheckCircle2, XCircle } from 'lucide-react-native';
+import { AlertCircle, ArrowLeft, Bell, RefreshCw } from 'lucide-react-native';
 
-import { useNotificationHistory } from '@/hooks/useNotificationHistory';
-import type { AppNotification } from '@/types/notification';
-import type { NotificationType } from '@/store/notificationStore';
+import {
+  useMarkAllNotificationsRead,
+  useMarkNotificationRead,
+  useNotificationInbox,
+} from '@/hooks/useNotificationInbox';
+import { getNotificationDisplay } from '@/constants/notificationDisplay';
+import type { NotificationDto } from '@/types/notification';
 import { ManropeWeights } from '@/constants/theme';
 
 // ── Design tokens — matches settings/notifications.tsx ──────────────────────────
@@ -22,13 +40,6 @@ const C = {
   muted:      '#AEAEB2',
 } as const;
 
-const TYPE_CONFIG: Record<NotificationType, { color: string; soft: string; Icon: typeof Bell }> = {
-  success: { color: '#1C7A3C', soft: '#EAF7EF', Icon: CheckCircle2 },
-  error:   { color: '#C0261A', soft: '#FEF0EE', Icon: XCircle },
-  warning: { color: '#946200', soft: '#FFF5E0', Icon: AlertTriangle },
-  info:    { color: '#0369A1', soft: '#EFF6FF', Icon: Bell },
-};
-
 // ── Relative time ─────────────────────────────────────────────────────────────
 
 function timeAgo(iso: string): string {
@@ -43,16 +54,53 @@ function timeAgo(iso: string): string {
   return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 }
 
+// ── Date grouping (Today / Yesterday / Earlier) ─────────────────────────────────
+
+type Row = { kind: 'header'; label: string } | { kind: 'item'; item: NotificationDto };
+
+function isSameLocalDay(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear()
+    && a.getMonth() === b.getMonth()
+    && a.getDate() === b.getDate();
+}
+
+function groupByDate(items: NotificationDto[]): Row[] {
+  const now = new Date();
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+
+  const rows: Row[] = [];
+  let currentLabel: string | null = null;
+
+  for (const item of items) {
+    const createdAt = new Date(item.createdAt);
+    const label = isSameLocalDay(createdAt, now)
+      ? 'Today'
+      : isSameLocalDay(createdAt, yesterday)
+        ? 'Yesterday'
+        : 'Earlier';
+
+    if (label !== currentLabel) {
+      rows.push({ kind: 'header', label });
+      currentLabel = label;
+    }
+    rows.push({ kind: 'item', item });
+  }
+  return rows;
+}
+
 // ── Top bar ─────────────────────────────────────────────────────────────────────
 
 function TopBar({
   onBack,
   showMarkAllRead,
   onMarkAllRead,
+  markingAll,
 }: {
   onBack: () => void;
   showMarkAllRead: boolean;
   onMarkAllRead: () => void;
+  markingAll: boolean;
 }) {
   return (
     <View style={styles.topBar}>
@@ -61,12 +109,26 @@ function TopBar({
       </Pressable>
       <Text style={styles.topBarTitle}>Notifications</Text>
       {showMarkAllRead ? (
-        <Pressable style={styles.markAllBtn} onPress={onMarkAllRead} hitSlop={10}>
-          <Text style={styles.markAllBtnText}>Mark all read</Text>
+        <Pressable style={styles.markAllBtn} onPress={onMarkAllRead} hitSlop={10} disabled={markingAll}>
+          {markingAll ? (
+            <ActivityIndicator size="small" color={C.accent} />
+          ) : (
+            <Text style={styles.markAllBtnText}>Mark all read</Text>
+          )}
         </Pressable>
       ) : (
         <View style={styles.topBarSpacer} />
       )}
+    </View>
+  );
+}
+
+// ── Section header ────────────────────────────────────────────────────────────
+
+function SectionHeader({ label }: { label: string }) {
+  return (
+    <View style={styles.sectionHeaderWrap}>
+      <Text style={styles.sectionHeaderText}>{label}</Text>
     </View>
   );
 }
@@ -77,16 +139,16 @@ function NotificationRow({
   item,
   onPress,
 }: {
-  item: AppNotification;
+  item: NotificationDto;
   onPress: () => void;
 }) {
-  const { color, soft, Icon } = TYPE_CONFIG[item.type];
+  const { Icon, color, soft } = getNotificationDisplay(item.type);
 
   return (
     <Pressable
       style={({ pressed }) => [
         styles.row,
-        !item.read && styles.rowUnread,
+        !item.isRead && styles.rowUnread,
         pressed && styles.rowPressed,
       ]}
       onPress={onPress}
@@ -97,7 +159,7 @@ function NotificationRow({
       <View style={styles.rowBody}>
         <View style={styles.rowTitleLine}>
           <Text style={styles.rowTitle} numberOfLines={1}>{item.title}</Text>
-          {!item.read && <View style={styles.unreadDot} />}
+          {!item.isRead && <View style={styles.unreadDot} />}
         </View>
         {item.message ? (
           <Text style={styles.rowMessage} numberOfLines={2}>{item.message}</Text>
@@ -124,31 +186,110 @@ function EmptyState() {
   );
 }
 
+// ── Error state ────────────────────────────────────────────────────────────────
+
+function ErrorState({ onRetry }: { onRetry: () => void }) {
+  return (
+    <View style={styles.emptyWrap}>
+      <View style={[styles.emptyIconWrap, { backgroundColor: '#FEF0EE' }]}>
+        <AlertCircle size={26} color={C.accent} strokeWidth={1.6} />
+      </View>
+      <Text style={styles.emptyTitle}>Couldn&apos;t load notifications</Text>
+      <Text style={styles.emptySub}>Check your connection and try again.</Text>
+      <Pressable style={styles.retryBtn} onPress={onRetry} hitSlop={8}>
+        <RefreshCw size={13} color={C.accent} strokeWidth={2} />
+        <Text style={styles.retryBtnText}>Try again</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+// ── Loading skeleton ──────────────────────────────────────────────────────────
+
+function RowSkeleton() {
+  return (
+    <View style={[styles.row, { opacity: 0.6 }]}>
+      <View style={[styles.iconWrap, { backgroundColor: C.bg }]} />
+      <View style={styles.rowBody}>
+        <View style={{ height: 13, width: '55%', backgroundColor: C.bg, borderRadius: 4 }} />
+        <View style={{ height: 11, width: '80%', backgroundColor: C.bg, borderRadius: 4, marginTop: 6 }} />
+      </View>
+    </View>
+  );
+}
+
 // ── Screen ─────────────────────────────────────────────────────────────────────
 
 export default function NotificationsScreen() {
   const router = useRouter();
-  const { items, unreadCount, markRead, markAllRead } = useNotificationHistory();
+  const { data, isLoading, isError, isRefetching, refetch } = useNotificationInbox();
+  const { mutate: markRead } = useMarkNotificationRead();
+  const { mutate: markAllRead, isPending: markingAll } = useMarkAllNotificationsRead();
+
+  const items = useMemo(() => data?.content ?? [], [data]);
+  const unreadCount = items.reduce((n, item) => n + (item.isRead ? 0 : 1), 0);
+  const rows = useMemo(() => groupByDate(items), [items]);
+
+  const handlePress = (item: NotificationDto) => {
+    // Best-effort — a transient network failure here must never block
+    // navigating to the notification's destination, and never touches any
+    // notification other than the one tapped.
+    if (!item.isRead) markRead(item.id);
+
+    const display = getNotificationDisplay(item.type);
+    const destination = item.actionUrl && item.actionUrl.length > 0 ? item.actionUrl : display.route;
+    try {
+      router.push(destination as never);
+    } catch {
+      // Malformed/unroutable destination — land somewhere safe instead of crashing.
+      router.push('/notifications' as never);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
       <TopBar
         onBack={() => router.back()}
         showMarkAllRead={unreadCount > 0}
-        onMarkAllRead={markAllRead}
+        onMarkAllRead={() => markAllRead()}
+        markingAll={markingAll}
       />
 
-      <FlatList
-        data={items}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={items.length === 0 ? styles.listEmptyContent : styles.listContent}
-        renderItem={({ item }) => (
-          <NotificationRow item={item} onPress={() => markRead(item.id)} />
-        )}
-        ItemSeparatorComponent={() => <View style={styles.separator} />}
-        ListEmptyComponent={<EmptyState />}
-        showsVerticalScrollIndicator={false}
-      />
+      {isLoading ? (
+        <View style={styles.listContent}>
+          <RowSkeleton />
+          <View style={{ height: 10 }} />
+          <RowSkeleton />
+          <View style={{ height: 10 }} />
+          <RowSkeleton />
+        </View>
+      ) : isError && items.length === 0 ? (
+        <ErrorState onRetry={() => void refetch()} />
+      ) : (
+        <FlatList
+          data={rows}
+          keyExtractor={(row, i) => (row.kind === 'header' ? `h-${row.label}-${i}` : `n-${row.item.id}`)}
+          contentContainerStyle={items.length === 0 ? styles.listEmptyContent : styles.listContent}
+          renderItem={({ item: row }) =>
+            row.kind === 'header' ? (
+              <SectionHeader label={row.label} />
+            ) : (
+              <NotificationRow item={row.item} onPress={() => handlePress(row.item)} />
+            )
+          }
+          ItemSeparatorComponent={() => <View style={styles.separator} />}
+          ListEmptyComponent={<EmptyState />}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefetching}
+              onRefresh={() => void refetch()}
+              tintColor={C.accent}
+              colors={[C.accent]}
+            />
+          }
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -188,6 +329,8 @@ const styles = StyleSheet.create({
   markAllBtn: {
     paddingHorizontal: 4,
     paddingVertical: 8,
+    minWidth: 36,
+    alignItems: 'flex-end',
   },
   markAllBtnText: {
     fontSize: 12.5,
@@ -199,6 +342,20 @@ const styles = StyleSheet.create({
   listContent: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 32 },
   listEmptyContent: { flexGrow: 1 },
   separator: { height: 10 },
+
+  // ── Section header ──
+  sectionHeaderWrap: {
+    paddingTop: 6,
+    paddingBottom: 2,
+  },
+  sectionHeaderText: {
+    fontSize: 12,
+    fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
+    color: C.muted,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
 
   // ── Row ──
   row: {
@@ -259,7 +416,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  // ── Empty state ──
+  // ── Empty / error state ──
   emptyWrap: {
     flex: 1,
     alignItems: 'center',
@@ -289,5 +446,21 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 21,
     fontFamily: ManropeWeights.regular,
+  },
+  retryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: C.accentSoft,
+  },
+  retryBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
+    color: C.accent,
   },
 });

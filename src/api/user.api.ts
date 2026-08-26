@@ -7,6 +7,7 @@ import type {
   UserProfileDto,
   UpdateProfileRequest,
   RegisterPushTokenRequest,
+  PushDeviceDto,
 } from '@/types/user';
 
 // user-service returns raw DTOs directly — no ApiSuccessResponse wrapper
@@ -58,10 +59,21 @@ export const userApi = {
     return toUserProfile(data);
   },
 
-  registerPushToken: async (token: string, platform: 'ios' | 'android'): Promise<void> => {
-    await apiClient.post(API_ENDPOINTS.USER.PUSH_TOKEN, {
+  // Returns the backend's own PushDevice row (its numeric id in particular) —
+  // callers that want to later disable this exact device (see logout in
+  // profile.tsx) need it, since disable is by id, not by token.
+  registerPushToken: async (token: string, platform: 'ios' | 'android'): Promise<PushDeviceDto> => {
+    const { data } = await apiClient.post<PushDeviceDto>(API_ENDPOINTS.USER.PUSH_TOKEN, {
       platform: platform === 'ios' ? 'IOS' : 'ANDROID',
       deviceToken: token,
     } satisfies RegisterPushTokenRequest);
+    return data;
+  },
+
+  // Soft-disables this device row so it stops receiving push after logout —
+  // registerOrRefresh() flips it back to active (and reassigns ownership) the
+  // next time any account registers the same token on this device.
+  unregisterPushToken: async (deviceId: number): Promise<void> => {
+    await apiClient.delete(API_ENDPOINTS.USER.PUSH_DEVICE_BY_ID(deviceId));
   },
 };

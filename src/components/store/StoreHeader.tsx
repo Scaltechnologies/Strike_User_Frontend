@@ -12,12 +12,21 @@ import type { Store } from '@/types/store';
 
 // ── Status badge ──────────────────────────────────────────────────────────────
 
-function StatusBadge({ status }: { status: Store['status'] }) {
-  const cfg = {
-    ACTIVE:             { label: 'Open Now',           color: C.successText, bg: C.successBg  },
-    INACTIVE:           { label: 'Closed',              color: C.dangerText,  bg: C.dangerBg   },
-    TEMPORARILY_CLOSED: { label: 'Temporarily Closed',  color: C.warningText, bg: C.warningBg  },
-  }[status];
+// INACTIVE/TEMPORARILY_CLOSED are account-level overrides — always shown as-is
+// regardless of the clock. An ACTIVE store still isn't necessarily open right
+// now, though — the same isStoreOpenNow check the signboard/map-thumbnail
+// treatment below already use is the source of truth for that case too, so
+// this badge can never contradict them (e.g. a green "Open Now" pill next to
+// a "CLOSED" signboard because this used to trust raw status alone).
+function StatusBadge({ store }: { store: Store }) {
+  const cfg =
+    store.status === 'INACTIVE'
+      ? { label: 'Closed', color: C.dangerText, bg: C.dangerBg }
+      : store.status === 'TEMPORARILY_CLOSED'
+        ? { label: 'Temporarily Closed', color: C.warningText, bg: C.warningBg }
+        : isStoreOpenNow(store)
+          ? { label: 'Open Now', color: C.successText, bg: C.successBg }
+          : { label: 'Closed Now', color: C.dangerText, bg: C.dangerBg };
 
   return (
     <View style={[styles.statusBadge, { backgroundColor: cfg.bg }]}>
@@ -136,7 +145,7 @@ export const StoreHeader = memo(function StoreHeader({ store }: Props) {
           <Text style={styles.name} numberOfLines={2}>{store.name}</Text>
 
           <View style={styles.badgeRow}>
-            <StatusBadge status={store.status} />
+            <StatusBadge store={store} />
             <View style={styles.categoryPill}>
               <Text style={styles.categoryText}>{store.category}</Text>
             </View>

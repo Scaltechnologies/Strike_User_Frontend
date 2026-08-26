@@ -43,6 +43,16 @@ export interface RegisterPushTokenRequest {
   deviceToken: string;
 }
 
+// Backend contract: notification-service's PushDevice entity — returned as-is
+// (no DTO wrapper) from POST/GET /api/notifications/me/devices. Only the
+// fields this app actually reads are declared.
+export interface PushDeviceDto {
+  id: number;
+  platform: string;
+  deviceToken: string;
+  active: boolean;
+}
+
 export interface UpdateLocationResponse {
   userId: number;
   name: string | null;
