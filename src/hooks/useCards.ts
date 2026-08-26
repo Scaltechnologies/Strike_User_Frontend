@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { cardApi } from '@/api/card.api';
 
 export const cardKeys = {
@@ -37,6 +38,33 @@ export function useLowestCardPricesByStores(storeIds: (string | number)[]) {
     enabled:  storeIds.length > 0,
     staleTime: 5 * 60 * 1000,
   });
+}
+
+// "Has an offer" per store, for the Home "Offers" filter — genuine data
+// (bonusAmount = max(walletAmount - cardPrice, 0), server-computed) but no
+// batched endpoint returns it across stores the way lowest-price-by-stores
+// does, so it's assembled client-side from the same per-store cards
+// endpoint useStoreCards/StoreCard's menu already hits. Same query key as
+// useStoreCards, so it shares one cache entry with it — visiting a store's
+// own page doesn't refetch, and this doesn't refetch if that page already
+// loaded the store's cards. staleTime matches useStoreCards.
+export function useStoresHaveOffer(storeIds: (string | number)[]) {
+  const queries = useQueries({
+    queries: storeIds.map((id) => ({
+      queryKey: cardKeys.byStore(id),
+      queryFn: () => cardApi.getByStore(id),
+      staleTime: 5 * 60 * 1000,
+    })),
+  });
+
+  return useMemo(() => {
+    const map: Record<string, boolean> = {};
+    storeIds.forEach((id, i) => {
+      const cards = queries[i]?.data;
+      map[String(id)] = !!cards?.some((c) => c.isActive && c.bonusAmount > 0);
+    });
+    return map;
+  }, [storeIds, queries]);
 }
 
 // "New Arrivals" — active cards created in the last 3 days, newest first.

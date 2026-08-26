@@ -18,6 +18,7 @@ import { useMySubscriptions } from '@/hooks/useSubscriptions';
 import { useAllStores } from '@/hooks/useStores';
 import { RedemptionDetailSheet } from '@/components/history/RedemptionDetailSheet';
 import { ManropeWeights } from '@/constants/theme';
+import { tapLight } from '@/utils/haptics';
 import type { Redemption, RedemptionStatus } from '@/types/redemption';
 // ── Design tokens ──────────────────────────────────────────────────────────────
 
@@ -202,7 +203,7 @@ function RedemptionCard({
   return (
     <Pressable
       style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-      onPress={onPress}
+      onPress={() => { tapLight(); onPress(); }}
     >
       {/* Top row: items + amount */}
       <View style={styles.cardTop}>

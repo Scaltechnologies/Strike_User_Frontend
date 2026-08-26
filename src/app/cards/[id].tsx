@@ -8,6 +8,7 @@ import { useStoreDetail, useStoreMenu } from '@/hooks/useStores';
 import { useMyActiveSubscriptions } from '@/hooks/useSubscriptions';
 import { notify } from '@/services/notificationService';
 import { CARD_HEIGHT, CARD_RADIUS, CARD_SHINE, getCardColorTheme } from '@/utils/cardColorTheme';
+import { tapLight, tapMedium } from '@/utils/haptics';
 import type { CardDefinition } from '@/types/card';
 import type { MenuCategory, MenuItem } from '@/types/store';
 import type { Subscription } from '@/types/subscription';
@@ -433,6 +434,7 @@ function ViewMembershipCTA({ onPress }: { onPress: () => void }) {
   const scale = useRef(new Animated.Value(1)).current;
 
   function onPressIn() {
+    tapLight();
     Animated.spring(scale, { toValue: 0.97, tension: 120, friction: 8, useNativeDriver: true }).start();
   }
   function onPressOut() {
@@ -459,6 +461,7 @@ function ActivateCTA({ onPress }: { onPress: () => void }) {
   const scale = useRef(new Animated.Value(1)).current;
 
   function onPressIn() {
+    tapMedium();
     Animated.spring(scale, {
       toValue: 0.97,
       tension: 120,

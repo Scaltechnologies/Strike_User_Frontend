@@ -129,17 +129,17 @@ const styles = StyleSheet.create({
   dotsRow: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 4,
-    marginTop: 10,
+    gap: 5,
+    marginTop: 12,
   },
   dot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
     backgroundColor: C.border,
   },
   dotActive: {
     backgroundColor: C.accent,
-    width: 14,
+    width: 16,
   },
 });

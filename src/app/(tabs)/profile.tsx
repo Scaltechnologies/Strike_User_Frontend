@@ -43,6 +43,7 @@ import { ManropeWeights } from '@/constants/theme';
 import { useMediaSource, logMediaError } from '@/utils/media';
 import { PressableScale } from '@/components/ui/PressableScale';
 import { FadeInView } from '@/components/ui/FadeInView';
+import { tapLight, tapWarning } from '@/utils/haptics';
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
 
@@ -145,7 +146,7 @@ function Avatar({
   const source = useMediaSource(avatarUrl);
 
   return (
-    <Pressable onPress={onPress} style={styles.avatarWrap}>
+    <Pressable onPress={() => { tapLight(); onPress(); }} style={styles.avatarWrap}>
       {source && !imgFailed ? (
         <Image
           source={source}
@@ -202,7 +203,7 @@ function MenuItem({
 }) {
   return (
     <Pressable
-      onPress={onPress}
+      onPress={onPress ? () => { tapLight(); onPress(); } : undefined}
       disabled={disabled}
       style={({ pressed }) => [styles.menuItem, pressed && !disabled && { backgroundColor: C.divider }]}
     >
@@ -570,6 +571,7 @@ export default function ProfileScreen() {
   const handleLogout = () => setLogoutConfirmVisible(true);
 
   const confirmLogout = async () => {
+    tapWarning();
     setLoggingOut(true);
     try {
       const { refreshToken } = useAuthStore.getState();
@@ -656,14 +658,14 @@ export default function ProfileScreen() {
           <View style={styles.statsRow}>
             <Pressable
               style={[styles.statCard, { marginRight: 10 }]}
-              onPress={() => router.navigate('/(tabs)/cards' as never)}
+              onPress={() => { tapLight(); router.navigate('/(tabs)/cards' as never); }}
             >
               <Text style={styles.statValue}>{activeCount}</Text>
               <Text style={styles.statLabel}>Active cards</Text>
             </Pressable>
             <Pressable
               style={styles.statCard}
-              onPress={() => router.navigate('/(tabs)/history' as never)}
+              onPress={() => { tapLight(); router.navigate('/(tabs)/history' as never); }}
             >
               <Text style={styles.statValue}>{redeemedCount}</Text>
               <Text style={styles.statLabel}>Redemptions</Text>

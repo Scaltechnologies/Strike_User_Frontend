@@ -12,6 +12,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import axios from 'axios';
+import { Image } from 'expo-image';
 import {
   AlertCircle,
   ArrowLeft,
@@ -21,8 +22,12 @@ import {
   ChevronUp,
   Clock,
   CreditCard,
+  MapPin,
+  QrCode,
   SearchX,
+  Settings,
   Tag,
+  Ticket,
   Wallet,
   XCircle,
 } from 'lucide-react-native';
@@ -34,6 +39,8 @@ import { useStoreDetail } from '@/hooks/useStores';
 import { redemptionKeys, useSubscriptionRedemptions } from '@/hooks/useRedemptions';
 import { getEffectiveStatus, getSubscriptionValidityDays, isSubscriptionRedeemable } from '@/utils/subscription';
 import { CARD_HEIGHT, CARD_RADIUS, CARD_SHINE, getCardColorTheme } from '@/utils/cardColorTheme';
+import { tapLight, tapMedium, tapSelect } from '@/utils/haptics';
+import { useMediaSource } from '@/utils/media';
 import { ROUTES } from '@/constants/routes';
 import { RedemptionDetailSheet } from '@/components/history/RedemptionDetailSheet';
 import { WalletConsumptionGrid } from '@/components/wallet/WalletConsumptionGrid';
@@ -93,6 +100,22 @@ function daysLeft(expiresAt: string): number {
 function pct(remaining: number, original: number): number {
   if (original <= 0) return 0;
   return Math.min(Math.max(remaining / original, 0), 1);
+}
+
+// Same existing "Membership ID" concept/format already used on the
+// present-at-counter screen (fmtMembershipId there) — reused here so the
+// same subscription always shows the same Card ID everywhere.
+function fmtCardId(id: number): string {
+  return `#${String(id).padStart(6, '0')}`;
+}
+
+// Deterministic pastel fallback for the vendor avatar circle when the store
+// has no logo image — same hash-into-a-fixed-palette approach already used
+// for store/category fallback art on the Home screen.
+const AVATAR_PALETTE = ['#818CF8', '#34D399', '#FB923C', '#C084FC', '#38BDF8', '#FACC15', '#FB7185'];
+function avatarColor(name: string): string {
+  const idx = name.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % AVATAR_PALETTE.length;
+  return AVATAR_PALETTE[idx];
 }
 
 // redemption-service returns createdAt as a naive local (IST) timestamp —
@@ -179,14 +202,24 @@ const STATUS_CFG: Record<SubscriptionStatus, {
 
 // ── Top bar ────────────────────────────────────────────────────────────────────
 
-function TopBar({ onBack }: { onBack: () => void }) {
+function TopBar({ onBack, onSettings }: { onBack: () => void; onSettings?: () => void }) {
   return (
     <View style={styles.topBar}>
       <Pressable style={styles.backBtn} onPress={onBack} hitSlop={12}>
         <ArrowLeft size={20} color={C.primary} strokeWidth={2} />
       </Pressable>
-      <Text style={styles.topBarTitle}>Membership</Text>
-      <View style={styles.topBarSpacer} />
+      <View style={styles.topBarTitleWrap}>
+        <Text style={styles.topBarTitle} numberOfLines={1}>Membership</Text>
+        <Text style={styles.topBarSubtitle} numberOfLines={1}>All your Strike cards in one place</Text>
+      </View>
+      <Pressable
+        style={styles.settingsBtn}
+        onPress={onSettings ?? (() => {})}
+        hitSlop={12}
+        disabled={!onSettings}
+      >
+        <Settings size={19} color={C.secondary} strokeWidth={1.9} />
+      </Pressable>
     </View>
   );
 }
@@ -194,16 +227,37 @@ function TopBar({ onBack }: { onBack: () => void }) {
 // ── Membership hero ────────────────────────────────────────────────────────────
 
 interface HeroProps {
+  cardId: number;
   cardName: string;
   storeName: string | undefined;
+  storeAddress: string | undefined;
+  storeLogoUrl: string | null | undefined;
   walletBalance: number;
   originalBalance: number | undefined;
+  consumedAmount: number | null | undefined;
+  consumptionPercentage: number | null | undefined;
   status: SubscriptionStatus;
   expiresAt: string;
 }
 
+function VendorAvatar({ name, logoUrl }: { name: string; logoUrl: string | null | undefined }) {
+  const source = useMediaSource(logoUrl);
+  if (source) {
+    return (
+      <Image source={source} style={styles.heroAvatarImg} contentFit="cover" transition={150} />
+    );
+  }
+  const fg = avatarColor(name);
+  return (
+    <View style={[styles.heroAvatarImg, styles.heroAvatarFallback]}>
+      <Text style={[styles.heroAvatarInitial, { color: fg }]}>{name.charAt(0).toUpperCase()}</Text>
+    </View>
+  );
+}
+
 function MembershipHero({
-  cardName, storeName, walletBalance, originalBalance, status, expiresAt,
+  cardId, cardName, storeName, storeAddress, storeLogoUrl, walletBalance, originalBalance,
+  consumedAmount, consumptionPercentage, status, expiresAt,
 }: HeroProps) {
   // Same canonical per-card color as Card Details, My Cards and Vendor
   // Available Cards (see @/utils/cardColorTheme), so the same card always
@@ -211,8 +265,18 @@ function MembershipHero({
   const theme  = getCardColorTheme(cardName);
   const days   = daysLeft(expiresAt);
   const ratio  = originalBalance != null ? pct(walletBalance, originalBalance) : null;
+  // consumptionPercentage/consumedAmount are the same backend-authoritative
+  // fields the Wallet Consumption grid below uses, so the "% used" and
+  // "used" figures shown here never disagree with that section — the
+  // (originalBalance - walletBalance) derivation is only a fallback for the
+  // rare historical subscription where the backend fields are null.
+  const usedPct = consumptionPercentage != null
+    ? Math.round(consumptionPercentage)
+    : ratio != null ? Math.round((1 - ratio) * 100) : null;
+  const usedAmount = consumedAmount != null
+    ? consumedAmount
+    : originalBalance != null ? Math.max(originalBalance - walletBalance, 0) : null;
   const { label, color, bg: statusBg } = STATUS_CFG[status];
-  const { Icon } = STATUS_CFG[status];
 
   // Pulse when balance changes (e.g. after vendor redemption + pull-to-refresh)
   const pulseScale  = useRef(new Animated.Value(1)).current;
@@ -249,22 +313,36 @@ function MembershipHero({
         pointerEvents="none"
       />
 
-      {/* Store + card name */}
+      {/* Vendor identity + status */}
       <View style={styles.heroHead}>
-        <View style={styles.heroNames}>
-          {storeName ? (
-            <Text style={[styles.heroStore, { color: theme.textSecondary }]} numberOfLines={1}>{storeName}</Text>
-          ) : null}
-          <Text style={[styles.heroCard, { color: theme.textPrimary }]} numberOfLines={2}>{cardName}</Text>
+        <View style={styles.heroVendorRow}>
+          {storeName ? <VendorAvatar name={storeName} logoUrl={storeLogoUrl} /> : null}
+          <View style={styles.heroVendorInfo}>
+            {storeName ? (
+              <Text style={[styles.heroStore, { color: theme.textPrimary }]} numberOfLines={1}>{storeName}</Text>
+            ) : null}
+            {storeAddress ? (
+              <View style={styles.heroLocationRow}>
+                <MapPin size={10} color={theme.textMuted} strokeWidth={2} />
+                <Text style={[styles.heroLocation, { color: theme.textMuted }]} numberOfLines={1}>{storeAddress}</Text>
+              </View>
+            ) : null}
+          </View>
         </View>
-        <View style={[styles.heroChip, { backgroundColor: theme.chipBg }]}>
-          <CreditCard size={15} color={theme.textSecondary} strokeWidth={1.5} />
+        <View style={[styles.statusPill, { backgroundColor: statusBg }]}>
+          <View style={[styles.statusDot, { backgroundColor: color }]} />
+          <Text style={[styles.statusPillText, { color }]}>{label}</Text>
         </View>
       </View>
 
-      {/* Big balance — pulses gently when balance changes after a redemption */}
+      {/* Membership name */}
+      <View style={styles.heroNameBlock}>
+        <Text style={[styles.heroCard, { color: theme.textPrimary }]} numberOfLines={1}>{cardName}</Text>
+        <Text style={[styles.heroCardCaption, { color: theme.textMuted }]}>Membership Name</Text>
+      </View>
+
+      {/* Balance + usage — pulses gently when balance changes after a redemption */}
       <View style={styles.heroBalanceWrap}>
-        <Text style={[styles.heroBalanceLabel, { color: theme.textMuted }]}>Remaining Balance</Text>
         <View style={styles.heroBalanceRow}>
           <Animated.Text
             style={[styles.heroBalance, { color: theme.textPrimary, transform: [{ scale: pulseScale }] }]}
@@ -275,6 +353,14 @@ function MembershipHero({
             <Text style={[styles.heroOriginal, { color: theme.textMuted }]}>of {fmt(originalBalance)}</Text>
           )}
         </View>
+        {usedPct != null && (
+          <View style={styles.heroUsageCol}>
+            <Text style={[styles.heroUsagePct, { color: theme.textPrimary }]}>{usedPct}% used</Text>
+            {usedAmount != null && (
+              <Text style={[styles.heroUsageAmt, { color: theme.textMuted }]}>{fmt(usedAmount)} used</Text>
+            )}
+          </View>
+        )}
       </View>
 
       {/* Progress bar */}
@@ -288,37 +374,42 @@ function MembershipHero({
               ]}
             />
           </View>
-          <View style={styles.progressLabels}>
-            <Text style={[styles.progressPct, { color: theme.textSecondary }]}>
-              {Math.round(ratio * 100)}% Available
-            </Text>
-            {originalBalance != null && (
-              <Text style={[styles.progressUsed, { color: theme.textMuted }]}>
-                {fmt(originalBalance - walletBalance)} used
-              </Text>
-            )}
-          </View>
         </View>
       )}
 
-      {/* Bottom: expiry + status */}
+      <View style={[styles.heroDivider, { backgroundColor: theme.trackBg }]} />
+
+      {/* Bottom: expiry + card ID */}
       <View style={styles.heroBottom}>
-        <View>
-          <Text style={[styles.heroExpLabel, { color: theme.textMuted }]}>
-            {status === 'EXPIRED' ? 'Expired' : 'Expires'}
-          </Text>
-          <Text style={[styles.heroExpDate, { color: theme.textSecondary }]}>
-            {fmtDate(expiresAt)}
-            {status === 'ACTIVE' && days <= 7 && days > 0
-              ? ` · ${days}d left`
-              : status === 'ACTIVE' && days === 0
-              ? ' · Today'
-              : ''}
-          </Text>
+        <View style={styles.heroBottomBlock}>
+          <View style={[styles.heroBottomIconWrap, { backgroundColor: theme.chipBg }]}>
+            <Clock size={14} color={theme.textSecondary} strokeWidth={2} />
+          </View>
+          <View style={styles.heroBottomTextCol}>
+            <Text style={[styles.heroExpLabel, { color: theme.textMuted }]}>
+              {status === 'EXPIRED' ? 'Expired on' : 'Expires on'}
+            </Text>
+            <Text style={[styles.heroExpDate, { color: theme.textPrimary }]} numberOfLines={1}>
+              {fmtDate(expiresAt)}
+              {status === 'ACTIVE' && days <= 7 && days > 0
+                ? ` · ${days}d`
+                : status === 'ACTIVE' && days === 0
+                ? ' · Today'
+                : ''}
+            </Text>
+          </View>
         </View>
-        <View style={[styles.statusPill, { backgroundColor: statusBg + 'DD' }]}>
-          <Icon size={12} color={color} strokeWidth={2.2} />
-          <Text style={[styles.statusPillText, { color }]}>{label}</Text>
+
+        <View style={[styles.heroBottomDivider, { backgroundColor: theme.trackBg }]} />
+
+        <View style={styles.heroBottomBlock}>
+          <View style={[styles.heroBottomIconWrap, { backgroundColor: theme.chipBg }]}>
+            <QrCode size={14} color={theme.textSecondary} strokeWidth={2} />
+          </View>
+          <View style={styles.heroBottomTextCol}>
+            <Text style={[styles.heroExpLabel, { color: theme.textMuted }]}>Card ID</Text>
+            <Text style={[styles.heroExpDate, { color: theme.textPrimary }]} numberOfLines={1}>{fmtCardId(cardId)}</Text>
+          </View>
         </View>
       </View>
 
@@ -346,6 +437,32 @@ function InfoRow({
     <View style={[styles.infoRow, !isLast && styles.infoRowBorder]}>
       <Text style={styles.infoLabel}>{label}</Text>
       <Text style={[styles.infoValue, highlight && styles.infoValueHighlight]}>{value}</Text>
+    </View>
+  );
+}
+
+// ── Wallet balance row (icon + label + value) ──────────────────────────────────
+
+function WalletBalanceRow({
+  icon,
+  iconBg,
+  label,
+  value,
+  valueColor,
+  isLast,
+}: {
+  icon: React.ReactNode;
+  iconBg: string;
+  label: string;
+  value: string;
+  valueColor?: string;
+  isLast?: boolean;
+}) {
+  return (
+    <View style={[styles.walletBalanceRow, !isLast && styles.infoRowBorder]}>
+      <View style={[styles.walletBalanceIconWrap, { backgroundColor: iconBg }]}>{icon}</View>
+      <Text style={styles.walletBalanceLabel}>{label}</Text>
+      <Text style={[styles.walletBalanceValue, valueColor ? { color: valueColor } : null]}>{value}</Text>
     </View>
   );
 }
@@ -539,7 +656,7 @@ function RedemptionHistorySection({
                     !isLast && styles.infoRowBorder,
                     pressed && styles.historyRowPressed,
                   ]}
-                  onPress={() => setSelected(r)}
+                  onPress={() => { tapLight(); setSelected(r); }}
                 >
                   <View style={styles.historyRowLeft}>
                     <Text style={styles.historyRowItems} numberOfLines={1}>{names}</Text>
@@ -593,14 +710,19 @@ function DetailSkeleton({ onBack }: { onBack: () => void }) {
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         {/* Hero skeleton */}
         <View style={styles.heroSkeleton}>
-          <SkeletonBone style={{ width: 110, height: 11, opacity: 0.25, marginBottom: 6 }} />
-          <SkeletonBone style={{ width: 170, height: 18, opacity: 0.3, marginBottom: 14 }} />
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+            <SkeletonBone style={{ width: 40, height: 40, borderRadius: 20, opacity: 0.25 }} />
+            <View style={{ flex: 1, gap: 6 }}>
+              <SkeletonBone style={{ width: 120, height: 13, opacity: 0.28 }} />
+              <SkeletonBone style={{ width: 90, height: 10, opacity: 0.2 }} />
+            </View>
+          </View>
           <SkeletonBone style={{ width: 100, height: 11, opacity: 0.2, marginBottom: 5 }} />
           <SkeletonBone style={{ width: 140, height: 30, opacity: 0.3, marginBottom: 14 }} />
-          <SkeletonBone style={{ width: '100%', height: 4, borderRadius: 2, opacity: 0.2, marginBottom: 14 }} />
+          <SkeletonBone style={{ width: '100%', height: 5, borderRadius: 3, opacity: 0.2, marginBottom: 16 }} />
           <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
             <SkeletonBone style={{ width: 100, height: 12, opacity: 0.25 }} />
-            <SkeletonBone style={{ width: 64, height: 22, borderRadius: 11, opacity: 0.25 }} />
+            <SkeletonBone style={{ width: 90, height: 12, opacity: 0.25 }} />
           </View>
         </View>
 
@@ -702,6 +824,7 @@ export default function SubscriptionDetailScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [gridSelectedRedemption, setGridSelectedRedemption] = useState<Redemption | null>(null);
   const [gridCellChoices, setGridCellChoices] = useState<Redemption[] | null>(null);
+  const [walletExpanded, setWalletExpanded] = useState(false);
 
   // A tapped box maps to 1+ redemptions (see WalletConsumptionGrid's
   // mapRedemptionsToCells) — a single one opens its detail directly; a box
@@ -799,7 +922,10 @@ export default function SubscriptionDetailScreen() {
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
-      <TopBar onBack={handleBack} />
+      <TopBar
+        onBack={handleBack}
+        onSettings={() => router.push(ROUTES.SETTINGS.NOTIFICATIONS as never)}
+      />
 
       <ScrollView
         style={styles.scroll}
@@ -816,28 +942,59 @@ export default function SubscriptionDetailScreen() {
       >
         {/* ── Hero ──────────────────────────────────────────────── */}
         <MembershipHero
+          cardId={sub.id}
           cardName={sub.cardName}
           storeName={store?.name}
+          storeAddress={store?.address}
+          storeLogoUrl={store?.logoUrl}
           walletBalance={sub.walletBalance}
           originalBalance={originalBalance}
+          consumedAmount={sub.consumedAmount}
+          consumptionPercentage={sub.consumptionPercentage}
           status={effectiveStatus}
           expiresAt={sub.expiresAt}
         />
 
-        {/* ── Wallet balance ─────────────────────────────────────── */}
+        {/* ── Wallet balance — collapsed summary, tap to reveal the
+             Original/Remaining breakdown ──────────────────────────── */}
         <Section title="Wallet Balance">
-          {originalBalance != null && (
-            <InfoRow
-              label="Original Balance"
-              value={fmt(originalBalance)}
-            />
+          <Pressable
+            style={[styles.walletSummaryRow, walletExpanded && styles.infoRowBorder]}
+            onPress={() => { tapSelect(); setWalletExpanded((v) => !v); }}
+          >
+            <View style={[styles.walletBalanceIconWrap, { backgroundColor: C.accentSoft }]}>
+              <Wallet size={16} color={C.accent} strokeWidth={2} />
+            </View>
+            <View style={styles.walletSummaryTextCol}>
+              <Text style={styles.walletSummaryLabel}>Wallet Balance</Text>
+              <Text style={styles.walletSummarySub}>{fmt(sub.walletBalance)} remaining</Text>
+            </View>
+            {walletExpanded ? (
+              <ChevronUp size={18} color={C.muted} strokeWidth={2} />
+            ) : (
+              <ChevronDown size={18} color={C.muted} strokeWidth={2} />
+            )}
+          </Pressable>
+          {walletExpanded && (
+            <>
+              {originalBalance != null && (
+                <WalletBalanceRow
+                  icon={<Wallet size={15} color={C.successDark} strokeWidth={2} />}
+                  iconBg={C.successSoft}
+                  label="Original Balance"
+                  value={fmt(originalBalance)}
+                />
+              )}
+              <WalletBalanceRow
+                icon={<Wallet size={15} color={C.accent} strokeWidth={2} />}
+                iconBg={C.accentSoft}
+                label="Remaining Balance"
+                value={fmt(sub.walletBalance)}
+                valueColor={C.accent}
+                isLast
+              />
+            </>
           )}
-          <InfoRow
-            label="Remaining Balance"
-            value={fmt(sub.walletBalance)}
-            highlight
-            isLast
-          />
         </Section>
 
         {/* ── Wallet consumption grid — hidden for historical subscriptions
@@ -853,6 +1010,7 @@ export default function SubscriptionDetailScreen() {
             totalCells={getSubscriptionValidityDays(sub)}
             redemptions={redemptions}
             onCellPress={handleGridCellPress}
+            showStatIcons
           />
         </View>
 
@@ -973,15 +1131,16 @@ export default function SubscriptionDetailScreen() {
                 styles.presentBtnPending,
                 { transform: [{ scale: pressed ? 0.98 : 1 }] },
               ]}
-              onPress={() =>
+              onPress={() => {
+                tapLight();
                 router.push({
                   pathname: '/subscriptions/pending',
                   params: {
                     redemptionId: String(pendingRedemption.id),
                     subId: String(sub.id),
                   },
-                } as never)
-              }
+                } as never);
+              }}
             >
               <Clock size={16} color="#FFF" strokeWidth={2.2} />
               <Text style={styles.presentBtnText}>View Pending Request</Text>
@@ -992,13 +1151,15 @@ export default function SubscriptionDetailScreen() {
                 styles.presentBtn,
                 { transform: [{ scale: pressed ? 0.98 : 1 }] },
               ]}
-              onPress={() =>
+              onPress={() => {
+                tapMedium();
                 router.push({
                   pathname: '/subscriptions/select',
                   params: { subId: String(sub.id) },
-                } as never)
-              }
+                } as never);
+              }}
             >
+              <Ticket size={17} color="#FFF" strokeWidth={2.2} />
               <Text style={styles.presentBtnText}>Redeem Benefits</Text>
             </Pressable>
           )}
@@ -1019,10 +1180,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: C.surface,
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: C.border,
-    minHeight: 52,
+    minHeight: 60,
     ...Platform.select({
       ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 3 },
       android: { elevation: 3 },
@@ -1033,13 +1194,26 @@ const styles = StyleSheet.create({
     backgroundColor: C.bg,
     justifyContent: 'center', alignItems: 'center',
   },
-  topBarTitle: {
-    flex: 1, textAlign: 'center',
-    fontSize: 16, fontWeight: '600',
-    fontFamily: ManropeWeights.semiBold,
-    color: C.primary, letterSpacing: -0.2,
+  topBarTitleWrap: {
+    flex: 1,
+    paddingHorizontal: 12,
   },
-  topBarSpacer: { width: 36 },
+  topBarTitle: {
+    fontSize: 19, fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
+    color: C.primary, letterSpacing: -0.4,
+  },
+  topBarSubtitle: {
+    fontSize: 12.5,
+    fontFamily: ManropeWeights.regular,
+    color: C.muted,
+    marginTop: 1,
+  },
+  settingsBtn: {
+    width: 36, height: 36, borderRadius: 10,
+    backgroundColor: C.bg,
+    justifyContent: 'center', alignItems: 'center',
+  },
 
   scroll: { flex: 1 },
   scrollContent: { flexGrow: 1 },
@@ -1063,32 +1237,64 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
   },
-  heroNames: { flex: 1, gap: 2, paddingRight: 12 },
-  heroStore: {
-    fontSize: 10,
-    fontWeight: '600',
-    fontFamily: ManropeWeights.semiBold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+  heroVendorRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingRight: 10,
   },
-  heroCard: {
+  heroAvatarImg: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  heroAvatarFallback: {
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  heroAvatarInitial: {
     fontSize: 16,
     fontWeight: '700',
     fontFamily: ManropeWeights.bold,
-    letterSpacing: -0.3,
   },
-  heroChip: {
-    width: 30, height: 30, borderRadius: 10,
-    justifyContent: 'center', alignItems: 'center',
+  heroVendorInfo: { flex: 1, gap: 2 },
+  heroStore: {
+    fontSize: 14.5,
+    fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
+    letterSpacing: -0.2,
   },
-  heroBalanceWrap: { marginTop: 8 },
-  heroBalanceLabel: {
-    fontSize: 9.5,
-    fontWeight: '500',
+  heroLocationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  heroLocation: {
+    fontSize: 11,
     fontFamily: ManropeWeights.medium,
-    letterSpacing: 0.4,
-    marginBottom: 1,
-    textTransform: 'uppercase',
+    flexShrink: 1,
+  },
+
+  heroNameBlock: { marginTop: 14 },
+  heroCard: {
+    fontSize: 20,
+    fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
+    letterSpacing: -0.4,
+  },
+  heroCardCaption: {
+    fontSize: 11,
+    fontFamily: ManropeWeights.regular,
+    marginTop: 1,
+  },
+
+  heroBalanceWrap: {
+    marginTop: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
   },
   heroBalanceRow: {
     flexDirection: 'row',
@@ -1096,50 +1302,71 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   heroBalance: {
-    fontSize: 26,
+    fontSize: 28,
     fontWeight: '700',
     fontFamily: ManropeWeights.bold,
     letterSpacing: -1,
   },
   heroOriginal: {
-    fontSize: 11.5,
+    fontSize: 12,
     fontWeight: '500',
     fontFamily: ManropeWeights.medium,
   },
+  heroUsageCol: { alignItems: 'flex-end' },
+  heroUsagePct: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
+    letterSpacing: -0.1,
+  },
+  heroUsageAmt: {
+    fontSize: 11,
+    fontFamily: ManropeWeights.medium,
+    marginTop: 1,
+  },
 
   // Progress bar
-  progressWrap: { marginTop: 9 },
+  progressWrap: { marginTop: 10 },
   progressTrack: {
-    height: 4,
-    borderRadius: 2,
+    height: 5,
+    borderRadius: 3,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    borderRadius: 2,
+    borderRadius: 3,
   },
-  progressLabels: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 6,
-  },
-  progressPct: {
-    fontSize: 11,
-    fontWeight: '600',
-    fontFamily: ManropeWeights.semiBold,
-  },
-  progressUsed: {
-    fontSize: 11,
-    fontWeight: '500',
-    fontFamily: ManropeWeights.medium,
+
+  heroDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginTop: 14,
   },
 
   // Hero bottom
   heroBottom: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-    marginTop: 10,
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  heroBottomBlock: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+  },
+  heroBottomIconWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexShrink: 0,
+  },
+  heroBottomTextCol: { flex: 1 },
+  heroBottomDivider: {
+    width: StyleSheet.hairlineWidth,
+    height: 30,
+    marginHorizontal: 12,
   },
   heroExpLabel: {
     fontSize: 9,
@@ -1157,16 +1384,23 @@ const styles = StyleSheet.create({
   statusPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     borderRadius: 20,
+    flexShrink: 0,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   statusPillText: {
-    fontSize: 11,
-    fontWeight: '700',
-    fontFamily: ManropeWeights.bold,
-    letterSpacing: 0.1,
+    fontSize: 9.5,
+    fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
   },
 
   // Decorative circles — color set inline from the card's own theme.
@@ -1234,6 +1468,56 @@ const styles = StyleSheet.create({
     color: C.accent,
     fontSize: 15,
     fontFamily: ManropeWeights.regular,
+  },
+
+  // ── Wallet balance row (icon + label + value) ─────────────────────────────
+  walletBalanceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  walletBalanceIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexShrink: 0,
+  },
+  walletBalanceLabel: {
+    flex: 1,
+    fontSize: 14,
+    color: C.primary,
+    fontWeight: '500',
+    fontFamily: ManropeWeights.medium,
+  },
+  walletBalanceValue: {
+    fontSize: 15,
+    color: C.primary,
+    fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
+    letterSpacing: -0.2,
+  },
+  walletSummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  walletSummaryTextCol: { flex: 1, gap: 2 },
+  walletSummaryLabel: {
+    fontSize: 14.5,
+    color: C.primary,
+    fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
+  },
+  walletSummarySub: {
+    fontSize: 12.5,
+    color: C.muted,
+    fontFamily: ManropeWeights.medium,
   },
 
   // ── Eligible menu ──────────────────────────────────────────────────────────
@@ -1320,8 +1604,8 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     backgroundColor: '#1A1A2A',
     padding: 18,
-    minHeight: 175,
-    justifyContent: 'flex-end',
+    minHeight: 230,
+    justifyContent: 'center',
   },
 
   // ── Skeleton bone ──────────────────────────────────────────────────────────

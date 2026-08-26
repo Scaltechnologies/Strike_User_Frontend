@@ -10,11 +10,12 @@ import { UtensilsCrossed } from 'lucide-react-native';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useStoreCategories } from '@/hooks/useStores';
 import { useMediaSource } from '@/utils/media';
+import { tapSelect } from '@/utils/haptics';
 import { ManropeWeights } from '@/constants/theme';
 import { C } from '../store/theme';
 import type { CategorySummary } from '@/types/store';
 
-const ICON_SIZE = 62;
+const ICON_SIZE = 66;
 
 // Same "hash name → distinct pastel" approach used for store fallback
 // avatars elsewhere on this screen — every category reads as its own
@@ -68,7 +69,7 @@ function CategoryIcon({
     <Animated.View style={{ opacity, transform: [{ translateY }] }}>
       <Pressable
         style={({ pressed }) => [styles.item, pressed && { opacity: 0.7 }]}
-        onPress={onPress}
+        onPress={() => { tapSelect(); onPress(); }}
         hitSlop={4}
       >
         <View style={styles.iconShadow}>
@@ -144,13 +145,13 @@ export function CategoriesRow({
 
 const styles = StyleSheet.create({
   wrap: {
-    paddingTop: 18,
-    paddingBottom: 14,
+    paddingTop: 20,
+    paddingBottom: 16,
     backgroundColor: C.surface,
   },
   scrollContent: {
     paddingHorizontal: 20,
-    gap: 20,
+    gap: 22,
   },
   item: {
     alignItems: 'center',
@@ -180,7 +181,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   iconWrapSelected: {
-    borderWidth: 2,
+    borderWidth: 2.5,
     borderColor: C.accent,
   },
   iconImage: {
@@ -192,8 +193,10 @@ const styles = StyleSheet.create({
     fontFamily: ManropeWeights.semiBold,
     color: C.primary,
     textAlign: 'center',
+    marginTop: 1,
   },
   labelSelected: {
+    fontFamily: ManropeWeights.bold,
     color: C.accent,
   },
 });

@@ -3,6 +3,7 @@ import { Platform, StyleSheet, View } from 'react-native';
 import { CreditCard, History, Home, User } from 'lucide-react-native';
 import { PendingRedemptionBar } from '@/components/redemptions/PendingRedemptionBar';
 import { ManropeWeights } from '@/constants/theme';
+import { tapSelect } from '@/utils/haptics';
 
 const ACCENT  = '#D63527';
 const MUTED   = '#AEAEB2';
@@ -36,6 +37,7 @@ export default function TabsLayout() {
           tabBarLabelStyle: styles.label,
           tabBarItemStyle: styles.tabItem,
         }}
+        screenListeners={{ tabPress: () => tapSelect() }}
       >
         <Tabs.Screen
           name="index"
@@ -103,11 +105,11 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   iconWrap: {
-    width: 40,
-    height: 32,
+    width: 44,
+    height: 34,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 10,
+    borderRadius: 12,
   },
   iconWrapActive: {
     backgroundColor: '#FEF2EF',

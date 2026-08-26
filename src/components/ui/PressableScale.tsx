@@ -6,6 +6,7 @@
 
 import { useRef } from 'react';
 import { Animated, Pressable, type StyleProp, type ViewStyle } from 'react-native';
+import { tapLight } from '@/utils/haptics';
 
 interface PressableScaleProps {
   children: React.ReactNode;
@@ -24,7 +25,7 @@ export function PressableScale({ children, style, onPress, hitSlop, disabled }: 
   return (
     <Pressable
       onPress={onPress}
-      onPressIn={() => go(0.96)}
+      onPressIn={() => { tapLight(); go(0.96); }}
       onPressOut={() => go(1)}
       hitSlop={hitSlop}
       disabled={disabled}

@@ -21,6 +21,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { RazorpayCheckout } from './RazorpayCheckout';
 import { formatCardPrice, CC } from './theme';
 import { CARD_SHINE, getCardColorTheme } from '@/utils/cardColorTheme';
+import { tapMedium } from '@/utils/haptics';
 import { ManropeWeights } from '@/constants/theme';
 import type { CardDefinition } from '@/types/card';
 import type { MenuCategory } from '@/types/store';
@@ -521,7 +522,7 @@ export function ActivationSheet({
           <SafeAreaView edges={['bottom']} style={styles.sheetActions}>
             <Pressable
               style={[styles.activateBtn, busy && styles.activateBtnLoading]}
-              onPress={() => void handlePay()}
+              onPress={() => { tapMedium(); void handlePay(); }}
               disabled={busy}
             >
               {busy ? (
