@@ -46,7 +46,7 @@ import { RedemptionDetailSheet } from '@/components/history/RedemptionDetailShee
 import { WalletConsumptionGrid } from '@/components/wallet/WalletConsumptionGrid';
 import { CellRedemptionChooser } from '@/components/wallet/CellRedemptionChooser';
 import { EmptyState } from '@/components/common/EmptyState';
-import type { EligibleCategory, EligibleMenuItem, SubscriptionStatus } from '@/types/subscription';
+import type { EligibleCategory, EligibleMenuItem, Subscription, SubscriptionStatus } from '@/types/subscription';
 import type { Redemption } from '@/types/redemption';
 import { ManropeWeights } from '@/constants/theme';
 
@@ -91,6 +91,14 @@ function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-IN', {
     day: 'numeric', month: 'short', year: 'numeric',
   });
+}
+
+// Null for subscriptions predating this field, or granted directly by an admin (no real
+// payment) — those show no row at all rather than guessing "Online".
+function paymentMethodLabel(method: Subscription['paymentMethod']): string | null {
+  if (method === 'ONLINE') return 'Online';
+  if (method === 'PAY_AT_STORE') return 'Pay at Store';
+  return null;
 }
 
 function daysLeft(expiresAt: string): number {
@@ -1115,8 +1123,15 @@ export default function SubscriptionDetailScreen() {
           <InfoRow
             label="Store"
             value={store?.name ?? `Store #${sub.storeId}`}
-            isLast
+            isLast={!paymentMethodLabel(sub.paymentMethod)}
           />
+          {paymentMethodLabel(sub.paymentMethod) && (
+            <InfoRow
+              label="Payment Method"
+              value={paymentMethodLabel(sub.paymentMethod)!}
+              isLast
+            />
+          )}
         </Section>
 
         <View style={{ height: effectiveStatus === 'ACTIVE' ? 56 + 24 + insets.bottom + 16 : 48 }} />

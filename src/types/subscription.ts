@@ -29,6 +29,9 @@ export interface Subscription {
   originalAmount: number | null;
   discountApplied: number | null;
   finalAmount: number | null;
+  // How this card was paid for. Null for subscriptions predating this field, or granted directly
+  // by an admin (no real payment) — treat null as "no badge," never assume ONLINE.
+  paymentMethod: 'ONLINE' | 'PAY_AT_STORE' | null;
   status: SubscriptionStatus;
   purchasedAt: string;     // ISO-8601 LocalDateTime
   expiresAt: string;       // ISO-8601 LocalDateTime
