@@ -15,6 +15,27 @@ export interface RecentLocation {
   usedAt: string;
 }
 
+// An in-flight Pay-at-Store checkout. qrPayload/verificationCode are captured here because the
+// backend returns them ONLY on the create response — never again by any GET — so this is the
+// only place they exist once the create-response object itself is gone (app killed, screen
+// unmounted). cardDefinitionId/storeId/couponCode are captured too because they're needed to
+// build a fresh POST /api/payments call on retry (PAY_AT_STORE always creates a brand-new
+// Payment, never resurrects one).
+//
+// Multiple of these can be open at once — the backend only dedupes PAY_AT_STORE creation per
+// (userId, cardDefinitionId), so a user can have concurrent open payments for different cards.
+export interface StoredPayAtStoreSession {
+  paymentId: number;
+  cardDefinitionId: number;
+  storeId: number;
+  couponCode?: string;
+  cardName: string;
+  amount: number;
+  qrPayload: string;
+  verificationCode: string;
+  createdAtMs: number;
+}
+
 const MAX_HISTORY = 3;
 
 export const storageService = {
@@ -127,5 +148,31 @@ export const storageService = {
   },
   setNotificationsEnabled(enabled: boolean): Promise<void> {
     return SecureStore.setItemAsync(STORAGE_KEYS.NOTIFICATIONS_ENABLED, String(enabled));
+  },
+
+  // --- Pay-at-Store in-flight sessions (see StoredPayAtStoreSession) — a list, since more
+  // than one can be open at once (different cards). Keyed by paymentId. ---
+  async getPayAtStoreSessions(): Promise<StoredPayAtStoreSession[]> {
+    const raw = await SecureStore.getItemAsync(STORAGE_KEYS.PAY_AT_STORE_SESSIONS);
+    if (!raw) return [];
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      return Array.isArray(parsed) ? (parsed as StoredPayAtStoreSession[]) : [];
+    } catch {
+      return [];
+    }
+  },
+  async addPayAtStoreSession(session: StoredPayAtStoreSession): Promise<void> {
+    const sessions = await storageService.getPayAtStoreSessions();
+    const deduped = sessions.filter((s) => s.paymentId !== session.paymentId);
+    await SecureStore.setItemAsync(STORAGE_KEYS.PAY_AT_STORE_SESSIONS, JSON.stringify([...deduped, session]));
+  },
+  async removePayAtStoreSession(paymentId: number): Promise<void> {
+    const sessions = await storageService.getPayAtStoreSessions();
+    const remaining = sessions.filter((s) => s.paymentId !== paymentId);
+    await SecureStore.setItemAsync(STORAGE_KEYS.PAY_AT_STORE_SESSIONS, JSON.stringify(remaining));
+  },
+  async clearAllPayAtStoreSessions(): Promise<void> {
+    await SecureStore.deleteItemAsync(STORAGE_KEYS.PAY_AT_STORE_SESSIONS);
   },
 };

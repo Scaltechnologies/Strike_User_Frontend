@@ -12,14 +12,17 @@ import {
 } from 'react-native';
 import { Redirect } from 'expo-router';
 
-import { ROUTES } from '@/constants/routes';
+import { ROUTES, buildRoute } from '@/constants/routes';
 import { useAuthStore } from '@/store/authStore';
+import { storageService } from '@/services/storageService';
 
 const MIN_SPLASH_MS = 1200;
 
 export default function Index() {
   const { isBootstrapping, isAuthenticated } = useAuthStore();
   const [minTimeElapsed, setMinTimeElapsed] = useState(false);
+  const [resumeChecked, setResumeChecked] = useState(false);
+  const [resumePaymentId, setResumePaymentId] = useState<number | null>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -33,10 +36,30 @@ export default function Index() {
     return () => clearTimeout(t);
   }, [fadeAnim]);
 
-  if (!isBootstrapping && minTimeElapsed) {
-    return isAuthenticated
-      ? <Redirect href={ROUTES.TABS.HOME} />
-      : <Redirect href={ROUTES.AUTH.LOGIN} />;
+  // Resume an in-flight Pay-at-Store checkout after a cold launch — the QR/code only ever
+  // exist locally (the backend never re-serves them), so this is the one place that can
+  // recover them instead of stranding the user on a payment they can no longer see. Only
+  // auto-jumps in when there's exactly ONE open payment — with several, land on Home instead
+  // and let the persistent tracker bar (which surfaces all of them) handle it, rather than
+  // guessing which one the user wants first.
+  useEffect(() => {
+    if (isBootstrapping) return;
+    if (!isAuthenticated) {
+      setResumeChecked(true);
+      return;
+    }
+    storageService.getPayAtStoreSessions().then((sessions) => {
+      setResumePaymentId(sessions.length === 1 ? sessions[0].paymentId : null);
+      setResumeChecked(true);
+    });
+  }, [isBootstrapping, isAuthenticated]);
+
+  if (!isBootstrapping && minTimeElapsed && resumeChecked) {
+    if (!isAuthenticated) return <Redirect href={ROUTES.AUTH.LOGIN} />;
+    if (resumePaymentId != null) {
+      return <Redirect href={buildRoute.payAtStore(resumePaymentId)} />;
+    }
+    return <Redirect href={ROUTES.TABS.HOME} />;
   }
 
   return (

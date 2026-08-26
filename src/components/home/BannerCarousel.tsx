@@ -44,7 +44,9 @@ type Slide =
   | { kind: 'banner'; key: string; banner: Banner }
   | { kind: 'card'; key: string; card: CardDefinition };
 
-function BannerSlide({ banner, width }: { banner: Banner; width: number }) {
+function BannerSlide({
+  banner, width, onLoadError,
+}: { banner: Banner; width: number; onLoadError: (bannerId: number) => void }) {
   const source = useMediaSource(banner.imageUrl);
 
   const handlePress = useCallback(() => {
@@ -67,7 +69,10 @@ function BannerSlide({ banner, width }: { banner: Banner; width: number }) {
         style={styles.image}
         contentFit="cover"
         transition={200}
-        onError={(e) => logMediaError(`banner:${banner.id}`, source.uri, e)}
+        onError={(e) => {
+          logMediaError(`banner:${banner.id}`, source.uri, e);
+          onLoadError(banner.id);
+        }}
       />
     </Pressable>
   );
@@ -127,7 +132,17 @@ export function BannerCarousel({ storesById }: { storesById?: Record<number, Sto
   const { data: banners } = useActiveBanners();
   const { data: newArrivals } = useNewArrivals();
 
+  // A banner whose image genuinely can't be fetched (broken/unreachable upload — a backend
+  // problem, not something retrying client-side fixes) is dropped from the rotation entirely
+  // rather than sitting in the carousel as a blank slide forever. Keyed by banner id so it
+  // survives the periodic useActiveBanners refetch returning the same banner again.
+  const [failedBannerIds, setFailedBannerIds] = useState<Set<number>>(new Set());
+  const handleBannerLoadError = useCallback((bannerId: number) => {
+    setFailedBannerIds((prev) => (prev.has(bannerId) ? prev : new Set(prev).add(bannerId)));
+  }, []);
+
   const sortedBanners = (banners ?? [])
+    .filter((b) => !failedBannerIds.has(b.id))
     .slice()
     .sort((a, b) => a.displayOrder - b.displayOrder);
 
@@ -198,7 +213,12 @@ export function BannerCarousel({ storesById }: { storesById?: Record<number, Sto
         >
           {slides.map((slide) =>
             slide.kind === 'banner' ? (
-              <BannerSlide key={slide.key} banner={slide.banner} width={slideWidth} />
+              <BannerSlide
+                key={slide.key}
+                banner={slide.banner}
+                width={slideWidth}
+                onLoadError={handleBannerLoadError}
+              />
             ) : (
               <NewArrivalCardSlide
                 key={slide.key}

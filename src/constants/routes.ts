@@ -39,4 +39,5 @@ export const buildRoute = {
   subscriptionSelect:   (subId: string) => `/subscriptions/select?subId=${subId}` as const,
   subscriptionPending:  (redemptionId: string, subId: string) =>
     `/subscriptions/pending?redemptionId=${redemptionId}&subId=${subId}` as const,
+  payAtStore:           (paymentId: string | number) => `/pay-at-store/${paymentId}` as const,
 };

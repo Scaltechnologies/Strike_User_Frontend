@@ -9,14 +9,17 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Clock, Receipt, ShoppingBag, XCircle } from 'lucide-react-native';
+import { CheckCircle2, Clock, Receipt, ShoppingBag, Store, XCircle } from 'lucide-react-native';
 import { useAuthStore } from '@/store/authStore';
 import { useUserRedemptions, redemptionKeys } from '@/hooks/useRedemptions';
 import { useMySubscriptions } from '@/hooks/useSubscriptions';
 import { useAllStores } from '@/hooks/useStores';
 import { RedemptionDetailSheet } from '@/components/history/RedemptionDetailSheet';
+import { usePayAtStoreSessionStore } from '@/store/payAtStoreSessionStore';
+import { buildRoute } from '@/constants/routes';
+import { formatCardPrice } from '@/components/cards/theme';
 import { ManropeWeights } from '@/constants/theme';
 import type { Redemption, RedemptionStatus } from '@/types/redemption';
 // ── Design tokens ──────────────────────────────────────────────────────────────
@@ -243,6 +246,73 @@ function RedemptionCard({
   );
 }
 
+// ── Pay at Store — open sessions (local-only; no backend "list my payments" endpoint exists,
+//    so this reflects whatever this device currently knows about, same source the persistent
+//    tracker bar reads — see payAtStoreSessionStore) ─────────────────────────────────────────
+
+function elapsedSince(atMs: number): string {
+  const min = Math.floor((Date.now() - atMs) / 60_000);
+  if (min < 1) return 'Just now';
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  return `${hr}h ${min % 60}m ago`;
+}
+
+function PayAtStoreRow({
+  cardName, amount, createdAtMs, onPress,
+}: { cardName: string; amount: number; createdAtMs: number; onPress: () => void }) {
+  return (
+    <Pressable style={({ pressed }) => [styles.card, pressed && styles.cardPressed]} onPress={onPress}>
+      <View style={styles.cardTop}>
+        <View style={styles.cardTopLeft}>
+          <Text style={styles.cardItems} numberOfLines={1}>{cardName}</Text>
+          <Text style={styles.cardMembership}>Pay at Store</Text>
+        </View>
+        <View style={styles.cardTopRight}>
+          <Text style={styles.cardAmount}>{formatCardPrice(amount)}</Text>
+          <View style={[styles.statusPill, { backgroundColor: '#FFF5E0' }]}>
+            <Clock size={10} color="#7A4500" strokeWidth={2.2} />
+            <Text style={[styles.statusPillText, { color: '#7A4500' }]}>Waiting</Text>
+          </View>
+        </View>
+      </View>
+      <View style={styles.cardBottom}>
+        <View style={styles.cardBottomLeft}>
+          <Store size={11} color={C.muted} strokeWidth={1.5} />
+          <Text style={styles.cardTime}>{elapsedSince(createdAtMs)} · Tap to view QR/code</Text>
+        </View>
+      </View>
+    </Pressable>
+  );
+}
+
+function PayAtStoreSection() {
+  const router = useRouter();
+  const sessions = usePayAtStoreSessionStore((s) => s.sessions);
+  const hydrated = usePayAtStoreSessionStore((s) => s.hydrated);
+  const hydrate = usePayAtStoreSessionStore((s) => s.hydrate);
+
+  useFocusEffect(useCallback(() => { if (!hydrated) void hydrate(); }, [hydrated, hydrate]));
+
+  if (sessions.length === 0) return null;
+  const sorted = [...sessions].sort((a, b) => b.createdAtMs - a.createdAtMs);
+
+  return (
+    <View style={styles.group}>
+      <Text style={styles.groupLabel}>Pay at Store · Waiting</Text>
+      {sorted.map((s) => (
+        <PayAtStoreRow
+          key={s.paymentId}
+          cardName={s.cardName}
+          amount={s.amount}
+          createdAtMs={s.createdAtMs}
+          onPress={() => router.push(buildRoute.payAtStore(s.paymentId) as never)}
+        />
+      ))}
+    </View>
+  );
+}
+
 // ── Screen ─────────────────────────────────────────────────────────────────────
 
 export default function HistoryScreen() {
@@ -319,6 +389,8 @@ export default function HistoryScreen() {
           />
         }
       >
+        <PayAtStoreSection />
+
         {isLoading ? (
           <LoadingSkeleton />
         ) : isError && sorted.length === 0 ? (

@@ -21,6 +21,19 @@ export interface RecentLocation {
   usedAt: string;
 }
 
+// See storageService.ts's StoredPayAtStoreSession for why this exists.
+export interface StoredPayAtStoreSession {
+  paymentId: number;
+  cardDefinitionId: number;
+  storeId: number;
+  couponCode?: string;
+  cardName: string;
+  amount: number;
+  qrPayload: string;
+  verificationCode: string;
+  createdAtMs: number;
+}
+
 const MAX_HISTORY = 3;
 
 function getItem(key: string): Promise<string | null> {
@@ -156,5 +169,31 @@ export const storageService = {
   },
   setNotificationsEnabled(enabled: boolean): Promise<void> {
     return setItem(STORAGE_KEYS.NOTIFICATIONS_ENABLED, String(enabled));
+  },
+
+  // --- Pay-at-Store in-flight sessions (see StoredPayAtStoreSession) — a list, since more
+  // than one can be open at once (different cards). Keyed by paymentId. ---
+  async getPayAtStoreSessions(): Promise<StoredPayAtStoreSession[]> {
+    const raw = await getItem(STORAGE_KEYS.PAY_AT_STORE_SESSIONS);
+    if (!raw) return [];
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      return Array.isArray(parsed) ? (parsed as StoredPayAtStoreSession[]) : [];
+    } catch {
+      return [];
+    }
+  },
+  async addPayAtStoreSession(session: StoredPayAtStoreSession): Promise<void> {
+    const sessions = await storageService.getPayAtStoreSessions();
+    const deduped = sessions.filter((s) => s.paymentId !== session.paymentId);
+    await setItem(STORAGE_KEYS.PAY_AT_STORE_SESSIONS, JSON.stringify([...deduped, session]));
+  },
+  async removePayAtStoreSession(paymentId: number): Promise<void> {
+    const sessions = await storageService.getPayAtStoreSessions();
+    const remaining = sessions.filter((s) => s.paymentId !== paymentId);
+    await setItem(STORAGE_KEYS.PAY_AT_STORE_SESSIONS, JSON.stringify(remaining));
+  },
+  async clearAllPayAtStoreSessions(): Promise<void> {
+    await deleteItem(STORAGE_KEYS.PAY_AT_STORE_SESSIONS);
   },
 };

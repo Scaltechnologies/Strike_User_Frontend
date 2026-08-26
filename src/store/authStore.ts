@@ -9,6 +9,7 @@ import { create } from 'zustand';
 
 import { queryClient } from '@/providers/QueryProvider';
 import { storageService } from '@/services/storageService';
+import { usePayAtStoreSessionStore } from '@/store/payAtStoreSessionStore';
 
 interface AuthState {
   token: string | null;
@@ -64,6 +65,9 @@ export const useAuthStore = create<AuthState & AuthActions>()(
         isAuthenticated: false,
       });
       void storageService.clearAuth();
+      // A different account logging in on this device shouldn't see the previous account's
+      // in-flight Pay-at-Store QR/codes (sessions are keyed device-wide, not per-user).
+      usePayAtStoreSessionStore.getState().clearAll();
       // Without this, every cached query (subscriptions, cards, profile, redemption history,
       // ledger transactions...) stays in memory keyed by endpoint only, not by user — so the
       // next account to log in on this device would see the previous account's data rendered

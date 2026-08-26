@@ -2,7 +2,16 @@ import { Tabs } from 'expo-router';
 import { Platform, StyleSheet, View } from 'react-native';
 import { CreditCard, History, Home, User } from 'lucide-react-native';
 import { PendingRedemptionBar } from '@/components/redemptions/PendingRedemptionBar';
+import { PayAtStorePendingBar } from '@/components/payment/PayAtStorePendingBar';
+import { usePendingRedemptions } from '@/hooks/useRedemptions';
+import { useAuthStore } from '@/store/authStore';
 import { ManropeWeights } from '@/constants/theme';
+
+// A bar's own height (icon row + padding) plus the 10px gap PendingRedemptionBar/
+// PayAtStorePendingBar each sit above their `bottomOffset` — used to stack the second bar
+// above the first without them overlapping when both a redemption and a Pay-at-Store payment
+// happen to be pending at once (rare, but both are independent trackers).
+const BAR_STACK_HEIGHT = 66;
 
 const ACCENT  = '#D63527';
 const MUTED   = '#AEAEB2';
@@ -25,6 +34,10 @@ function TabIcon({
 }
 
 export default function TabsLayout() {
+  const userId = useAuthStore((s) => s.userId);
+  const { pending } = usePendingRedemptions(userId);
+  const redemptionBarVisible = pending.length > 0;
+
   return (
     <View style={styles.root}>
       <Tabs
@@ -70,6 +83,12 @@ export default function TabsLayout() {
       {/* Persistent tracker — floats above the tab bar on every tab while a
           redemption request is awaiting vendor approval. */}
       <PendingRedemptionBar bottomOffset={TAB_BAR_HEIGHT} />
+
+      {/* Persistent tracker for an in-flight Pay-at-Store payment — stacks above the
+          redemption bar (rather than overlapping it) on the rare occasion both are pending. */}
+      <PayAtStorePendingBar
+        bottomOffset={TAB_BAR_HEIGHT + (redemptionBarVisible ? BAR_STACK_HEIGHT : 0)}
+      />
     </View>
   );
 }
