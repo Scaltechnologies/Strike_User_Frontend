@@ -28,7 +28,7 @@ import Animated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
-import { ChevronRight } from 'lucide-react-native';
+import { ChevronRight, Globe, Store as StoreIcon } from 'lucide-react-native';
 import { ManropeWeights } from '@/constants/theme';
 import { CARD_HEIGHT, CARD_RADIUS, CARD_SHINE, getCardColorTheme } from '@/utils/cardColorTheme';
 import { tapLight } from '@/utils/haptics';
@@ -41,6 +41,14 @@ function fmt(n: number): string {
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+// Null for subscriptions predating this field, or granted directly by an admin (no real
+// payment) — those render no stamp at all rather than guessing "Online".
+function paymentMethodMeta(method: Subscription['paymentMethod']) {
+  if (method === 'ONLINE') return { label: 'Online', Icon: Globe };
+  if (method === 'PAY_AT_STORE') return { label: 'Pay at Store', Icon: StoreIcon };
+  return null;
 }
 
 function toUtc(iso: string): string {
@@ -91,6 +99,7 @@ export function PremiumSubscriptionCard({
   const glow = theme.glow;
   const enterDelay = Math.min(index, 5) * 90;
   const days = daysLeft(sub.expiresAt);
+  const paymentMeta = paymentMethodMeta(sub.paymentMethod);
 
   const press = useSharedValue(0);
   const pulse = useSharedValue(0);
@@ -179,11 +188,21 @@ export function PremiumSubscriptionCard({
             </Animated.View>
           )}
 
-          <View style={styles.topRow}>
-            {store?.name ? (
-              <Text style={[styles.storeName, { color: theme.textSecondary }]} numberOfLines={1}>{store.name}</Text>
-            ) : null}
-            <Text style={[styles.cardName, { color: theme.textPrimary }]} numberOfLines={1}>{sub.cardName}</Text>
+          <View style={styles.topRowOuter}>
+            <View style={styles.topRow}>
+              {store?.name ? (
+                <Text style={[styles.storeName, { color: theme.textSecondary }]} numberOfLines={1}>{store.name}</Text>
+              ) : null}
+              <Text style={[styles.cardName, { color: theme.textPrimary }]} numberOfLines={1}>{sub.cardName}</Text>
+            </View>
+            {paymentMeta && (
+              <View style={[styles.paymentStamp, { backgroundColor: theme.chipBg }]}>
+                <paymentMeta.Icon size={10} color={theme.textPrimary} strokeWidth={2.4} />
+                <Text style={[styles.paymentStampText, { color: theme.textPrimary }]} numberOfLines={1}>
+                  {paymentMeta.label}
+                </Text>
+              </View>
+            )}
           </View>
 
           <View style={styles.midSection}>
@@ -262,8 +281,28 @@ const styles = StyleSheet.create({
     top: 0, left: 0, right: 0,
     height: 3,
   },
+  topRowOuter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
   topRow: {
+    flex: 1,
     gap: 2,
+  },
+  paymentStamp: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+  },
+  paymentStampText: {
+    fontSize: 9,
+    fontFamily: ManropeWeights.bold,
+    letterSpacing: 0.2,
   },
   storeName: {
     fontSize: 10,
