@@ -15,13 +15,16 @@ import { ManropeWeights } from '@/constants/theme';
 import { C } from '../store/theme';
 import type { CategorySummary } from '@/types/store';
 
-const ICON_SIZE = 66;
+const ICON_SIZE = 56;
 
-// Same "hash name → distinct pastel" approach used for store fallback
-// avatars elsewhere on this screen — every category reads as its own
-// thing instead of all sharing one identical placeholder icon.
-const BG_PALETTE = ['#EEF2FF', '#F0FDF4', '#FFF7ED', '#FDF4FF', '#F0F9FF', '#FEFCE8', '#FFF1F2'];
-const FG_PALETTE = ['#818CF8', '#34D399', '#FB923C', '#C084FC', '#38BDF8', '#FACC15', '#FB7185'];
+// Restrained, Strike-toned palette — every tint/foreground pair is a warm
+// red/orange/amber variation of the brand accent, not an unrelated
+// rainbow (the previous indigo/emerald/purple/sky/yellow set read as
+// "random bright colors" rather than one cohesive system). Hashing the
+// category name into this set still gives each category its own distinct
+// look without introducing a hue that has nothing to do with Strike.
+const BG_PALETTE = ['#FEF2EF', '#FFF4E6', '#FDF1E7', '#FBEFE9', '#FFF7ED', '#FEF3F2'];
+const FG_PALETTE = ['#D63527', '#E08A2E', '#C9622B', '#B5502A', '#DB6B3C', '#C4432F'];
 
 function hashIndex(name: string, mod: number): number {
   return name.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % mod;
@@ -83,7 +86,7 @@ function CategoryIcon({
             {source ? (
               <Image source={source} style={styles.iconImage} contentFit="cover" transition={200} />
             ) : (
-              <UtensilsCrossed size={23} color={fg} strokeWidth={1.6} />
+              <UtensilsCrossed size={20} color={fg} strokeWidth={1.6} />
             )}
           </View>
         </View>
@@ -145,17 +148,17 @@ export function CategoriesRow({
 
 const styles = StyleSheet.create({
   wrap: {
-    paddingTop: 20,
-    paddingBottom: 16,
+    paddingTop: 16,
+    paddingBottom: 14,
     backgroundColor: C.surface,
   },
   scrollContent: {
     paddingHorizontal: 20,
-    gap: 22,
+    gap: 16,
   },
   item: {
     alignItems: 'center',
-    width: ICON_SIZE + 10,
+    width: ICON_SIZE + 16,
   },
   // Split from iconWrap on purpose — Android's `elevation` casts its shadow from
   // the view's rectangular bounds, not its clipped/rounded shape, so combining
@@ -189,14 +192,14 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   label: {
-    fontSize: 11.5,
-    fontFamily: ManropeWeights.semiBold,
+    fontSize: 12,
+    fontFamily: ManropeWeights.medium,
     color: C.primary,
     textAlign: 'center',
-    marginTop: 1,
+    marginTop: 2,
   },
   labelSelected: {
-    fontFamily: ManropeWeights.bold,
+    fontFamily: ManropeWeights.semiBold,
     color: C.accent,
   },
 });

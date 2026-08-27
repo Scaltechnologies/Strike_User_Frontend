@@ -108,6 +108,103 @@ const C = {
   overlay:      'rgba(0,0,0,0.42)',
 } as const;
 
+// Spacing scale — every section/card/chip on this screen sizes its padding
+// and gaps off this instead of picking its own number. `page` is the one
+// horizontal margin the header, search bar, filter bar and section content
+// all share, which is what keeps everything visually aligned into one
+// column instead of drifting a few px left/right of each other.
+const SPACING = {
+  xs: 4,
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 20,
+  xxl: 24,
+  page: 20,
+} as const;
+
+// Corner-radius scale. `control` is the shared radius for tap targets that
+// read as "a button/input" (search bar, chips); `surface` is the shared
+// radius for the larger content surfaces (restaurant cards); `pill` is for
+// fully-rounded badges/tags.
+const RADIUS = {
+  sm: 8,
+  md: 14,
+  control: 18,
+  surface: 22,
+  pill: 999,
+} as const;
+
+// ─── Typography scale ──────────────────────────────────────────────────────
+// One named style per text ROLE, not per component — a restaurant-card
+// title and a section heading are the same role ("title" in this row) and
+// now share one definition, so they can never silently drift apart again.
+// These are exactly the values already tuned in place; this only gives
+// that tuning a name so nothing on this screen picks its own font size in
+// isolation going forward.
+const TYPE = {
+  // Tiny uppercase eyebrow — "GOOD MORNING" above the location.
+  eyebrow: {
+    fontSize: 12,
+    fontFamily: ManropeWeights.semiBold,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  // The one hero line on the screen — the current location name.
+  heroTitle: {
+    fontSize: 21,
+    fontFamily: ManropeWeights.extraBold,
+    letterSpacing: -0.6,
+    lineHeight: 25,
+  },
+  // Section headings and restaurant/card titles are the same hierarchy
+  // tier — "the name of the thing this block of content is about".
+  title: {
+    fontSize: 17,
+    fontFamily: ManropeWeights.extraBold,
+    letterSpacing: -0.4,
+  },
+  body: {
+    fontSize: 12.5,
+    fontFamily: ManropeWeights.regular,
+  },
+  secondary: {
+    fontSize: 12,
+    fontFamily: ManropeWeights.regular,
+  },
+  price: {
+    fontSize: 20,
+    fontFamily: ManropeWeights.extraBold,
+    letterSpacing: -0.4,
+  },
+  priceUnit: {
+    fontSize: 13,
+    fontFamily: ManropeWeights.semiBold,
+  },
+  badge: {
+    fontSize: 11.5,
+    fontFamily: ManropeWeights.bold,
+  },
+  categoryLabel: {
+    fontSize: 10.5,
+    fontFamily: ManropeWeights.semiBold,
+    letterSpacing: 0.2,
+    textTransform: 'capitalize',
+  },
+  buttonText: {
+    fontSize: 12.5,
+    fontFamily: ManropeWeights.bold,
+    letterSpacing: 0.1,
+  },
+  // Small uppercase metadata — "STARTING FROM", price captions.
+  metaSmall: {
+    fontSize: 10.5,
+    fontFamily: ManropeWeights.semiBold,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+} as const;
+
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmtPrice(n: number): string {
@@ -172,6 +269,24 @@ function sortStores(stores: Store[], mode: SortMode, lowestPrices?: Record<numbe
 
     return 0;
   });
+}
+
+// The store-list heading reflects whatever sort is actually active instead
+// of a permanent "Nearby"/"All stores" label — real state, not invented
+// ranking. There is no rating/popularity data to sort by, so the unfiltered
+// default is presented as "Recommended for you" using the existing
+// recommended ordering, never a fake rating-based claim.
+function getStoreSectionCopy(mode: SortMode): { title: string; subtitle?: string } {
+  switch (mode) {
+    case 'nearMe':
+      return { title: 'Stores near you', subtitle: 'Sorted by distance' };
+    case 'priceLowHigh':
+      return { title: 'Stores near you', subtitle: 'Sorted by price: low to high' };
+    case 'priceHighLow':
+      return { title: 'Stores near you', subtitle: 'Sorted by price: high to low' };
+    default:
+      return { title: 'Recommended for you' };
+  }
 }
 
 // ─── Area Search (Nominatim) ───────────────────────────────────────────────────
@@ -289,15 +404,17 @@ function SkeletonPulse({ width, height, style, radius = 8 }: {
 
 function StoreCardSkeleton() {
   return (
-    <View style={[styles.card, { overflow: 'hidden' }]}>
-      <SkeletonPulse height={146} radius={0} style={{ width: '100%' }} />
-      <View style={styles.cardBody}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8, gap: 8 }}>
-          <SkeletonPulse height={14} width="55%" />
-          <SkeletonPulse height={14} width="20%" />
+    <View style={styles.card}>
+      <View style={styles.cardRow}>
+        <SkeletonPulse width={80} height={80} radius={14} />
+        <View style={styles.cardMain}>
+          <SkeletonPulse height={15} width="70%" style={{ marginBottom: 8 }} />
+          <View style={{ flexDirection: 'row', gap: 6, marginBottom: 8 }}>
+            <SkeletonPulse width={44} height={16} radius={5} />
+            <SkeletonPulse width={58} height={16} radius={5} />
+          </View>
+          <SkeletonPulse height={11} width="50%" />
         </View>
-        <SkeletonPulse height={19} width="30%" style={{ borderRadius: 6, marginBottom: 9 }} />
-        <SkeletonPulse height={11} width="55%" />
       </View>
     </View>
   );
@@ -313,8 +430,8 @@ function StoreCard({ store, index = 0, lowestPrice }: { store: Store; index?: nu
   const fallbackBg = getStoreFallbackColor(store.name);
   const initialColor = getStoreInitialColor(store.name);
   const [imgFailed, setImgFailed] = useState(false);
-  const bannerSource = useMediaSource(store.logoUrl);
-  const showPhoto = !!bannerSource && !imgFailed;
+  const thumbSource = useMediaSource(store.logoUrl);
+  const showPhoto = !!thumbSource && !imgFailed;
 
   // Vendor-defined menu categories (e.g. "Mains", "Beverages") — falls back
   // to the store's single business category if the vendor hasn't set up a
@@ -324,104 +441,105 @@ function StoreCard({ store, index = 0, lowestPrice }: { store: Store; index?: nu
     ? menuCategories.map((c) => c.name)
     : null;
 
+  const handleDirections = useCallback(() => {
+    if (store.latitude == null || store.longitude == null) return;
+    tapLight();
+    openDirections(store.latitude, store.longitude);
+  }, [store.latitude, store.longitude]);
+
   return (
     <FadeInView delay={index * 60} style={styles.cardWrapper}>
       <PressableScale
         style={[styles.card, !isOpen && styles.cardClosed]}
         onPress={() => router.push(`/store/${store.id}` as never)}
       >
-        {/* ── Banner ─────────────────────────────────── */}
-        <View style={styles.banner}>
-          {showPhoto && bannerSource ? (
-            <Image
-              source={bannerSource}
-              style={StyleSheet.absoluteFill}
-              contentFit="cover"
-              transition={200}
-              onError={(e) => {
-                logMediaError('store card banner', bannerSource.uri, e.error);
-                setImgFailed(true);
-              }}
-            />
-          ) : (
-            <View style={[styles.bannerFallback, { backgroundColor: fallbackBg }]}>
-              <View style={[styles.bannerInitialCircle, { backgroundColor: `${initialColor}22` }]}>
-                <Text style={[styles.bannerFallbackInitial, { color: initialColor }]}>
-                  {initial}
-                </Text>
-              </View>
-              <Text style={styles.bannerFallbackLabel} numberOfLines={1}>
-                {store.name}
-              </Text>
-            </View>
-          )}
-
-          {/* Subtle scrim for photos */}
-          {showPhoto ? <View style={styles.bannerPhotoScrim} /> : null}
-
-          {/* Distance pill — real distance (backend-provided where available,
-              otherwise computed from the store's own lat/lng), and the whole
-              pill opens Google/Apple Maps directions to this exact store. */}
-          {distance != null && (
-            <Pressable
-              style={({ pressed }) => [styles.distanceBadge, pressed && { opacity: 0.7 }]}
-              onPress={() => {
-                if (store.latitude == null || store.longitude == null) return;
-                tapLight();
-                openDirections(store.latitude, store.longitude);
-              }}
-              hitSlop={6}
-            >
-              <Navigation size={10.5} color={C.accent} strokeWidth={2.4} />
-              <Text style={styles.distanceBadgeText}>{distance}</Text>
-            </Pressable>
-          )}
-        </View>
-
-        {/* ── Card Body ──────────────────────────────── */}
-        <View style={styles.cardBody}>
-          <Text style={styles.cardName} numberOfLines={1}>{store.name}</Text>
-          {store.address ? (
-            <Text style={styles.cardAddress} numberOfLines={1}>{store.address}</Text>
-          ) : null}
-
-          <View style={styles.categoryChipRow}>
-            {categoriesLoading ? (
-              <>
-                <SkeletonPulse width={52} height={19} radius={6} />
-                <SkeletonPulse width={66} height={19} radius={6} />
-              </>
-            ) : categoryNames ? (
-              <>
-                {categoryNames.slice(0, 3).map((name) => (
-                  <View key={name} style={styles.categoryTag}>
-                    <Text style={styles.categoryTagText} numberOfLines={1}>{name}</Text>
-                  </View>
-                ))}
-                {categoryNames.length > 3 && (
-                  <View style={[styles.categoryTag, styles.categoryTagMore]}>
-                    <Text style={[styles.categoryTagText, styles.categoryTagMoreText]}>
-                      +{categoryNames.length - 3}
-                    </Text>
-                  </View>
-                )}
-              </>
+        {/* PressableScale wraps children in its own unstyled inner
+            Animated.View (see cardRow's comment above) — this View is
+            what actually needs flexDirection:'row' to lay the three
+            columns out side by side. */}
+        <View style={styles.cardRow}>
+          {/* ── Thumbnail — compact, not the dominant element ────────── */}
+          <View style={styles.cardThumbWrap}>
+            {showPhoto && thumbSource ? (
+              <Image
+                source={thumbSource}
+                style={StyleSheet.absoluteFill}
+                contentFit="cover"
+                transition={200}
+                onError={(e) => {
+                  logMediaError('store card thumb', thumbSource.uri, e.error);
+                  setImgFailed(true);
+                }}
+              />
             ) : (
-              <View style={styles.categoryTag}>
-                <Text style={styles.categoryTagText}>{store.category}</Text>
+              <View style={[styles.cardThumbFallback, { backgroundColor: fallbackBg }]}>
+                <Text style={[styles.cardThumbInitial, { color: initialColor }]}>{initial}</Text>
               </View>
             )}
           </View>
 
-          {lowestPrice != null && (
-            <View style={styles.priceBlock}>
-              <Text style={styles.priceLabel}>Starting from</Text>
-              <Text style={styles.priceValue}>
-                {fmtPrice(lowestPrice)}
-                <Text style={styles.priceUnit}> / card</Text>
-              </Text>
+          {/* ── Main info column ──────────────────────────────────────── */}
+          <View style={styles.cardMain}>
+            <Text style={styles.cardName} numberOfLines={1}>{store.name}</Text>
+
+            <View style={styles.categoryChipRow}>
+              {categoriesLoading ? (
+                <>
+                  <SkeletonPulse width={44} height={17} radius={5} />
+                  <SkeletonPulse width={58} height={17} radius={5} />
+                </>
+              ) : categoryNames ? (
+                <>
+                  {categoryNames.slice(0, 2).map((name) => (
+                    <View key={name} style={styles.categoryTag}>
+                      <Text style={styles.categoryTagText} numberOfLines={1}>{name}</Text>
+                    </View>
+                  ))}
+                  {categoryNames.length > 2 && (
+                    <View style={[styles.categoryTag, styles.categoryTagMore]}>
+                      <Text style={[styles.categoryTagText, styles.categoryTagMoreText]}>
+                        +{categoryNames.length - 2}
+                      </Text>
+                    </View>
+                  )}
+                </>
+              ) : (
+                <View style={styles.categoryTag}>
+                  <Text style={styles.categoryTagText}>{store.category}</Text>
+                </View>
+              )}
             </View>
-          )}
+
+            {store.address ? (
+              <View style={styles.cardAddressRow}>
+                <MapPin size={10} color={C.muted} strokeWidth={2.3} />
+                <Text style={styles.cardAddress} numberOfLines={1}>{store.address}</Text>
+              </View>
+            ) : null}
+          </View>
+
+          {/* ── Price + directions — right-aligned, compact ──────────── */}
+          <View style={styles.cardSide}>
+            {lowestPrice != null && (
+              <View style={styles.priceBlock}>
+                <Text style={styles.priceLabel}>Starting from</Text>
+                <Text style={styles.priceValue} numberOfLines={1}>
+                  {fmtPrice(lowestPrice)}
+                  <Text style={styles.priceUnit}>/card</Text>
+                </Text>
+              </View>
+            )}
+            {distance != null && (
+              <Pressable
+                style={({ pressed }) => [styles.distanceBadge, pressed && { opacity: 0.65 }]}
+                onPress={handleDirections}
+                hitSlop={8}
+              >
+                <Navigation size={11} color={C.accent} strokeWidth={2.4} />
+                <Text style={styles.distanceBadgeText}>{distance}</Text>
+              </Pressable>
+            )}
+          </View>
         </View>
       </PressableScale>
     </FadeInView>
@@ -1265,6 +1383,7 @@ export default function HomeScreen() {
   const [openNowOnly, setOpenNowOnly] = useState(false);
   const [offersOnly, setOffersOnly] = useState(false);
   const [sortMode, setSortMode] = useState<SortMode>('default');
+  const storeSectionCopy = getStoreSectionCopy(sortMode);
   const [filterSheetVisible, setFilterSheetVisible] = useState(false);
   const [priceSheetVisible, setPriceSheetVisible] = useState(false);
   // Distinct from selectedCategories above (that's the Filters sheet's multi-select,
@@ -1536,10 +1655,10 @@ export default function HomeScreen() {
   const renderSearchBar = () => (
     <View style={styles.searchWrap}>
       <View style={styles.searchBar}>
-        <Search size={15} color={query ? C.accent : C.muted} strokeWidth={2} />
+        <Search size={17} color={query ? C.accent : C.muted} strokeWidth={2} />
         <TextInput
           style={styles.searchInput}
-          placeholder="Search stores or categories"
+          placeholder="Search for stores or categories"
           placeholderTextColor={C.placeholder}
           value={query}
           onChangeText={handleQueryChange}
@@ -1742,8 +1861,15 @@ export default function HomeScreen() {
 
             {/* Single unified list — no "Nearby" section, no separate
                 "All stores" section. The filter bar above controls exactly
-                this array (see visibleStores). */}
+                this array (see visibleStores). The heading reflects the
+                active sort, not a permanent "Nearby"/rating-based label. */}
             <View style={styles.section}>
+              <View style={styles.storeSectionHeader}>
+                <Text style={styles.storeSectionTitle}>{storeSectionCopy.title}</Text>
+                {storeSectionCopy.subtitle ? (
+                  <Text style={styles.storeSectionSubtitle}>{storeSectionCopy.subtitle}</Text>
+                ) : null}
+              </View>
               {renderStoreList(
                 visibleStores,
                 allLoading,
@@ -1859,7 +1985,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     backgroundColor: C.surface,
-    paddingHorizontal: 20,
+    paddingHorizontal: SPACING.page,
     paddingTop: 14,
     paddingBottom: 18,
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -1869,13 +1995,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   greeting: {
-    fontSize: 12,
-    fontWeight: '600',
-    fontFamily: ManropeWeights.semiBold,
+    ...TYPE.eyebrow,
     color: C.muted,
-    letterSpacing: 0.8,
     marginBottom: 6,
-    textTransform: 'uppercase',
   },
   locationRow: {
     flexDirection: 'row',
@@ -1891,13 +2013,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   locationName: {
-    fontSize: 21,
-    fontWeight: '800',
-    fontFamily: ManropeWeights.extraBold,
+    ...TYPE.heroTitle,
     color: C.primary,
     flexShrink: 1,
-    letterSpacing: -0.6,
-    lineHeight: 25,
   },
   locationLoading: {
     fontSize: 20,
@@ -1974,7 +2092,7 @@ const styles = StyleSheet.create({
   // ── Search Bar ──
   searchWrap: {
     backgroundColor: C.surface,
-    paddingHorizontal: 20,
+    paddingHorizontal: SPACING.page,
     paddingTop: 22,
     paddingBottom: 12,
     marginTop: -12,
@@ -1990,30 +2108,33 @@ const styles = StyleSheet.create({
       android: { elevation: 2 },
     }),
   },
+  // Premium search field — a white surface with a soft shadow doing the
+  // work, not a flat gray fill. The pale/basic look came from sitting on
+  // C.bg (the page background) with almost no elevation of its own.
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: C.bg,
+    backgroundColor: C.surface,
     borderRadius: 18,
     height: 52,
     paddingHorizontal: 16,
-    gap: 10,
-    borderWidth: StyleSheet.hairlineWidth,
+    gap: 12,
+    borderWidth: 1,
     borderColor: C.border,
     ...Platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.03,
-        shadowRadius: 3,
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.06,
+        shadowRadius: 10,
       },
-      android: { elevation: 0 },
+      android: { elevation: 2 },
     }),
   },
   searchInput: {
     flex: 1,
     fontSize: 15,
-    fontFamily: ManropeWeights.regular,
+    fontFamily: ManropeWeights.medium,
     color: C.primary,
     paddingVertical: 0,
   },
@@ -2036,7 +2157,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    paddingHorizontal: 20,
+    paddingHorizontal: SPACING.page,
   },
   filterChip: {
     flexDirection: 'row',
@@ -2062,11 +2183,8 @@ const styles = StyleSheet.create({
     }),
   },
   filterChipText: {
-    fontSize: 12.5,
-    fontWeight: '700',
-    fontFamily: ManropeWeights.bold,
+    ...TYPE.buttonText,
     color: C.secondary,
-    letterSpacing: 0.1,
   },
   filterChipTextActive: {
     color: '#FFFFFF',
@@ -2097,7 +2215,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     paddingTop: 12,
-    paddingHorizontal: 20,
+    paddingHorizontal: SPACING.page,
     maxHeight: '82%',
     paddingBottom: Platform.OS === 'ios' ? 32 : 24,
     ...Platform.select({
@@ -2224,6 +2342,20 @@ const styles = StyleSheet.create({
   // ── Content ──
   content: { paddingBottom: 52, backgroundColor: C.surface },
   section: { marginTop: 4 },
+  storeSectionHeader: {
+    paddingHorizontal: SPACING.page,
+    paddingTop: 18,
+    paddingBottom: 10,
+    gap: 2,
+  },
+  storeSectionTitle: {
+    ...TYPE.title,
+    color: C.primary,
+  },
+  storeSectionSubtitle: {
+    ...TYPE.secondary,
+    color: C.muted,
+  },
   homeCategoryHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2246,7 +2378,7 @@ const styles = StyleSheet.create({
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: SPACING.page,
     paddingTop: 26,
     paddingBottom: 14,
     gap: 8,
@@ -2260,11 +2392,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   sectionTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    fontFamily: ManropeWeights.bold,
+    ...TYPE.title,
     color: C.primary,
-    letterSpacing: -0.4,
   },
   sectionCountPill: {
     backgroundColor: C.bg,
@@ -2285,24 +2414,43 @@ const styles = StyleSheet.create({
 
   // ── Store Card ──
   cardWrapper: {
-    marginHorizontal: 12,
-    marginBottom: 16,
+    marginHorizontal: SPACING.page,
+    marginBottom: 10,
   },
+  // The outer tappable box — visual surface only (background/border/
+  // radius/shadow/padding). Passed to PressableScale, which renders this
+  // as the *outer* Pressable's style; PressableScale wraps its children in
+  // its own unstyled inner Animated.View for the press-scale effect, so
+  // this style is NOT where the three columns get arranged — see cardRow.
   card: {
     backgroundColor: C.surface,
-    borderRadius: 22,
-    overflow: 'hidden',
+    borderRadius: 15,
+    padding: 12,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: C.border,
     ...Platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.09,
-        shadowRadius: 16,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 6,
       },
-      android: { elevation: 4 },
+      android: { elevation: 1 },
     }),
+  },
+  // The actual row layout. This MUST live on a real View that directly
+  // wraps the three columns (image / info / price-distance) — putting
+  // flexDirection:'row' on `card` above doesn't work because PressableScale
+  // applies that style to its outer Pressable, which has exactly one
+  // child (its own scale-animation wrapper). That wrapper has no row
+  // styling of its own, so it falls back to the RN default of
+  // flexDirection:'column' — which is exactly why the three columns were
+  // rendering stacked vertically (tall card, big empty gaps) despite
+  // `card` already saying `flexDirection: 'row'`.
+  cardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
   },
   // Closed stores render as one disabled unit — true black & white via a
   // grayscale filter over the whole card (photo, chips, everything), plus a
@@ -2310,148 +2458,108 @@ const styles = StyleSheet.create({
   cardClosed: {
     filter: [{ grayscale: 1 }],
     opacity: 0.7,
-    ...Platform.select({
-      ios: { shadowOpacity: 0.02 },
-      android: { elevation: 1 },
-    }),
   },
-  banner: {
-    height: 146,
-    position: 'relative',
+  cardThumbWrap: {
+    width: 80,
+    height: 80,
+    borderRadius: 14,
     overflow: 'hidden',
+    backgroundColor: C.skeleton,
   },
-  bannerFallback: {
+  cardThumbFallback: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 7,
   },
-  bannerInitialCircle: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  bannerFallbackInitial: {
+  cardThumbInitial: {
     fontSize: 24,
-    fontWeight: '700',
     fontFamily: ManropeWeights.bold,
     letterSpacing: -1,
-    lineHeight: 28,
   },
-  bannerFallbackLabel: {
-    fontSize: 11,
-    fontWeight: '500',
-    fontFamily: ManropeWeights.medium,
-    color: 'rgba(0,0,0,0.3)',
-    letterSpacing: 0.3,
-  },
-  bannerPhotoScrim: {
-    position: 'absolute',
-    top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.06)',
-  },
-  // Replaces the old "Directions" footer button — shows the real,
-  // backend-provided distance directly on the image, food-app style.
-  distanceBadge: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(255,255,255,0.96)',
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 14,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.14,
-        shadowRadius: 5,
-      },
-      android: { elevation: 2 },
-    }),
-  },
-  distanceBadgeText: {
-    fontSize: 11.5,
-    fontWeight: '700',
-    fontFamily: ManropeWeights.bold,
-    color: C.primary,
-  },
-  cardBody: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 12,
+  cardMain: {
+    flex: 1,
+    gap: 5,
   },
   cardName: {
-    fontSize: 17,
-    fontWeight: '800',
-    fontFamily: ManropeWeights.extraBold,
+    ...TYPE.title,
+    fontSize: 15,
     color: C.primary,
-    letterSpacing: -0.4,
-    marginBottom: 2,
+  },
+  cardAddressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
   },
   cardAddress: {
-    fontSize: 12.5,
-    color: C.secondary,
-    fontFamily: ManropeWeights.regular,
-    marginBottom: 6,
+    ...TYPE.secondary,
+    flexShrink: 1,
+    fontSize: 11.5,
+    color: C.muted,
   },
   categoryChipRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
-    gap: 6,
-    marginBottom: 6,
+    gap: 5,
   },
   categoryTag: {
     alignSelf: 'flex-start',
     backgroundColor: C.accentSoft,
-    borderRadius: 8,
-    paddingHorizontal: 9,
-    paddingVertical: 3.5,
-    maxWidth: 140,
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    maxWidth: 110,
   },
   categoryTagMore: {
     backgroundColor: C.bg,
   },
   categoryTagText: {
-    fontSize: 10.5,
-    fontWeight: '600',
-    fontFamily: ManropeWeights.semiBold,
+    ...TYPE.categoryLabel,
+    fontSize: 10,
     color: C.accentDeep,
-    textTransform: 'capitalize',
-    letterSpacing: 0.2,
   },
   categoryTagMoreText: {
     color: C.secondary,
   },
+  // Right-hand column — price is the strongest element here, distance/
+  // directions sits underneath as its own small tap target. Sized to its
+  // own content and centered by the row's alignItems, same as every other
+  // column — no independent minHeight/justifyContent here.
+  cardSide: {
+    alignItems: 'flex-end',
+    gap: 6,
+  },
   priceBlock: {
-    paddingTop: 6,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: C.divider,
+    alignItems: 'flex-end',
   },
   priceLabel: {
-    fontSize: 10.5,
-    fontFamily: ManropeWeights.semiBold,
+    ...TYPE.metaSmall,
+    fontSize: 9,
     color: C.muted,
-    letterSpacing: 0.4,
-    textTransform: 'uppercase',
-    marginBottom: 2,
   },
   priceValue: {
-    fontSize: 20,
-    fontFamily: ManropeWeights.extraBold,
+    ...TYPE.price,
+    fontSize: 17,
     color: C.accent,
-    letterSpacing: -0.4,
   },
   priceUnit: {
-    fontSize: 13,
-    fontFamily: ManropeWeights.semiBold,
+    ...TYPE.priceUnit,
+    fontSize: 11,
     color: C.secondary,
+  },
+  distanceBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: C.accentSoft,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: RADIUS.pill,
+  },
+  distanceBadgeText: {
+    ...TYPE.badge,
+    fontSize: 11,
+    color: C.accentDeep,
   },
 
   // ── Location Permission Banner ──
@@ -2540,7 +2648,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     paddingTop: 12,
-    paddingHorizontal: 20,
+    paddingHorizontal: SPACING.page,
     maxHeight: '88%',
     paddingBottom: Platform.OS === 'ios' ? 40 : 28,
     ...Platform.select({
