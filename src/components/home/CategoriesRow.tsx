@@ -149,7 +149,7 @@ export function CategoriesRow({
 const styles = StyleSheet.create({
   wrap: {
     paddingTop: 16,
-    paddingBottom: 14,
+    paddingBottom: 12,
     backgroundColor: C.surface,
   },
   scrollContent: {

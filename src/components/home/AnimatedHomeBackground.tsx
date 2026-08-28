@@ -1,7 +1,8 @@
 // Fixed, full-bleed backdrop for the Home screen — sits behind the ScrollView
 // (outside it, so it never scrolls) and replaces the old flat grey fill with
-// a bright creamy-white base plus several slow, softly drifting glow patches
-// in the same warm-white tonal family (no added hues). Each patch moves on
+// a bright white base plus several slow, softly drifting glow patches in a
+// neutral near-white/light-grey tonal family (no colored/cream/beige tints —
+// the Home screen must read as one clean white surface). Each patch moves on
 // an independent X/Y timing loop (a Lissajous-style path rather than a
 // straight line) so the motion reads as organic, not mechanical. Everything
 // animates on the UI thread via Reanimated worklets (transform/opacity
@@ -125,7 +126,7 @@ export function AnimatedHomeBackground() {
       },
       {
         size: width * 1.05,
-        color: '#FFF3DE',
+        color: '#FAFAFA',
         opacity: 0.75,
         innerStop: 55,
         top: height * 0.4,
@@ -140,7 +141,7 @@ export function AnimatedHomeBackground() {
       },
       {
         size: width * 0.9,
-        color: '#FFEBCB',
+        color: '#F5F5F5',
         opacity: 0.55,
         innerStop: 50,
         top: height * 0.72,

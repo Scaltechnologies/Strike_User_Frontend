@@ -1,4 +1,5 @@
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import {
   AlertCircle,
   ArrowDown,
@@ -10,7 +11,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
-  Gift,
   Map,
   MapPin,
   Navigation,
@@ -56,7 +56,7 @@ import { useUnreadNotificationCount } from '@/hooks/useNotificationInbox';
 import {
   useAllStores, useInvalidateStores, useNearbyStores, useSearchStores, useStoreMenu, useStoresByCategory,
 } from '@/hooks/useStores';
-import { useLowestCardPricesByStores, useStoresHaveOffer } from '@/hooks/useCards';
+import { useLowestCardPricesByStores } from '@/hooks/useCards';
 import { ROUTES } from '@/constants/routes';
 import { ManropeWeights } from '@/constants/theme';
 import type { RecentLocation } from '@/services/storageService';
@@ -157,12 +157,12 @@ const TYPE = {
     letterSpacing: -0.6,
     lineHeight: 25,
   },
-  // Section headings and restaurant/card titles are the same hierarchy
-  // tier — "the name of the thing this block of content is about".
+  // Section headings — 18–20px/semibold per the app's typography spec.
   title: {
-    fontSize: 17,
-    fontFamily: ManropeWeights.extraBold,
-    letterSpacing: -0.4,
+    fontSize: 19,
+    lineHeight: 24,
+    fontFamily: ManropeWeights.semiBold,
+    letterSpacing: -0.3,
   },
   body: {
     fontSize: 12.5,
@@ -405,16 +405,19 @@ function SkeletonPulse({ width, height, style, radius = 8 }: {
 function StoreCardSkeleton() {
   return (
     <View style={styles.card}>
-      <View style={styles.cardRow}>
-        <SkeletonPulse width={80} height={80} radius={14} />
-        <View style={styles.cardMain}>
-          <SkeletonPulse height={15} width="70%" style={{ marginBottom: 8 }} />
-          <View style={{ flexDirection: 'row', gap: 6, marginBottom: 8 }}>
-            <SkeletonPulse width={44} height={16} radius={5} />
-            <SkeletonPulse width={58} height={16} radius={5} />
-          </View>
-          <SkeletonPulse height={11} width="50%" />
+      <View style={[styles.cardImageWrap, { overflow: 'hidden' }]}>
+        <SkeletonPulse height={200} radius={0} style={{ width: '100%' }} />
+        <View style={[styles.cardImageCategoryRow, { bottom: 14 }]}>
+          <SkeletonPulse width={64} height={26} radius={13} />
+          <SkeletonPulse width={72} height={26} radius={13} />
         </View>
+      </View>
+      <View style={styles.cardBody}>
+        <SkeletonPulse height={20} width="65%" style={{ marginBottom: 8 }} />
+        <SkeletonPulse height={13} width="45%" style={{ marginBottom: 16 }} />
+        <SkeletonPulse height={1} width="100%" style={{ marginBottom: 14 }} />
+        <SkeletonPulse height={11} width="30%" style={{ marginBottom: 6 }} />
+        <SkeletonPulse height={22} width="35%" />
       </View>
     </View>
   );
@@ -453,93 +456,97 @@ function StoreCard({ store, index = 0, lowestPrice }: { store: Store; index?: nu
         style={[styles.card, !isOpen && styles.cardClosed]}
         onPress={() => router.push(`/store/${store.id}` as never)}
       >
-        {/* PressableScale wraps children in its own unstyled inner
-            Animated.View (see cardRow's comment above) — this View is
-            what actually needs flexDirection:'row' to lay the three
-            columns out side by side. */}
-        <View style={styles.cardRow}>
-          {/* ── Thumbnail — compact, not the dominant element ────────── */}
-          <View style={styles.cardThumbWrap}>
-            {showPhoto && thumbSource ? (
-              <Image
-                source={thumbSource}
-                style={StyleSheet.absoluteFill}
-                contentFit="cover"
-                transition={200}
-                onError={(e) => {
-                  logMediaError('store card thumb', thumbSource.uri, e.error);
-                  setImgFailed(true);
-                }}
-              />
+        {/* ── Hero image — full card width, real distance/directions
+            overlaid on it, not a separate row/column ────────────────── */}
+        <View style={styles.cardImageWrap}>
+          {showPhoto && thumbSource ? (
+            <Image
+              source={thumbSource}
+              style={StyleSheet.absoluteFill}
+              contentFit="cover"
+              transition={200}
+              onError={(e) => {
+                logMediaError('store card image', thumbSource.uri, e.error);
+                setImgFailed(true);
+              }}
+            />
+          ) : (
+            <View style={[styles.cardImageFallback, { backgroundColor: fallbackBg }]}>
+              <Text style={[styles.cardImageFallbackInitial, { color: initialColor }]}>{initial}</Text>
+            </View>
+          )}
+          {distance != null && (
+            <Pressable
+              style={({ pressed }) => [styles.cardImageDistanceBadge, pressed && { opacity: 0.7 }]}
+              onPress={handleDirections}
+              hitSlop={8}
+            >
+              <Navigation size={11} color={C.accent} strokeWidth={2.4} />
+              <Text style={styles.cardImageDistanceText}>{distance}</Text>
+            </Pressable>
+          )}
+
+          {/* A subtle scrim, only behind the category row — just enough to
+              guarantee the pills stay legible over whatever the photo looks
+              like, not a decorative wash over the whole image. */}
+          <LinearGradient
+            colors={['transparent', 'rgba(0,0,0,0.16)']}
+            style={styles.cardImageScrim}
+            pointerEvents="none"
+          />
+          <View style={styles.cardImageCategoryRow}>
+            {categoriesLoading ? (
+              <>
+                <SkeletonPulse width={64} height={26} radius={13} />
+                <SkeletonPulse width={72} height={26} radius={13} />
+              </>
+            ) : categoryNames ? (
+              <>
+                {categoryNames.slice(0, 3).map((name) => (
+                  <View key={name} style={styles.categoryTag}>
+                    <Text style={styles.categoryTagText} numberOfLines={1}>{name}</Text>
+                  </View>
+                ))}
+                {categoryNames.length > 3 && (
+                  <View style={[styles.categoryTag, styles.categoryTagMore]}>
+                    <Text style={[styles.categoryTagText, styles.categoryTagMoreText]}>
+                      +{categoryNames.length - 3}
+                    </Text>
+                  </View>
+                )}
+              </>
             ) : (
-              <View style={[styles.cardThumbFallback, { backgroundColor: fallbackBg }]}>
-                <Text style={[styles.cardThumbInitial, { color: initialColor }]}>{initial}</Text>
+              <View style={styles.categoryTag}>
+                <Text style={styles.categoryTagText}>{store.category}</Text>
               </View>
             )}
           </View>
+        </View>
 
-          {/* ── Main info column ──────────────────────────────────────── */}
-          <View style={styles.cardMain}>
-            <Text style={styles.cardName} numberOfLines={1}>{store.name}</Text>
+        {/* ── Body — name, address, then price below a divider, in
+            generous vertical rhythm ────────────────────────────────── */}
+        <View style={styles.cardBody}>
+          <Text style={styles.cardName} numberOfLines={2}>{store.name}</Text>
 
-            <View style={styles.categoryChipRow}>
-              {categoriesLoading ? (
-                <>
-                  <SkeletonPulse width={44} height={17} radius={5} />
-                  <SkeletonPulse width={58} height={17} radius={5} />
-                </>
-              ) : categoryNames ? (
-                <>
-                  {categoryNames.slice(0, 2).map((name) => (
-                    <View key={name} style={styles.categoryTag}>
-                      <Text style={styles.categoryTagText} numberOfLines={1}>{name}</Text>
-                    </View>
-                  ))}
-                  {categoryNames.length > 2 && (
-                    <View style={[styles.categoryTag, styles.categoryTagMore]}>
-                      <Text style={[styles.categoryTagText, styles.categoryTagMoreText]}>
-                        +{categoryNames.length - 2}
-                      </Text>
-                    </View>
-                  )}
-                </>
-              ) : (
-                <View style={styles.categoryTag}>
-                  <Text style={styles.categoryTagText}>{store.category}</Text>
-                </View>
-              )}
+          {store.address ? (
+            <View style={styles.cardAddressRow}>
+              <MapPin size={13} color="#6B7280" strokeWidth={2.2} />
+              <Text style={styles.cardAddress} numberOfLines={1}>{store.address}</Text>
             </View>
+          ) : null}
 
-            {store.address ? (
-              <View style={styles.cardAddressRow}>
-                <MapPin size={10} color={C.muted} strokeWidth={2.3} />
-                <Text style={styles.cardAddress} numberOfLines={1}>{store.address}</Text>
-              </View>
-            ) : null}
-          </View>
-
-          {/* ── Price + directions — right-aligned, compact ──────────── */}
-          <View style={styles.cardSide}>
-            {lowestPrice != null && (
+          {lowestPrice != null && (
+            <>
+              <View style={styles.cardDivider} />
               <View style={styles.priceBlock}>
                 <Text style={styles.priceLabel}>Starting from</Text>
                 <Text style={styles.priceValue} numberOfLines={1}>
                   {fmtPrice(lowestPrice)}
-                  <Text style={styles.priceUnit}>/card</Text>
+                  <Text style={styles.priceUnit}> / card</Text>
                 </Text>
               </View>
-            )}
-            {distance != null && (
-              <Pressable
-                style={({ pressed }) => [styles.distanceBadge, pressed && { opacity: 0.65 }]}
-                onPress={handleDirections}
-                hitSlop={8}
-              >
-                <Navigation size={11} color={C.accent} strokeWidth={2.4} />
-                <Text style={styles.distanceBadgeText}>{distance}</Text>
-              </Pressable>
-            )}
-          </View>
+            </>
+          )}
         </View>
       </PressableScale>
     </FadeInView>
@@ -552,7 +559,6 @@ function StoreCard({ store, index = 0, lowestPrice }: { store: Store; index?: nu
 //   Filters   → opens the complete sheet (Sort by / Availability / Category)
 //   Near Me   → directly toggles nearest-first sorting, no popover
 //   Price     → opens a PRICE-ONLY popover (never the complete sheet)
-//   Offers    → directly toggles the offers attribute filter, no popover
 //   Open Now  → directly toggles the open-now attribute filter, no popover
 
 function FilterChipsBar({
@@ -560,9 +566,6 @@ function FilterChipsBar({
   onOpenFilters,
   openNowOnly,
   onToggleOpenNow,
-  offersOnly,
-  onToggleOffers,
-  offersSupported,
   sortMode,
   onToggleNearMe,
   onOpenPriceSort,
@@ -573,9 +576,6 @@ function FilterChipsBar({
   onOpenFilters: () => void;
   openNowOnly: boolean;
   onToggleOpenNow: () => void;
-  offersOnly: boolean;
-  onToggleOffers: () => void;
-  offersSupported: boolean;
   sortMode: SortMode;
   onToggleNearMe: () => void;
   onOpenPriceSort: () => void;
@@ -626,19 +626,6 @@ function FilterChipsBar({
           {sortMode === 'priceLowHigh' ? 'Low to High' : sortMode === 'priceHighLow' ? 'High to Low' : 'Price'}
         </Text>
       </Pressable>
-
-      {offersSupported && (
-        <Pressable
-          style={[styles.filterChip, offersOnly && styles.filterChipActive]}
-          onPress={() => { tapSelect(); onToggleOffers(); }}
-          hitSlop={4}
-        >
-          <Gift size={14} color={offersOnly ? '#FFFFFF' : C.secondary} strokeWidth={2.3} />
-          <Text style={[styles.filterChipText, offersOnly && styles.filterChipTextActive]}>
-            Offers
-          </Text>
-        </Pressable>
-      )}
 
       <Pressable
         style={[styles.filterChip, openNowOnly && styles.filterChipActive]}
@@ -719,7 +706,6 @@ function PriceSortSheet({
             </Pressable>
           </View>
 
-          <RadioRow label="Recommended" selected={sortMode === 'default'} onPress={() => handleSelect('default')} />
           <RadioRow label="Lowest to Highest" selected={sortMode === 'priceLowHigh'} onPress={() => handleSelect('priceLowHigh')} />
           <RadioRow label="Highest to Lowest" selected={sortMode === 'priceHighLow'} onPress={() => handleSelect('priceHighLow')} />
         </Animated.View>
@@ -758,8 +744,6 @@ function FiltersSheet({
   categories,
   sortMode,
   openNowOnly,
-  offersOnly,
-  offersSupported,
   selectedCategories,
   onApply,
   onClearAll,
@@ -769,15 +753,12 @@ function FiltersSheet({
   categories: string[];
   sortMode: SortMode;
   openNowOnly: boolean;
-  offersOnly: boolean;
-  offersSupported: boolean;
   selectedCategories: string[];
-  onApply: (sort: SortMode, openNow: boolean, offers: boolean, cats: string[]) => void;
+  onApply: (sort: SortMode, openNow: boolean, cats: string[]) => void;
   onClearAll: () => void;
 }) {
   const [draftSort, setDraftSort] = useState<SortMode>(sortMode);
   const [draftOpenNow, setDraftOpenNow] = useState(openNowOnly);
-  const [draftOffers, setDraftOffers] = useState(offersOnly);
   const [draftCategories, setDraftCategories] = useState<string[]>(selectedCategories);
 
   const sheetTranslateY = useRef(new Animated.Value(600)).current;
@@ -787,7 +768,6 @@ function FiltersSheet({
     if (visible) {
       setDraftSort(sortMode);
       setDraftOpenNow(openNowOnly);
-      setDraftOffers(offersOnly);
       setDraftCategories(selectedCategories);
       Animated.parallel([
         Animated.spring(sheetTranslateY, {
@@ -820,14 +800,13 @@ function FiltersSheet({
 
   const handleApply = () => {
     tapSelect();
-    onApply(draftSort, draftOpenNow, draftOffers, draftCategories);
+    onApply(draftSort, draftOpenNow, draftCategories);
   };
 
   const handleClearAll = () => {
     tapSelect();
     setDraftSort('default');
     setDraftOpenNow(false);
-    setDraftOffers(false);
     setDraftCategories([]);
     onClearAll();
   };
@@ -860,9 +839,6 @@ function FiltersSheet({
 
             <Text style={styles.filterSectionLabel}>Availability</Text>
             <CheckRow label="Open Now" checked={draftOpenNow} onPress={() => setDraftOpenNow((v) => !v)} />
-            {offersSupported && (
-              <CheckRow label="Offers" checked={draftOffers} onPress={() => setDraftOffers((v) => !v)} />
-            )}
 
             {categories.length > 0 && (
               <>
@@ -1381,7 +1357,6 @@ export default function HomeScreen() {
   // Empty array = "Select All" / no restriction — matches every store's category.
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [openNowOnly, setOpenNowOnly] = useState(false);
-  const [offersOnly, setOffersOnly] = useState(false);
   const [sortMode, setSortMode] = useState<SortMode>('default');
   const storeSectionCopy = getStoreSectionCopy(sortMode);
   const [filterSheetVisible, setFilterSheetVisible] = useState(false);
@@ -1483,12 +1458,6 @@ export default function HomeScreen() {
   }, [allStores, searchResults, homeCategoryStores]);
   const { data: lowestPrices } = useLowestCardPricesByStores(visibleStoreIds);
 
-  // "Offers" filter — no batched per-store offer endpoint exists, so this is
-  // assembled from the same single-store cards endpoint useStoreCards already
-  // uses elsewhere (shared cache/query key, same staleTime). See useCards.ts.
-  const storeHasOffer = useStoresHaveOffer(visibleStoreIds);
-  const offersSupported = visibleStoreIds.length > 0;
-
   // Single unified store list for the home screen (no more separate
   // "Nearby" / "All stores" arrays). Every store gets a real distanceKm
   // when possible: the authoritative backend value from /nearby/me where
@@ -1505,7 +1474,20 @@ export default function HomeScreen() {
       if (s.distanceKm != null) nearbyDistanceById[s.id] = s.distanceKm;
     });
 
-    return (allStores ?? []).map((s) => {
+    // Defensive de-dupe by id — a store appearing twice in the raw API
+    // response (seed/test data, a backend pagination overlap, etc.) would
+    // otherwise render two <StoreCard key={s.id}> siblings with the same
+    // key, which is exactly the "two children with the same key" warning.
+    // This only drops exact-duplicate records; it doesn't filter, sort, or
+    // otherwise touch which real stores are shown.
+    const seenIds = new Set<number>();
+    const dedupedStores = (allStores ?? []).filter((s) => {
+      if (seenIds.has(s.id)) return false;
+      seenIds.add(s.id);
+      return true;
+    });
+
+    return dedupedStores.map((s) => {
       const backendDist = nearbyDistanceById[s.id];
       if (backendDist != null) {
         return backendDist === s.distanceKm ? s : { ...s, distanceKm: backendDist };
@@ -1528,22 +1510,17 @@ export default function HomeScreen() {
   // Filters that actually remove stores from a list — kept separate from
   // sortMode (which only reorders) so the "no stores match your filters"
   // empty state doesn't fire just because a sort pill is active.
-  const hasActiveFilters = selectedCategories.length > 0 || openNowOnly || offersOnly;
+  const hasActiveFilters = selectedCategories.length > 0 || openNowOnly;
   const hasActiveFiltersOrSort = hasActiveFilters || sortMode !== 'default';
 
   const matchesFilters = useCallback((s: Store) => {
     if (selectedCategories.length > 0 && !selectedCategories.includes(s.category)) return false;
     if (openNowOnly && !isStoreOpenNow(s)) return false;
-    if (offersOnly && !storeHasOffer[String(s.id)]) return false;
     return true;
-  }, [selectedCategories, openNowOnly, offersOnly, storeHasOffer]);
+  }, [selectedCategories, openNowOnly]);
 
   const handleToggleNearMe = useCallback(() => {
     setSortMode((m) => (m === 'nearMe' ? 'default' : 'nearMe'));
-  }, []);
-
-  const handleToggleOffers = useCallback(() => {
-    setOffersOnly((v) => !v);
   }, []);
 
   const handleOpenPriceSort = useCallback(() => {
@@ -1554,16 +1531,15 @@ export default function HomeScreen() {
     setFilterSheetVisible(true);
   }, []);
 
-  const handleApplyFiltersSheet = useCallback((sort: SortMode, openNow: boolean, offers: boolean, cats: string[]) => {
+  const handleApplyFiltersSheet = useCallback((sort: SortMode, openNow: boolean, cats: string[]) => {
     setSortMode(sort);
     setOpenNowOnly(openNow);
-    setOffersOnly(offers);
     setSelectedCategories(cats);
     setFilterSheetVisible(false);
   }, []);
 
   // The exact array the home screen's store cards render: attribute filters
-  // (category / open-now / offers) first, then the active sort mode. This is
+  // (category / open-now) first, then the active sort mode. This is
   // the only list rendered for the default home view — no separate "Nearby"
   // array feeding a second, independently-filtered section any more.
   const visibleStores = useMemo(() => {
@@ -1578,7 +1554,6 @@ export default function HomeScreen() {
   const clearFilters = useCallback(() => {
     setSelectedCategories([]);
     setOpenNowOnly(false);
-    setOffersOnly(false);
     setSortMode('default');
     setFilterSheetVisible(false);
     setPriceSheetVisible(false);
@@ -1691,9 +1666,6 @@ export default function HomeScreen() {
         onOpenFilters={handleOpenFilters}
         openNowOnly={openNowOnly}
         onToggleOpenNow={() => setOpenNowOnly((v) => !v)}
-        offersOnly={offersOnly}
-        onToggleOffers={handleToggleOffers}
-        offersSupported={offersSupported}
         sortMode={sortMode}
         onToggleNearMe={handleToggleNearMe}
         onOpenPriceSort={handleOpenPriceSort}
@@ -1928,8 +1900,6 @@ export default function HomeScreen() {
         categories={categories}
         sortMode={sortMode}
         openNowOnly={openNowOnly}
-        offersOnly={offersOnly}
-        offersSupported={offersSupported}
         selectedCategories={selectedCategories}
         onApply={handleApplyFiltersSheet}
         onClearAll={clearFilters}
@@ -2149,8 +2119,8 @@ const styles = StyleSheet.create({
 
   // ── Filter Bar section (sits between the banners and the store list) ──
   filterBarSection: {
-    marginTop: 22,
-    marginBottom: 14,
+    marginTop: 20,
+    marginBottom: 12,
   },
   filterBar: {},
   filterBarContent: {
@@ -2344,8 +2314,8 @@ const styles = StyleSheet.create({
   section: { marginTop: 4 },
   storeSectionHeader: {
     paddingHorizontal: SPACING.page,
-    paddingTop: 18,
-    paddingBottom: 10,
+    paddingTop: 16,
+    paddingBottom: 8,
     gap: 2,
   },
   storeSectionTitle: {
@@ -2415,42 +2385,28 @@ const styles = StyleSheet.create({
   // ── Store Card ──
   cardWrapper: {
     marginHorizontal: SPACING.page,
-    marginBottom: 10,
+    marginBottom: 16,
   },
-  // The outer tappable box — visual surface only (background/border/
-  // radius/shadow/padding). Passed to PressableScale, which renders this
-  // as the *outer* Pressable's style; PressableScale wraps its children in
-  // its own unstyled inner Animated.View for the press-scale effect, so
-  // this style is NOT where the three columns get arranged — see cardRow.
+  // A tall vertical card — full-width hero image on top, content below.
+  // PressableScale wraps children in its own unstyled inner Animated.View,
+  // which defaults to flexDirection:'column' — exactly what a stacked
+  // (image, then body) layout needs, so no row-layout workaround is
+  // required here the way the earlier horizontal design needed one.
   card: {
-    backgroundColor: C.surface,
-    borderRadius: 15,
-    padding: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: C.border,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#F1F1F1',
     ...Platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 6,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.06,
+        shadowRadius: 12,
       },
-      android: { elevation: 1 },
+      android: { elevation: 2 },
     }),
-  },
-  // The actual row layout. This MUST live on a real View that directly
-  // wraps the three columns (image / info / price-distance) — putting
-  // flexDirection:'row' on `card` above doesn't work because PressableScale
-  // applies that style to its outer Pressable, which has exactly one
-  // child (its own scale-animation wrapper). That wrapper has no row
-  // styling of its own, so it falls back to the RN default of
-  // flexDirection:'column' — which is exactly why the three columns were
-  // rendering stacked vertically (tall card, big empty gaps) despite
-  // `card` already saying `flexDirection: 'row'`.
-  cardRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
   },
   // Closed stores render as one disabled unit — true black & white via a
   // grayscale filter over the whole card (photo, chips, everything), plus a
@@ -2459,107 +2415,138 @@ const styles = StyleSheet.create({
     filter: [{ grayscale: 1 }],
     opacity: 0.7,
   },
-  cardThumbWrap: {
-    width: 80,
-    height: 80,
-    borderRadius: 14,
-    overflow: 'hidden',
+  // Full-width hero image — dominates the top of the card. `overflow:hidden`
+  // on `card` above gives it the same top corner radius automatically.
+  cardImageWrap: {
+    width: '100%',
+    height: 200,
+    position: 'relative',
     backgroundColor: C.skeleton,
   },
-  cardThumbFallback: {
+  cardImageFallback: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  cardThumbInitial: {
-    fontSize: 24,
+  cardImageFallbackInitial: {
+    fontSize: 40,
     fontFamily: ManropeWeights.bold,
     letterSpacing: -1,
   },
-  cardMain: {
-    flex: 1,
-    gap: 5,
-  },
-  cardName: {
-    ...TYPE.title,
-    fontSize: 15,
-    color: C.primary,
-  },
-  cardAddressRow: {
+  // Distance/directions — an overlay pill on the image, top-right. Still
+  // the same real distanceKm and the same openDirections() tap behavior.
+  cardImageDistanceBadge: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
+    gap: 4,
+    backgroundColor: 'rgba(255,255,255,0.94)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: RADIUS.pill,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.14, shadowRadius: 4 },
+      android: { elevation: 2 },
+    }),
   },
-  cardAddress: {
-    ...TYPE.secondary,
-    flexShrink: 1,
-    fontSize: 11.5,
-    color: C.muted,
+  cardImageDistanceText: {
+    fontSize: 12,
+    fontFamily: ManropeWeights.bold,
+    color: '#111827',
   },
-  categoryChipRow: {
+  // Scrim lives only behind the category row (bottom third of the image),
+  // not across the whole photo — a legibility aid, not a decorative wash.
+  cardImageScrim: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: '45%',
+  },
+  cardImageCategoryRow: {
+    position: 'absolute',
+    left: 14,
+    right: 14,
+    bottom: 12,
     flexDirection: 'row',
-    flexWrap: 'wrap',
     alignItems: 'center',
-    gap: 5,
+    gap: 7,
   },
   categoryTag: {
     alignSelf: 'flex-start',
-    backgroundColor: C.accentSoft,
-    borderRadius: 6,
-    paddingHorizontal: 7,
-    paddingVertical: 2.5,
-    maxWidth: 110,
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    borderRadius: RADIUS.pill,
+    paddingHorizontal: 11,
+    paddingVertical: 5.5,
+    maxWidth: 120,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2 },
+      android: { elevation: 1 },
+    }),
   },
   categoryTagMore: {
-    backgroundColor: C.bg,
+    backgroundColor: 'rgba(255,255,255,0.8)',
   },
   categoryTagText: {
-    ...TYPE.categoryLabel,
-    fontSize: 10,
-    color: C.accentDeep,
+    fontSize: 12,
+    fontFamily: ManropeWeights.medium,
+    color: '#E5484D',
+    textTransform: 'capitalize',
   },
   categoryTagMoreText: {
     color: C.secondary,
   },
-  // Right-hand column — price is the strongest element here, distance/
-  // directions sits underneath as its own small tap target. Sized to its
-  // own content and centered by the row's alignItems, same as every other
-  // column — no independent minHeight/justifyContent here.
-  cardSide: {
-    alignItems: 'flex-end',
-    gap: 6,
+  cardBody: {
+    paddingHorizontal: 18,
+    paddingTop: 16,
+    paddingBottom: 18,
   },
-  priceBlock: {
-    alignItems: 'flex-end',
+  cardName: {
+    fontSize: 19,
+    lineHeight: 24,
+    fontFamily: ManropeWeights.semiBold,
+    color: '#111827',
+    marginBottom: 6,
   },
-  priceLabel: {
-    ...TYPE.metaSmall,
-    fontSize: 9,
-    color: C.muted,
-  },
-  priceValue: {
-    ...TYPE.price,
-    fontSize: 17,
-    color: C.accent,
-  },
-  priceUnit: {
-    ...TYPE.priceUnit,
-    fontSize: 11,
-    color: C.secondary,
-  },
-  distanceBadge: {
+  cardAddressRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: C.accentSoft,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: RADIUS.pill,
+    gap: 5,
+    marginBottom: 16,
   },
-  distanceBadgeText: {
-    ...TYPE.badge,
+  cardAddress: {
+    fontSize: 13.5,
+    lineHeight: 19,
+    fontFamily: ManropeWeights.regular,
+    color: '#6B7280',
+    flexShrink: 1,
+  },
+  cardDivider: {
+    height: 1,
+    backgroundColor: '#F1F1F1',
+    marginBottom: 14,
+  },
+  priceBlock: {},
+  priceLabel: {
     fontSize: 11,
-    color: C.accentDeep,
+    fontFamily: ManropeWeights.semiBold,
+    color: '#6B7280',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginBottom: 6,
+  },
+  priceValue: {
+    fontSize: 21,
+    fontFamily: ManropeWeights.bold,
+    color: C.accent,
+    letterSpacing: -0.4,
+  },
+  priceUnit: {
+    fontSize: 14,
+    fontFamily: ManropeWeights.medium,
+    color: '#6B7280',
   },
 
   // ── Location Permission Banner ──

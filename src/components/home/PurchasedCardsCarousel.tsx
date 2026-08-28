@@ -18,7 +18,6 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { PremiumSubscriptionCard } from '@/components/cards/PremiumSubscriptionCard';
 import { useMyActiveSubscriptions } from '@/hooks/useSubscriptions';
 import { buildRoute } from '@/constants/routes';
-import { C } from '../store/theme';
 import type { Store } from '@/types/store';
 
 const H_PADDING = 20;
@@ -32,7 +31,10 @@ export function PurchasedCardsCarousel({ storesById }: { storesById: Record<numb
   const active = (subscriptions ?? []).filter((s) => s.status === 'ACTIVE');
 
   const [slideWidth] = useState(() => Dimensions.get('window').width - H_PADDING * 2 - PEEK);
-  const [index, setIndex] = useState(0);
+  // Only the setter is needed now — the dots that used to render `index`
+  // were removed, but the state itself still drives auto-advance/momentum
+  // tracking below.
+  const [, setIndex] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -105,41 +107,17 @@ export function PurchasedCardsCarousel({ storesById }: { storesById: Record<numb
           />
         ))}
       </ScrollView>
-
-      {active.length > 1 ? (
-        <View style={styles.dotsRow} pointerEvents="none">
-          {active.map((sub, i) => (
-            <View key={sub.id} style={[styles.dot, i === index && styles.dotActive]} />
-          ))}
-        </View>
-      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   wrap: {
-    marginTop: 18,
-    marginBottom: 14,
+    marginTop: 16,
+    marginBottom: 8,
   },
   scrollContent: {
     paddingHorizontal: H_PADDING,
     gap: CARD_SPACING,
-  },
-  dotsRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 5,
-    marginTop: 12,
-  },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: C.border,
-  },
-  dotActive: {
-    backgroundColor: C.accent,
-    width: 16,
   },
 });
