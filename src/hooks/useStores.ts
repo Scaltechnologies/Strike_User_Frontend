@@ -14,11 +14,22 @@ export const storeKeys = {
 };
 
 // Home screen category row — deduped across every store, rarely changes.
+// The backend can still hand back the same category name more than once (e.g.
+// contributed independently by two stores' menus), so dedupe defensively here
+// too — otherwise CategoriesRow renders duplicate icons under a duplicate key.
 export function useStoreCategories() {
   return useQuery({
     queryKey: storeKeys.categories(),
     queryFn: storeApi.getCategories,
     staleTime: 10 * 60 * 1000,
+    select: (categories) => {
+      const seen = new Set<string>();
+      return categories.filter((cat) => {
+        if (seen.has(cat.name)) return false;
+        seen.add(cat.name);
+        return true;
+      });
+    },
   });
 }
 
