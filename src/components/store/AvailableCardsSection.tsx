@@ -10,7 +10,6 @@ import {
 import { useRouter } from 'expo-router';
 import { CreditCard } from 'lucide-react-native';
 import { useStoreCards } from '@/hooks/useCards';
-import { useMyActiveSubscriptions } from '@/hooks/useSubscriptions';
 import { CardListItem } from '@/components/cards/CardListItem';
 import { CardListSkeleton } from '@/components/cards/CardSkeleton';
 import { ManropeWeights } from '@/constants/theme';
@@ -60,12 +59,6 @@ export function AvailableCardsSection({ storeId, categories }: Props) {
     refetch,
   } = useStoreCards(storeId);
 
-  const { data: activeSubscriptions } = useMyActiveSubscriptions();
-
-  const ownedCardIds = new Set(
-    (activeSubscriptions ?? []).map((s) => s.cardDefinitionId),
-  );
-
   const activeCards = (cards ?? []).filter((c) => c.isActive);
 
   const renderCard = useCallback(
@@ -73,20 +66,23 @@ export function AvailableCardsSection({ storeId, categories }: Props) {
       <CardListItem
         card={item}
         categories={categories}
-        isOwned={ownedCardIds.has(item.id)}
         layout="list"
         onPress={() => router.push(`/cards/${item.id}` as never)}
       />
     ),
-    [categories, router, ownedCardIds],
+    [categories, router],
   );
 
   return (
     <View style={styles.root}>
-      {/* Section header */}
+      {/* Section header — title group pinned left, count pushed to the
+          right edge (same 16px grid as the cards below), not crowded
+          together via a shared gap. */}
       <View style={styles.header}>
-        <CreditCard size={15} color={C.accent} strokeWidth={2.2} />
-        <Text style={styles.headerTitle}>Available Cards</Text>
+        <View style={styles.headerLeft}>
+          <CreditCard size={15} color={C.accent} strokeWidth={2.2} />
+          <Text style={styles.headerTitle}>Available Cards</Text>
+        </View>
         {activeCards.length > 0 ? (
           <View style={styles.countPill}>
             <Text style={styles.countPillText}>{activeCards.length}</Text>
@@ -127,13 +123,17 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
     marginBottom: 14,
   },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   headerTitle: {
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 17,
     fontFamily: ManropeWeights.bold,
     color: C.primary,
     letterSpacing: -0.3,
@@ -143,7 +143,6 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 8,
     paddingVertical: 3,
-    marginLeft: -2,
     ...Platform.select({
       ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 3 },
       android: { elevation: 1 },
@@ -182,7 +181,6 @@ const styles = StyleSheet.create({
   },
   retryText: {
     fontSize: 13,
-    fontWeight: '600',
     fontFamily: ManropeWeights.semiBold,
     color: C.accent,
   },

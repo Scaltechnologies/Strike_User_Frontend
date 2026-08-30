@@ -15,13 +15,13 @@ import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import {
+  ArrowRight,
   BadgePercent,
   Check,
   ChevronRight,
   Clock,
   CreditCard,
   Layers,
-  ShoppingBag,
   Sparkles,
   Store,
   Tag,
@@ -291,7 +291,6 @@ export function ActivationSheet({
   const eligibleCategories = menuCategories.filter((cat) =>
     (card.categoryIds ?? []).includes(cat.id),
   );
-  const itemCount = card.eligibleMenuItemIds?.length ?? 0;
   const payAmount = appliedCoupon ? appliedCoupon.finalAmount : card.cardPrice;
 
   async function handleApplyCoupon() {
@@ -597,9 +596,9 @@ export function ActivationSheet({
                       <Sparkles size={13} color={C.accent} strokeWidth={2.4} />
                     </View>
                     <View style={styles.sectionHeadingTextWrap}>
-                      <Text style={styles.sectionTitle}>What you’re getting</Text>
+                      <Text style={styles.sectionTitle}>You’ll get</Text>
                       <Text style={styles.sectionSubtitle}>
-                        Your membership benefits and coverage
+                        Benefits and coverage details
                       </Text>
                     </View>
                   </View>
@@ -608,7 +607,7 @@ export function ActivationSheet({
                 <View style={styles.summaryCard}>
                   <SummaryRow
                     icon={CreditCard}
-                    label="Membership price"
+                    label="Price"
                     value={
                       appliedCoupon
                         ? `${formatCardPrice(card.cardPrice)}  →  ${formatCardPrice(appliedCoupon.finalAmount)}`
@@ -630,6 +629,7 @@ export function ActivationSheet({
                     icon={Clock}
                     label="Validity"
                     value={`${card.validityInDays} days from activation`}
+                    isLast={eligibleCategories.length === 0}
                   />
 
                   {eligibleCategories.length > 0 && (
@@ -638,28 +638,6 @@ export function ActivationSheet({
                       label="Eligible categories"
                       value={eligibleCategories.map((c) => c.name).join(', ')}
                       wrap
-                    />
-                  )}
-
-                  {itemCount > 0 ? (
-                    <SummaryRow
-                      icon={ShoppingBag}
-                      label="Eligible items"
-                      value={`${itemCount} items`}
-                      isLast
-                    />
-                  ) : eligibleCategories.length > 0 ? (
-                    <SummaryRow
-                      icon={ShoppingBag}
-                      label="Eligible items"
-                      value="All items in eligible categories"
-                      isLast
-                    />
-                  ) : (
-                    <SummaryRow
-                      icon={ShoppingBag}
-                      label="Coverage"
-                      value="All items at this store"
                       isLast
                     />
                   )}
@@ -675,13 +653,18 @@ export function ActivationSheet({
                     <Check size={14} color={DISCOUNT_GREEN} strokeWidth={3} />
                   </View>
                   <View style={styles.couponAppliedTextWrap}>
-                    <Text style={styles.couponAppliedCode}>{appliedCoupon.code} applied</Text>
+                    <Text style={styles.couponAppliedCode}>Coupon Applied</Text>
                     <Text style={styles.couponAppliedSavings}>
-                      You saved {formatCardPrice(appliedCoupon.discountApplied)}
+                      {appliedCoupon.code} • {formatCardPrice(appliedCoupon.discountApplied)} off
                     </Text>
                   </View>
-                  <Pressable onPress={handleRemoveCoupon} hitSlop={10}>
-                    <X size={16} color={C.muted} strokeWidth={2.5} />
+                  <Pressable
+                    style={styles.couponChangeBtn}
+                    onPress={handleRemoveCoupon}
+                    hitSlop={10}
+                  >
+                    <Text style={styles.couponChangeText}>Change</Text>
+                    <ChevronRight size={15} color={DISCOUNT_GREEN} strokeWidth={2.4} />
                   </Pressable>
                 </View>
               ) : showCouponInput ? (
@@ -763,7 +746,12 @@ export function ActivationSheet({
                     />
 
                     <View style={styles.footerTotal}>
-                      <Text style={styles.footerTotalLabel}>TOTAL</Text>
+                      <Text style={styles.footerTotalLabel}>Total</Text>
+                      {appliedCoupon ? (
+                        <Text style={styles.footerTotalStrike} numberOfLines={1}>
+                          {formatCardPrice(card.cardPrice)}
+                        </Text>
+                      ) : null}
                       <Text style={styles.footerTotalValue}>
                         {formatCardPrice(payAmount)}
                       </Text>
@@ -792,9 +780,9 @@ export function ActivationSheet({
                     ) : (
                       <>
                         <Text style={styles.payBtnText} numberOfLines={1}>
-                          Continue
+                          Continue to Pay
                         </Text>
-                        <ChevronRight size={18} color="#FFF" strokeWidth={2.6} />
+                        <ArrowRight size={18} color="#FFF" strokeWidth={2.6} />
                       </>
                     )}
                   </Pressable>
@@ -875,7 +863,7 @@ const styles = StyleSheet.create({
   sheetHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 22,
+    paddingHorizontal: 16,
     paddingTop: 10,
     paddingBottom: 17,
     backgroundColor: C.bg,
@@ -909,7 +897,7 @@ const styles = StyleSheet.create({
 
   sheetScroll: { flex: 1 },
   sheetContent: {
-    paddingHorizontal: 22,
+    paddingHorizontal: 16,
     paddingTop: 19,
     paddingBottom: 32,
     gap: 24,
@@ -924,11 +912,11 @@ const styles = StyleSheet.create({
     ...Platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.13,
-        shadowRadius: 18,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.12,
+        shadowRadius: 10,
       },
-      android: { elevation: 5 },
+      android: { elevation: 4 },
     }),
   },
   miniCardShine: {
@@ -940,10 +928,9 @@ const styles = StyleSheet.create({
     opacity: 0.17,
   },
   miniCardStore: {
-    fontSize: 9.5,
-    fontFamily: ManropeWeights.bold,
-    textTransform: 'uppercase',
-    letterSpacing: 1.05,
+    fontSize: 13,
+    fontFamily: ManropeWeights.medium,
+    letterSpacing: -0.1,
   },
   miniCardName: {
     fontSize: 22,
@@ -958,11 +945,9 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   miniCardMetaLabel: {
-    fontSize: 9,
-    fontFamily: ManropeWeights.bold,
-    letterSpacing: 0.8,
+    fontSize: 12.5,
+    fontFamily: ManropeWeights.medium,
     marginBottom: 3,
-    textTransform: 'uppercase',
   },
   miniCardBalance: {
     fontSize: 31,
@@ -1005,9 +990,9 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   sectionIconWrap: {
-    width: 26,
-    height: 26,
-    borderRadius: 9,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: C.accentSoft,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1060,9 +1045,9 @@ const styles = StyleSheet.create({
     borderBottomColor: C.border,
   },
   summaryIconWrap: {
-    width: 30,
-    height: 30,
-    borderRadius: 10,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1112,7 +1097,7 @@ const styles = StyleSheet.create({
   couponToggleIcon: {
     width: 37,
     height: 37,
-    borderRadius: 13,
+    borderRadius: 18.5,
     backgroundColor: C.bg,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1204,6 +1189,16 @@ const styles = StyleSheet.create({
     color: C.secondary,
     marginTop: 2,
   },
+  couponChangeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 1,
+  },
+  couponChangeText: {
+    fontSize: 13,
+    fontFamily: ManropeWeights.bold,
+    color: DISCOUNT_GREEN,
+  },
 
   errorBanner: {
     backgroundColor: '#FEF0EE',
@@ -1230,7 +1225,7 @@ const styles = StyleSheet.create({
     paddingBottom: 1,
   },
   paymentFooter: {
-    marginHorizontal: 18,
+    marginHorizontal: 16,
     backgroundColor: C.surface,
     borderRadius: 18,
     borderWidth: 1,
@@ -1302,10 +1297,17 @@ const styles = StyleSheet.create({
     marginRight: 2,
   },
   footerTotalLabel: {
-    fontSize: 8,
-    fontFamily: ManropeWeights.bold,
-    letterSpacing: 1,
+    fontSize: 10.5,
+    fontFamily: ManropeWeights.medium,
     color: C.muted,
+  },
+  // Original price, struck through — shown only when a coupon discounts it.
+  footerTotalStrike: {
+    fontSize: 12,
+    fontFamily: ManropeWeights.medium,
+    color: C.muted,
+    textDecorationLine: 'line-through',
+    marginTop: 1,
   },
   footerTotalValue: {
     fontSize: 18,
@@ -1322,16 +1324,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
     backgroundColor: C.accent,
-    borderRadius: 14,
+    borderRadius: 16,
     paddingHorizontal: 14,
     ...Platform.select({
       ios: {
         shadowColor: C.accent,
         shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.24,
+        shadowOpacity: 0.22,
         shadowRadius: 10,
       },
-      android: { elevation: 5 },
+      android: { elevation: 4 },
     }),
   },
   payBtnPressed: {

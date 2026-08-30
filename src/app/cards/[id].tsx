@@ -19,9 +19,11 @@ import {
   ArrowLeft,
   Building2,
   CalendarDays,
-  CreditCard,
   Gift,
   Info,
+  Lock,
+  ShieldCheck,
+  Sparkles,
   Tag,
   Wallet,
 } from 'lucide-react-native';
@@ -42,6 +44,29 @@ function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-IN', {
     day: 'numeric', month: 'short', year: 'numeric',
   });
+}
+
+// Local color math for the hero footer band — a light/dark tint derived
+// from the card's own gradient hue, not a generic overlay. Deliberately not
+// added to the shared cardColorTheme.ts (that palette also drives My Cards /
+// Membership / Vendor Available Cards); mirrors the same helper used in
+// CardListItem.tsx for the Available Cards widget.
+function hexToRgb(hex: string): [number, number, number] {
+  const n = parseInt(hex.replace('#', ''), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+function blendRgb(hex: string, target: number, factor: number): [number, number, number] {
+  const [r, g, b] = hexToRgb(hex);
+  const mix = (v: number) => Math.round(v + (target - v) * factor);
+  return [mix(r), mix(g), mix(b)];
+}
+function towardWhite(hex: string, factor: number, alpha = 1): string {
+  const [r, g, b] = blendRgb(hex, 255, factor);
+  return alpha === 1 ? `rgb(${r}, ${g}, ${b})` : `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+function towardBlack(hex: string, factor: number, alpha = 1): string {
+  const [r, g, b] = blendRgb(hex, 0, factor);
+  return alpha === 1 ? `rgb(${r}, ${g}, ${b})` : `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
@@ -68,65 +93,88 @@ function CardHero({ card }: { card: CardDefinition }) {
   const theme = getCardColorTheme(card.name);
   const hasBonus = card.bonusAmount > 0;
 
+  const baseHue = theme.gradient[0];
+  const footerBg = towardWhite(baseHue, 0.86);
+  const footerFg = towardBlack(baseHue, 0.4);
+
   return (
-    <LinearGradient
-      colors={theme.gradient}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={styles.hero}
-    >
-      {/* Subtle warm shine — same treatment on every card representation */}
+    <View style={styles.heroOuter}>
       <LinearGradient
-        colors={CARD_SHINE}
+        colors={theme.gradient}
         start={{ x: 0, y: 0 }}
-        end={{ x: 0.6, y: 0.7 }}
-        style={StyleSheet.absoluteFill}
-        pointerEvents="none"
-      />
+        end={{ x: 1, y: 1 }}
+        style={styles.hero}
+      >
+        {/* Subtle warm shine — same treatment on every card representation */}
+        <LinearGradient
+          colors={CARD_SHINE}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0.6, y: 0.7 }}
+          style={StyleSheet.absoluteFill}
+          pointerEvents="none"
+        />
 
-      {/* Top row: brand + chip */}
-      <View style={styles.heroTopRow}>
-        <View>
-          <Text style={[styles.heroBrand, { color: theme.textMuted }]}>Strike</Text>
-          <Text style={[styles.heroName, { color: theme.textPrimary }]} numberOfLines={2}>
-            {card.name}
-          </Text>
-        </View>
-        <View style={[styles.heroChip, { backgroundColor: theme.chipBg }]}>
-          <CreditCard size={16} color={theme.textSecondary} strokeWidth={1.5} />
-        </View>
-      </View>
-
-      {/* Wallet amount — the headline number */}
-      <View style={styles.heroMid}>
-        <Text style={[styles.heroWalletLabel, { color: theme.textMuted }]}>Wallet Credit</Text>
-        <Text style={[styles.heroWalletAmount, { color: theme.textPrimary }]}>{formatCardPrice(card.walletAmount)}</Text>
-        {hasBonus ? (
-          <View style={[styles.heroBonusPill, { backgroundColor: theme.chipBg }]}>
-            <Text style={[styles.heroBonusText, { color: theme.textPrimary }]}>
-              +{formatCardPrice(card.bonusAmount)} bonus included
+        {/* Top row: brand + name + icon mark */}
+        <View style={styles.heroTopRow}>
+          <View style={styles.heroTopText}>
+            <Text style={[styles.heroBrand, { color: theme.textSecondary }]}>Strike</Text>
+            <Text style={[styles.heroName, { color: theme.textPrimary }]} numberOfLines={2}>
+              {card.name}
+            </Text>
+            <Text style={[styles.heroValueProp, { color: theme.textPrimary }]} numberOfLines={1}>
+              Get {formatCardPrice(card.walletAmount)} to spend
             </Text>
           </View>
-        ) : null}
-      </View>
-
-      {/* Bottom row: price + validity */}
-      <View style={styles.heroBottomRow}>
-        <View>
-          <Text style={[styles.heroMetaLabel, { color: theme.textMuted }]}>Price</Text>
-          <Text style={[styles.heroMetaValue, { color: theme.textSecondary }]}>{formatCardPrice(card.cardPrice)}</Text>
+          <View style={[styles.heroChip, { backgroundColor: theme.chipBg }]}>
+            <Sparkles size={20} color={theme.textPrimary} strokeWidth={2} />
+          </View>
         </View>
-        <View style={[styles.heroDot, { backgroundColor: theme.textMuted }]} />
-        <View>
-          <Text style={[styles.heroMetaLabel, { color: theme.textMuted }]}>Valid for</Text>
-          <Text style={[styles.heroMetaValue, { color: theme.textSecondary }]}>{card.validityInDays} days</Text>
-        </View>
-      </View>
 
-      {/* Decorative depth circles */}
-      <View style={[styles.heroCircle1, { backgroundColor: theme.decor1 }]} />
-      <View style={[styles.heroCircle2, { backgroundColor: theme.decor2 }]} />
-    </LinearGradient>
+        <View style={[styles.heroDivider, { backgroundColor: theme.chipBg }]} />
+
+        {/* Valid for / You Pay — balanced two-column layout, "You Pay"
+            landing at the divider rather than pinned to the far edge. Both
+            labels start at the same top position; the calendar icon sits
+            beside its VALUE ("30 days"), not beside the "Valid for" label,
+            so both columns read label-then-value in the same rhythm. */}
+        <View style={styles.heroStatsRow}>
+          <View style={styles.heroStatBlock}>
+            <Text style={[styles.heroStatLabel, { color: theme.textSecondary }]}>Valid for</Text>
+            <View style={styles.heroStatValueRow}>
+              <CalendarDays size={13} color={theme.textPrimary} strokeWidth={2.2} />
+              <Text style={[styles.heroStatValue, { color: theme.textPrimary }]}>
+                {card.validityInDays} days
+              </Text>
+            </View>
+          </View>
+          <View style={[styles.heroStatDivider, { backgroundColor: theme.chipBg }]} />
+          <View style={styles.heroStatBlockRight}>
+            <Text style={[styles.heroStatLabel, { color: theme.textSecondary }]}>You Pay</Text>
+            <Text style={[styles.heroPayValue, { color: theme.textPrimary }]}>
+              {formatCardPrice(card.cardPrice)}
+            </Text>
+          </View>
+        </View>
+
+        {/* Decorative depth circles */}
+        <View style={[styles.heroCircle1, { backgroundColor: theme.decor1 }]} />
+        <View style={[styles.heroCircle2, { backgroundColor: theme.decor2 }]} />
+      </LinearGradient>
+
+      {/* Footer — the real bonus (server-computed max(wallet - price, 0)),
+          reframed as the saving it represents. A light tint derived from
+          the card's own hue, with correspondingly dark same-hue text —
+          never white text on a light footer. Informational only — no
+          arrow/chevron, since this footer has no navigation behavior. */}
+      {hasBonus ? (
+        <View style={[styles.heroFooter, { backgroundColor: footerBg }]}>
+          <Tag size={13} color={footerFg} strokeWidth={2.2} />
+          <Text style={[styles.heroFooterText, { color: footerFg }]}>
+            Save {formatCardPrice(card.bonusAmount)}
+          </Text>
+        </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -135,8 +183,10 @@ function CardHero({ card }: { card: CardDefinition }) {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      <View style={styles.sectionCard}>{children}</View>
+      <View style={styles.sectionCard}>
+        <Text style={styles.sectionTitle}>{title}</Text>
+        {children}
+      </View>
     </View>
   );
 }
@@ -146,21 +196,37 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 interface BenefitRowProps {
   icon: React.ReactNode;
   label: string;
+  // Small supporting line under the label — real, factual context (e.g.
+  // "Use across eligible items"), never a promotional claim.
+  caption?: string;
   value: string;
   highlight?: boolean;
   isLast?: boolean;
+  // Renders `value` as a compact pill badge instead of plain right-aligned
+  // text — for the one number in a row (e.g. validity) that reads as a
+  // status/badge rather than a plain figure.
+  valuePill?: boolean;
 }
 
-function BenefitRow({ icon, label, value, highlight, isLast }: BenefitRowProps) {
+function BenefitRow({ icon, label, caption, value, highlight, isLast, valuePill }: BenefitRowProps) {
   return (
     <View style={[styles.benefitRow, !isLast && styles.benefitRowBorder]}>
       <View style={[styles.benefitIcon, highlight && styles.benefitIconHighlight]}>
         {icon}
       </View>
-      <Text style={styles.benefitLabel}>{label}</Text>
-      <Text style={[styles.benefitValue, highlight && styles.benefitValueHighlight]}>
-        {value}
-      </Text>
+      <View style={styles.benefitTextWrap}>
+        <Text style={styles.benefitLabel}>{label}</Text>
+        {caption ? <Text style={styles.benefitCaption}>{caption}</Text> : null}
+      </View>
+      {valuePill ? (
+        <View style={styles.benefitValuePill}>
+          <Text style={styles.benefitValuePillText}>{value}</Text>
+        </View>
+      ) : (
+        <Text style={[styles.benefitValue, highlight && styles.benefitValueHighlight]}>
+          {value}
+        </Text>
+      )}
     </View>
   );
 }
@@ -169,21 +235,21 @@ function BenefitRow({ icon, label, value, highlight, isLast }: BenefitRowProps) 
 
 function BenefitsSection({ card }: { card: CardDefinition }) {
   const hasBonus = card.bonusAmount > 0;
-  const savingsPct =
-    hasBonus ? Math.round((card.bonusAmount / card.cardPrice) * 100) : 0;
 
   return (
-    <Section title="Benefits">
+    <Section title="What you're getting">
       <BenefitRow
         icon={<Wallet size={16} color={C.accent} strokeWidth={2} />}
-        label="Wallet Credit"
+        label={`${formatCardPrice(card.walletAmount)} to spend`}
+        caption="Use across all items"
         value={formatCardPrice(card.walletAmount)}
         isLast={!hasBonus}
       />
       {hasBonus ? (
         <BenefitRow
           icon={<Gift size={16} color="#C9973A" strokeWidth={2} />}
-          label={`Bonus Savings (${savingsPct}% extra)`}
+          label="Bonus value"
+          caption="Extra value added"
           value={`+${formatCardPrice(card.bonusAmount)}`}
           highlight
           isLast
@@ -194,6 +260,9 @@ function BenefitsSection({ card }: { card: CardDefinition }) {
 }
 
 // ── Validity section ──────────────────────────────────────────────────────────
+// Value shown as a compact pill (matching the reference), not a plain
+// right-aligned number — a badge for the one number in this row that
+// deserves emphasis.
 
 function ValiditySection({ card }: { card: CardDefinition }) {
   return (
@@ -201,9 +270,17 @@ function ValiditySection({ card }: { card: CardDefinition }) {
       <BenefitRow
         icon={<CalendarDays size={16} color={C.accent} strokeWidth={2} />}
         label="Valid for"
-        value={`${card.validityInDays} days from purchase`}
+        caption={`${card.validityInDays} days from activation`}
+        value={`${card.validityInDays} days`}
+        valuePill
         isLast
       />
+      <View style={styles.validityFooter}>
+        <ShieldCheck size={14} color={C.muted} strokeWidth={1.8} />
+        <Text style={styles.validityFooterText}>
+          Activate your card to start using benefits
+        </Text>
+      </View>
     </Section>
   );
 }
@@ -354,8 +431,8 @@ function LoadingState({ onBack }: { onBack: () => void }) {
         <CardDetailHeroSkeleton />
         {/* Benefit skeleton rows */}
         <View style={styles.section}>
-          <View style={[styles.skBone, { width: 70, marginBottom: 12 }]} />
           <View style={styles.sectionCard}>
+            <View style={[styles.skBone, { width: 100, height: 16, margin: 16, marginBottom: 4 }]} />
             {[1, 2].map((i) => (
               <View key={i} style={[styles.benefitRow, i < 2 && styles.benefitRowBorder]}>
                 <View style={[styles.skBone, { width: 32, height: 32, borderRadius: 10 }]} />
@@ -487,7 +564,7 @@ function ActivateCTA({ onPress }: { onPress: () => void }) {
         onPressIn={onPressIn}
         onPressOut={onPressOut}
       >
-        <Text style={styles.ctaBtnText}>Activate Membership</Text>
+        <Text style={styles.ctaBtnText}>Activate Card</Text>
       </Pressable>
     </Animated.View>
   );
@@ -500,6 +577,11 @@ export default function CardDetailScreen() {
   const router  = useRouter();
   const insets  = useSafeAreaInsets();
   const [sheetVisible, setSheetVisible] = useState(false);
+  // Measured rather than guessed — the sticky bar's real content (summary
+  // row + CTA) determines how much bottom padding the scroll content needs,
+  // so the last section is never clipped behind it regardless of font
+  // scaling or device width.
+  const [stickyBarHeight, setStickyBarHeight] = useState(0);
 
   const handleBack = useCallback(() => {
     if (router.canGoBack()) router.back();
@@ -564,7 +646,6 @@ export default function CardDetailScreen() {
   }
 
   const cats = menuCategories ?? [];
-  const ctaHeight = 56 + 24 + insets.bottom;
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
@@ -612,12 +693,17 @@ export default function CardDetailScreen() {
         {/* Description / terms */}
         {card.description ? <AboutSection description={card.description} /> : null}
 
-        {/* Extra pad so content clears the sticky CTA */}
-        <View style={{ height: ctaHeight + 16 }} />
+        {/* Extra pad so content clears the sticky CTA — measured, not
+            guessed, so "About This Card" is never clipped behind it. */}
+        <View style={{ height: stickyBarHeight + 16 }} />
       </ScrollView>
 
-      {/* ── Sticky CTA — View Membership (owned) or Activate (available) ─────── */}
-      <View style={[styles.stickyBar, { paddingBottom: insets.bottom + 16 }]}>
+      {/* ── Sticky CTA — View Membership (owned) or "Ready to activate?"
+          activation card (available) ────────────────────────────────────── */}
+      <View
+        style={[styles.stickyBar, { paddingBottom: insets.bottom + 16 }]}
+        onLayout={(e) => setStickyBarHeight(e.nativeEvent.layout.height)}
+      >
         {activeSub ? (
           <ViewMembershipCTA
             onPress={() =>
@@ -625,7 +711,26 @@ export default function CardDetailScreen() {
             }
           />
         ) : (
-          <ActivateCTA onPress={() => setSheetVisible(true)} />
+          <>
+            <View style={styles.activationHeader}>
+              <View style={styles.activationIconWrap}>
+                <ShieldCheck size={22} color={C.accent} strokeWidth={2.2} />
+              </View>
+              <View style={styles.activationHeaderText}>
+                <Text style={styles.activationTitle}>Ready to activate?</Text>
+                <Text style={styles.activationSubtitle}>
+                  Your {card.validityInDays}-day validity starts after activation.
+                </Text>
+              </View>
+            </View>
+
+            <ActivateCTA onPress={() => setSheetVisible(true)} />
+
+            <View style={styles.secureRow}>
+              <Lock size={12} color={C.muted} strokeWidth={2} />
+              <Text style={styles.secureText}>Secure activation</Text>
+            </View>
+          </>
         )}
       </View>
 
@@ -647,9 +752,12 @@ export default function CardDetailScreen() {
 // ── Styles ────────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
+  // Near-white — not the app-wide C.bg gray, which read as a visibly gray
+  // page against the reference's clean, almost-white background. White
+  // section cards still separate from it via a subtle border + soft shadow.
   root: {
     flex: 1,
-    backgroundColor: C.bg,
+    backgroundColor: '#FAFAFA',
   },
 
   // Top bar
@@ -684,7 +792,6 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'center',
     fontSize: 16,
-    fontWeight: '600',
     fontFamily: ManropeWeights.semiBold,
     color: C.primary,
     letterSpacing: -0.2,
@@ -698,107 +805,116 @@ const styles = StyleSheet.create({
   scrollContent: { flexGrow: 1 },
 
   // ── Hero card ──────────────────────────────────────────────────────────────
-  hero: {
+  // Outer container owns the radius/clip/shadow so the gradient body and the
+  // (optional) footer band below read as ONE rounded card, not two stacked
+  // boxes with a visible seam.
+  heroOuter: {
     marginHorizontal: 16,
     marginTop: 20,
     borderRadius: CARD_RADIUS,
-    padding: 16,
-    minHeight: CARD_HEIGHT,
-    justifyContent: 'space-between',
     overflow: 'hidden',
     ...Platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.18,
-        shadowRadius: 14,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.12,
+        shadowRadius: 10,
       },
-      android: { elevation: 6 },
+      android: { elevation: 4 },
     }),
+  },
+  hero: {
+    padding: 18,
+    minHeight: CARD_HEIGHT,
+    justifyContent: 'space-between',
   },
   heroTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
+    gap: 12,
   },
+  heroTopText: { flex: 1, gap: 2 },
   heroBrand: {
     fontSize: 10,
-    fontWeight: '700',
     fontFamily: ManropeWeights.bold,
     letterSpacing: 1.6,
     textTransform: 'uppercase',
     marginBottom: 2,
   },
   heroName: {
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 20,
     fontFamily: ManropeWeights.bold,
     letterSpacing: -0.4,
-    maxWidth: 220,
+  },
+  heroValueProp: {
+    fontSize: 13.5,
+    fontFamily: ManropeWeights.semiBold,
+    letterSpacing: -0.1,
+    marginTop: 2,
   },
   heroChip: {
-    width: 30,
-    height: 30,
-    borderRadius: 10,
+    width: 42,
+    height: 42,
+    borderRadius: 13,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  heroMid: {
-    marginTop: 9,
+
+  heroDivider: {
+    height: 1,
+    opacity: 0.7,
+    marginVertical: 14,
   },
-  heroWalletLabel: {
-    fontSize: 9.5,
-    fontWeight: '500',
-    fontFamily: ManropeWeights.medium,
-    letterSpacing: 0.4,
-    marginBottom: 1,
-    textTransform: 'uppercase',
-  },
-  heroWalletAmount: {
-    fontSize: 26,
-    fontWeight: '700',
-    fontFamily: ManropeWeights.bold,
-    letterSpacing: -1,
-  },
-  heroBonusPill: {
-    marginTop: 5,
-    alignSelf: 'flex-start',
-    borderRadius: 20,
-    paddingHorizontal: 9,
-    paddingVertical: 3,
-  },
-  heroBonusText: {
-    fontSize: 10.5,
-    fontWeight: '600',
-    fontFamily: ManropeWeights.semiBold,
-    letterSpacing: 0.2,
-  },
-  heroBottomRow: {
+
+  // flex-start so "Valid for" / "You Pay" start at the same top position in
+  // both columns, and their values line up the same way beneath them.
+  heroStatsRow: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 20,
-    marginTop: 10,
+    alignItems: 'flex-start',
   },
-  heroDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    marginBottom: 6,
+  heroStatBlock: { flex: 1, gap: 4 },
+  heroStatBlockRight: { flex: 1, gap: 4 },
+  heroStatDivider: {
+    width: 1,
+    alignSelf: 'stretch',
+    marginHorizontal: 16,
+    opacity: 0.6,
   },
-  heroMetaLabel: {
-    fontSize: 9,
-    fontWeight: '500',
+  heroStatLabel: {
+    fontSize: 12,
     fontFamily: ManropeWeights.medium,
-    letterSpacing: 0.4,
-    marginBottom: 1,
-    textTransform: 'uppercase',
   },
-  heroMetaValue: {
-    fontSize: 13,
-    fontWeight: '700',
+  // Calendar icon sits beside the VALUE ("30 days"), not the label.
+  heroStatValueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  heroStatValue: {
+    fontSize: 15,
     fontFamily: ManropeWeights.bold,
-    letterSpacing: -0.2,
   },
+  heroPayValue: {
+    fontSize: 21,
+    fontFamily: ManropeWeights.extraBold,
+    letterSpacing: -0.4,
+  },
+
+  // Footer — sits inside heroOuter's overflow:hidden clip, so it inherits
+  // the outer card's bottom corner radius automatically.
+  heroFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 18,
+    paddingVertical: 13,
+  },
+  heroFooterText: {
+    fontSize: 13,
+    fontFamily: ManropeWeights.bold,
+  },
+
   // Decorative circles — same treatment as every other card representation
   // (My Cards, Membership, Vendor Available Cards) for one consistent
   // decorative language across the card system. Color set inline from theme.
@@ -823,30 +939,35 @@ const styles = StyleSheet.create({
 
   // ── Section ────────────────────────────────────────────────────────────────
   section: {
-    marginTop: 24,
+    marginTop: 20,
     paddingHorizontal: 16,
   },
+  // Heading lives INSIDE the white card (not floating above it on the page
+  // background) — same treatment for every section: What You're Getting,
+  // Validity, Eligible Categories, Eligible Items, Available At, About.
   sectionTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    fontFamily: ManropeWeights.semiBold,
-    color: C.muted,
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-    marginBottom: 10,
+    fontSize: 16,
+    fontFamily: ManropeWeights.bold,
+    color: C.primary,
+    letterSpacing: -0.2,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 10,
   },
   sectionCard: {
     backgroundColor: C.surface,
     borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: C.border,
     overflow: 'hidden',
     ...Platform.select({
       ios: {
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.06,
+        shadowOpacity: 0.05,
         shadowRadius: 8,
       },
-      android: { elevation: 2 },
+      android: { elevation: 1 },
     }),
   },
 
@@ -874,22 +995,57 @@ const styles = StyleSheet.create({
   benefitIconHighlight: {
     backgroundColor: CC.goldSoft,
   },
-  benefitLabel: {
+  benefitTextWrap: {
     flex: 1,
+  },
+  benefitLabel: {
     fontSize: 14,
     color: C.primary,
-    fontWeight: '500',
     fontFamily: ManropeWeights.medium,
+  },
+  benefitCaption: {
+    fontSize: 11.5,
+    color: C.muted,
+    fontFamily: ManropeWeights.regular,
+    marginTop: 2,
   },
   benefitValue: {
     fontSize: 15,
-    fontWeight: '700',
     fontFamily: ManropeWeights.bold,
     color: C.primary,
     letterSpacing: -0.3,
   },
   benefitValueHighlight: {
     color: CC.gold,
+  },
+  // Compact pill badge — for the validity row's value specifically.
+  benefitValuePill: {
+    backgroundColor: CC.accentSoft,
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  benefitValuePillText: {
+    fontSize: 12,
+    fontFamily: ManropeWeights.bold,
+    color: C.accent,
+    letterSpacing: 0.2,
+  },
+
+  // ── Validity card footer note ──────────────────────────────────────────────
+  validityFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: CC.accentSoft,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  validityFooterText: {
+    flex: 1,
+    fontSize: 12.5,
+    color: C.secondary,
+    fontFamily: ManropeWeights.regular,
   },
 
   // ── Categories grid ────────────────────────────────────────────────────────
@@ -910,7 +1066,6 @@ const styles = StyleSheet.create({
   },
   catChipText: {
     fontSize: 13,
-    fontWeight: '600',
     fontFamily: ManropeWeights.semiBold,
     color: C.accent,
   },
@@ -933,12 +1088,10 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     color: C.primary,
-    fontWeight: '500',
     fontFamily: ManropeWeights.medium,
   },
   eligItemPrice: {
     fontSize: 13,
-    fontWeight: '600',
     fontFamily: ManropeWeights.semiBold,
     color: C.secondary,
   },
@@ -986,7 +1139,6 @@ const styles = StyleSheet.create({
   },
   storeName: {
     fontSize: 15,
-    fontWeight: '600',
     fontFamily: ManropeWeights.semiBold,
     color: C.primary,
     flex: 1,
@@ -1002,7 +1154,6 @@ const styles = StyleSheet.create({
   },
   errorTitle: {
     fontSize: 17,
-    fontWeight: '700',
     fontFamily: ManropeWeights.bold,
     color: C.primary,
     marginTop: 8,
@@ -1019,12 +1170,11 @@ const styles = StyleSheet.create({
     backgroundColor: C.accent,
     paddingHorizontal: 24,
     paddingVertical: 12,
-    borderRadius: 22,
+    borderRadius: 16,
   },
   retryBtnText: {
     color: '#FFF',
     fontSize: 14,
-    fontWeight: '700',
     fontFamily: ManropeWeights.bold,
   },
 
@@ -1069,7 +1219,6 @@ const styles = StyleSheet.create({
   },
   activeBannerLabel: {
     fontSize: 11,
-    fontWeight: '700',
     fontFamily: ManropeWeights.bold,
     color: '#1A7A35',
     letterSpacing: 0.8,
@@ -1093,13 +1242,11 @@ const styles = StyleSheet.create({
   activeBannerStatLabel: {
     fontSize: 11,
     color: C.muted,
-    fontWeight: '500',
     fontFamily: ManropeWeights.medium,
     letterSpacing: 0.2,
   },
   activeBannerStatValue: {
     fontSize: 16,
-    fontWeight: '700',
     fontFamily: ManropeWeights.bold,
     color: C.primary,
     letterSpacing: -0.3,
@@ -1126,26 +1273,75 @@ const styles = StyleSheet.create({
       android: { elevation: 12 },
     }),
   },
+  // "Ready to activate?" header — small tinted icon + heading + subtitle,
+  // sits above the CTA inside the same sticky bar.
+  activationHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 16,
+  },
+  activationIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: CC.accentSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  activationHeaderText: { flex: 1, paddingTop: 2 },
+  // Same scale as sectionTitle ("What you're getting") — this heading
+  // reads as a normal section heading, not a page/hero title.
+  activationTitle: {
+    fontSize: 16,
+    fontFamily: ManropeWeights.bold,
+    color: C.primary,
+    letterSpacing: -0.2,
+  },
+  // Same scale as benefitCaption ("Extra value added") — subtle supporting
+  // text, not competing with the heading above it.
+  activationSubtitle: {
+    fontSize: 11.5,
+    fontFamily: ManropeWeights.regular,
+    color: C.muted,
+    lineHeight: 16,
+    marginTop: 3,
+  },
+  secureRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 12,
+  },
+  secureText: {
+    fontSize: 12.5,
+    fontFamily: ManropeWeights.medium,
+    color: C.muted,
+  },
+
   ctaContainer: { width: '100%' },
   ctaBtn: {
+    flexDirection: 'row',
     backgroundColor: C.accent,
     borderRadius: 16,
-    paddingVertical: 17,
+    paddingVertical: 15,
+    paddingHorizontal: 22,
     alignItems: 'center',
+    justifyContent: 'center',
     ...Platform.select({
       ios: {
         shadowColor: C.accent,
         shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.40,
-        shadowRadius: 12,
+        shadowOpacity: 0.22,
+        shadowRadius: 10,
       },
-      android: { elevation: 6 },
+      android: { elevation: 4 },
     }),
   },
   ctaBtnText: {
     color: '#FFF',
     fontSize: 16,
-    fontWeight: '700',
     fontFamily: ManropeWeights.bold,
     letterSpacing: -0.2,
   },
@@ -1155,14 +1351,13 @@ const styles = StyleSheet.create({
     paddingVertical: 17,
     alignItems: 'center',
     ...Platform.select({
-      ios: { shadowColor: '#34C759', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 12 },
-      android: { elevation: 6 },
+      ios: { shadowColor: '#34C759', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.20, shadowRadius: 10 },
+      android: { elevation: 4 },
     }),
   },
   viewMembershipBtnText: {
     color: '#FFF',
     fontSize: 16,
-    fontWeight: '700',
     fontFamily: ManropeWeights.bold,
     letterSpacing: -0.2,
   },

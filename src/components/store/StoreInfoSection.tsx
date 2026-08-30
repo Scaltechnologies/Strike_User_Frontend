@@ -199,13 +199,13 @@ const styles = StyleSheet.create({
     }),
   },
   section: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingVertical: 16,
   },
   divider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: C.border,
-    marginHorizontal: 20,
+    marginHorizontal: 16,
   },
 
   // Timings
@@ -234,7 +234,6 @@ const styles = StyleSheet.create({
   },
   todayLabel: {
     fontSize: 14.5,
-    fontWeight: '700',
     fontFamily: ManropeWeights.bold,
     color: C.primary,
     letterSpacing: -0.1,
@@ -261,7 +260,6 @@ const styles = StyleSheet.create({
   },
   statusPillText: {
     fontSize: 12.5,
-    fontWeight: '700',
     fontFamily: ManropeWeights.bold,
     letterSpacing: -0.1,
   },
