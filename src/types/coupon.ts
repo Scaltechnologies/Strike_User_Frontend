@@ -14,3 +14,16 @@ export interface ValidateCouponResponse {
   originalAmount: number;
   finalAmount: number;
 }
+
+// GET /api/subscriptions/coupons/available — browsable coupons for a card, mirrors
+// card-service's AvailableCouponResponse (proxied from admin-service).
+export interface AvailableCoupon {
+  code: string;
+  title: string;
+  description: string | null;
+  discountType: DiscountType;
+  discountValue: number;
+  maxDiscountAmount: number | null;
+  minPurchaseAmount: number | null;
+  validUntil: string;
+}
