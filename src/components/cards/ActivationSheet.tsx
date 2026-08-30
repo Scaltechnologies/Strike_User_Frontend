@@ -2,11 +2,11 @@ import { subscriptionApi } from '@/api/subscription.api';
 import { PayAtStoreInfoCard } from '@/components/payment/PayAtStoreInfoCard';
 import { FadeInView } from '@/components/ui/FadeInView';
 import { ManropeWeights } from '@/constants/theme';
-import { useValidateCoupon } from '@/hooks/useCoupons';
+import { useAvailableCoupons, useValidateCoupon } from '@/hooks/useCoupons';
 import { useCancelPayment, useCreatePayment, useVerifyPayment } from '@/hooks/usePayments';
 import { usePayAtStoreSessionStore } from '@/store/payAtStoreSessionStore';
 import type { CardDefinition } from '@/types/card';
-import type { ValidateCouponResponse } from '@/types/coupon';
+import type { AvailableCoupon, ValidateCouponResponse } from '@/types/coupon';
 import type { PaymentResponse, RazorpayCheckoutResult } from '@/types/payment';
 import type { MenuCategory } from '@/types/store';
 import type { Subscription } from '@/types/subscription';
@@ -32,6 +32,7 @@ import { useEffect, useRef, useState, type ComponentType } from 'react';
 import {
   ActivityIndicator,
   Animated,
+  Easing,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -83,6 +84,14 @@ function extractCouponError(err: unknown): string {
     return message || 'This coupon code is invalid or has expired.';
   }
   return "Couldn't validate this coupon right now. Please try again.";
+}
+
+function formatCouponDiscount(coupon: AvailableCoupon): string {
+  if (coupon.discountType === 'PERCENTAGE') {
+    const cap = coupon.maxDiscountAmount ? ` up to ${formatCardPrice(coupon.maxDiscountAmount)}` : '';
+    return `${coupon.discountValue}% OFF${cap}`;
+  }
+  return `${formatCardPrice(coupon.discountValue)} OFF`;
 }
 
 // ── Summary row ───────────────────────────────────────────────────────────────
@@ -230,6 +239,7 @@ export function ActivationSheet({
   const { mutateAsync: verifyPayment } = useVerifyPayment();
   const { mutateAsync: cancelPayment } = useCancelPayment();
   const { mutateAsync: validateCoupon, isPending: validatingCoupon } = useValidateCoupon();
+  const { data: availableCoupons, isLoading: loadingAvailableCoupons } = useAvailableCoupons(card.id);
   const busy = creatingPayment || finalizing;
   const router = useRouter();
   const addPayAtStoreSession = usePayAtStoreSessionStore((s) => s.addSession);
@@ -286,6 +296,43 @@ export function ActivationSheet({
     outputRange: [-240, 240],
   });
 
+  // Coupon ticket header: a slow pulse ring behind the icon draws the eye to it
+  // (stops once a coupon is applied — nothing left to attract attention to), and
+  // the chevron rotates with the expand/collapse of the picker below it.
+  const couponPulseAnim = useRef(new Animated.Value(0)).current;
+  const couponChevronAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (!visible || appliedCoupon) return;
+    couponPulseAnim.setValue(0);
+    const loop = Animated.loop(
+      Animated.timing(couponPulseAnim, {
+        toValue: 1,
+        duration: 1800,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: true,
+      }),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [visible, appliedCoupon, couponPulseAnim]);
+
+  useEffect(() => {
+    Animated.spring(couponChevronAnim, {
+      toValue: showCouponInput ? 1 : 0,
+      useNativeDriver: true,
+      speed: 16,
+      bounciness: 6,
+    }).start();
+  }, [showCouponInput, couponChevronAnim]);
+
+  const couponPulseScale = couponPulseAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.9] });
+  const couponPulseOpacity = couponPulseAnim.interpolate({ inputRange: [0, 0.4, 1], outputRange: [0.35, 0.14, 0] });
+  const couponChevronRotate = couponChevronAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '90deg'],
+  });
+
   const hasBonus = card.bonusAmount > 0;
   const cardTheme = getCardColorTheme(card.name);
   const eligibleCategories = menuCategories.filter((cat) =>
@@ -294,9 +341,10 @@ export function ActivationSheet({
   const itemCount = card.eligibleMenuItemIds?.length ?? 0;
   const payAmount = appliedCoupon ? appliedCoupon.finalAmount : card.cardPrice;
 
-  async function handleApplyCoupon() {
-    const code = couponCode.trim().toUpperCase();
+  async function handleApplyCoupon(explicitCode?: string) {
+    const code = (explicitCode ?? couponCode).trim().toUpperCase();
     if (!code) return;
+    setCouponCode(code);
     setCouponError(null);
     try {
       const result = await validateCoupon({ code, cardDefinitionId: card.id });
@@ -588,8 +636,168 @@ export function ActivationSheet({
               </LinearGradient>
             </FadeInView>
 
+            {/* Coupon — placed right under the card preview, first thing the user sees,
+                since it was previously buried below the benefits list and easy to miss. */}
+            <FadeInView translateYFrom={12} delay={60}>
+              {appliedCoupon ? (
+                <View style={styles.couponApplied}>
+                  <View style={styles.couponAppliedIcon}>
+                    <Check size={14} color={DISCOUNT_GREEN} strokeWidth={3} />
+                  </View>
+                  <View style={styles.couponAppliedTextWrap}>
+                    <Text style={styles.couponAppliedCode}>{appliedCoupon.code} applied</Text>
+                    <Text style={styles.couponAppliedSavings}>
+                      You saved {formatCardPrice(appliedCoupon.discountApplied)}
+                    </Text>
+                  </View>
+                  <Pressable onPress={handleRemoveCoupon} hitSlop={10}>
+                    <X size={16} color={C.muted} strokeWidth={2.5} />
+                  </Pressable>
+                </View>
+              ) : (
+                <View style={styles.couponTicket}>
+                  <Pressable
+                    style={({ pressed }) => [styles.couponTicketHeader, pressed && { opacity: 0.92 }]}
+                    onPress={() => {
+                      const next = !showCouponInput;
+                      setShowCouponInput(next);
+                      if (next) {
+                        setTimeout(() => scrollRef.current?.scrollTo({ y: 90, animated: true }), 150);
+                      }
+                    }}
+                  >
+                    <LinearGradient
+                      colors={[CC.accentSoft, CC.goldSoft]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={StyleSheet.absoluteFill}
+                    />
+                    <View style={styles.couponIconWrap}>
+                      <Animated.View
+                        pointerEvents="none"
+                        style={[
+                          styles.couponIconPulse,
+                          { opacity: couponPulseOpacity, transform: [{ scale: couponPulseScale }] },
+                        ]}
+                      />
+                      <Tag size={16} color={C.accent} strokeWidth={2.3} />
+                    </View>
+                    <View style={styles.couponHeaderTextWrap}>
+                      <Text style={styles.couponHeaderTitle}>Have a coupon code?</Text>
+                      <Text style={styles.couponHeaderSubtitle}>
+                        {loadingAvailableCoupons
+                          ? 'Checking for offers…'
+                          : availableCoupons && availableCoupons.length > 0
+                            ? `${availableCoupons.length} offer${availableCoupons.length > 1 ? 's' : ''} available — tap to view`
+                            : 'Tap to enter your code'}
+                      </Text>
+                    </View>
+                    {!loadingAvailableCoupons && availableCoupons && availableCoupons.length > 0 && (
+                      <View style={styles.couponCountBadge}>
+                        <Sparkles size={10} color={CC.gold} strokeWidth={2.4} />
+                        <Text style={styles.couponCountBadgeText}>{availableCoupons.length}</Text>
+                      </View>
+                    )}
+                    <Animated.View style={{ transform: [{ rotate: couponChevronRotate }] }}>
+                      <ChevronRight size={16} color={C.secondary} strokeWidth={2.4} />
+                    </Animated.View>
+                  </Pressable>
+
+                  {showCouponInput && (
+                    <FadeInView translateYFrom={6} style={styles.couponTicketBody}>
+                      <View style={styles.couponBodyNotchLeft} />
+                      <View style={styles.couponBodyNotchRight} />
+
+                      <View style={styles.couponInputRow}>
+                        <TextInput
+                          style={styles.couponInput}
+                          value={couponCode}
+                          onChangeText={(t) => {
+                            setCouponCode(t);
+                            if (couponError) setCouponError(null);
+                          }}
+                          onFocus={() => {
+                            setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+                          }}
+                          placeholder="Enter coupon code"
+                          placeholderTextColor={C.muted}
+                          autoCapitalize="characters"
+                          autoCorrect={false}
+                          editable={!validatingCoupon}
+                          returnKeyType="done"
+                          onSubmitEditing={() => void handleApplyCoupon()}
+                        />
+                        <Pressable
+                          style={[styles.couponApplyBtn, (!couponCode.trim() || validatingCoupon) && styles.couponApplyBtnDisabled]}
+                          onPress={() => void handleApplyCoupon()}
+                          disabled={!couponCode.trim() || validatingCoupon}
+                        >
+                          {validatingCoupon ? (
+                            <ActivityIndicator color="#FFF" size="small" />
+                          ) : (
+                            <Text style={styles.couponApplyBtnText}>Apply</Text>
+                          )}
+                        </Pressable>
+                      </View>
+                      {couponError ? <Text style={styles.couponErrorText}>{couponError}</Text> : null}
+
+                      {loadingAvailableCoupons ? (
+                        <View style={styles.couponAvailableLoading}>
+                          <ActivityIndicator color={C.muted} size="small" />
+                          <Text style={styles.couponAvailableLoadingText}>Loading available coupons…</Text>
+                        </View>
+                      ) : availableCoupons && availableCoupons.length > 0 ? (
+                        <>
+                          <View style={styles.couponDividerRow}>
+                            <View style={styles.couponDividerLine} />
+                            <Text style={styles.couponDividerText}>AVAILABLE COUPONS</Text>
+                            <View style={styles.couponDividerLine} />
+                          </View>
+                          <View style={styles.couponOptionList}>
+                            {availableCoupons.map((coupon) => (
+                              <Pressable
+                                key={coupon.code}
+                                style={({ pressed }) => [
+                                  styles.couponOptionCard,
+                                  pressed && styles.couponOptionCardPressed,
+                                ]}
+                                onPress={() => void handleApplyCoupon(coupon.code)}
+                                disabled={validatingCoupon}
+                              >
+                                <View style={styles.couponOptionLeft}>
+                                  <Text style={styles.couponOptionCode} numberOfLines={1}>
+                                    {coupon.code}
+                                  </Text>
+                                  <Text style={styles.couponOptionTitle} numberOfLines={1}>
+                                    {coupon.title}
+                                  </Text>
+                                  {coupon.minPurchaseAmount ? (
+                                    <Text style={styles.couponOptionMeta}>
+                                      Min. order {formatCardPrice(coupon.minPurchaseAmount)}
+                                    </Text>
+                                  ) : null}
+                                </View>
+                                <View style={styles.couponOptionRight}>
+                                  <View style={styles.couponOptionDiscountPill}>
+                                    <Text style={styles.couponOptionDiscountText}>
+                                      {formatCouponDiscount(coupon)}
+                                    </Text>
+                                  </View>
+                                  <Text style={styles.couponOptionApplyHint}>Tap to apply</Text>
+                                </View>
+                              </Pressable>
+                            ))}
+                          </View>
+                        </>
+                      ) : null}
+                    </FadeInView>
+                  )}
+                </View>
+              )}
+            </FadeInView>
+
             {/* Membership details */}
-            <FadeInView translateYFrom={12} delay={70}>
+            <FadeInView translateYFrom={12} delay={130}>
               <View style={styles.sectionBlock}>
                 <View style={styles.sectionHeading}>
                   <View style={styles.sectionHeadingRow}>
@@ -665,78 +873,6 @@ export function ActivationSheet({
                   )}
                 </View>
               </View>
-            </FadeInView>
-
-            {/* Coupon */}
-            <FadeInView translateYFrom={12} delay={130}>
-              {appliedCoupon ? (
-                <View style={styles.couponApplied}>
-                  <View style={styles.couponAppliedIcon}>
-                    <Check size={14} color={DISCOUNT_GREEN} strokeWidth={3} />
-                  </View>
-                  <View style={styles.couponAppliedTextWrap}>
-                    <Text style={styles.couponAppliedCode}>{appliedCoupon.code} applied</Text>
-                    <Text style={styles.couponAppliedSavings}>
-                      You saved {formatCardPrice(appliedCoupon.discountApplied)}
-                    </Text>
-                  </View>
-                  <Pressable onPress={handleRemoveCoupon} hitSlop={10}>
-                    <X size={16} color={C.muted} strokeWidth={2.5} />
-                  </Pressable>
-                </View>
-              ) : showCouponInput ? (
-                <View style={styles.couponInputCard}>
-                  <View style={styles.couponInputRow}>
-                    <TextInput
-                      style={styles.couponInput}
-                      value={couponCode}
-                      onChangeText={(t) => {
-                        setCouponCode(t);
-                        if (couponError) setCouponError(null);
-                      }}
-                      onFocus={() => {
-                        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
-                      }}
-                      placeholder="Enter coupon code"
-                      placeholderTextColor={C.muted}
-                      autoCapitalize="characters"
-                      autoCorrect={false}
-                      editable={!validatingCoupon}
-                      returnKeyType="done"
-                      onSubmitEditing={() => void handleApplyCoupon()}
-                    />
-                    <Pressable
-                      style={[styles.couponApplyBtn, (!couponCode.trim() || validatingCoupon) && styles.couponApplyBtnDisabled]}
-                      onPress={() => void handleApplyCoupon()}
-                      disabled={!couponCode.trim() || validatingCoupon}
-                    >
-                      {validatingCoupon ? (
-                        <ActivityIndicator color="#FFF" size="small" />
-                      ) : (
-                        <Text style={styles.couponApplyBtnText}>Apply</Text>
-                      )}
-                    </Pressable>
-                  </View>
-                  {couponError ? <Text style={styles.couponErrorText}>{couponError}</Text> : null}
-                </View>
-              ) : (
-                <Pressable
-                  style={({ pressed }) => [styles.couponToggle, pressed && styles.couponTogglePressed]}
-                  onPress={() => {
-                    setShowCouponInput(true);
-                    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 150);
-                  }}
-                >
-                  <View style={styles.couponToggleIcon}>
-                    <Tag size={14} color={C.accent} strokeWidth={2.2} />
-                  </View>
-                  <View style={styles.couponToggleTextWrap}>
-                    <Text style={styles.couponToggleText}>Have a coupon code?</Text>
-                    <Text style={styles.couponToggleSubtext}>Apply it before payment</Text>
-                  </View>
-                  <ChevronRight size={15} color={C.muted} strokeWidth={2.2} />
-                </Pressable>
-              )}
             </FadeInView>
 
             {/* Error */}
@@ -1097,45 +1233,189 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
 
-  couponToggle: {
-    minHeight: 60,
+  // ── Coupon ticket ─────────────────────────────────────────────────────────
+  couponTicket: {
+    borderRadius: 20,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(214,53,39,0.16)',
+    backgroundColor: C.surface,
+    ...Platform.select({
+      ios: {
+        shadowColor: CC.accent,
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.1,
+        shadowRadius: 16,
+      },
+      android: { elevation: 3 },
+    }),
+  },
+  couponTicketHeader: {
+    minHeight: 66,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    backgroundColor: C.surface,
-    borderRadius: 17,
     paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: C.border,
   },
-  couponTogglePressed: { opacity: 0.75 },
-  couponToggleIcon: {
-    width: 37,
-    height: 37,
-    borderRadius: 13,
-    backgroundColor: C.bg,
+  couponIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#FFF',
     alignItems: 'center',
     justifyContent: 'center',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 5,
+      },
+      android: { elevation: 2 },
+    }),
   },
-  couponToggleTextWrap: { flex: 1 },
-  couponToggleText: {
-    fontSize: 13.5,
+  couponIconPulse: {
+    position: 'absolute',
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: CC.accent,
+  },
+  couponHeaderTextWrap: { flex: 1 },
+  couponHeaderTitle: {
+    fontSize: 14,
     fontFamily: ManropeWeights.bold,
     color: C.primary,
+    letterSpacing: -0.15,
   },
-  couponToggleSubtext: {
-    fontSize: 10.5,
+  couponHeaderSubtitle: {
+    fontSize: 11,
     fontFamily: ManropeWeights.medium,
-    color: C.muted,
+    color: C.secondary,
     marginTop: 2,
   },
-  couponInputCard: {
-    backgroundColor: C.surface,
-    borderRadius: 17,
-    padding: 13,
-    gap: 9,
+  couponCountBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#FFF',
+    borderRadius: 20,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: CC.goldSoft,
+  },
+  couponCountBadgeText: {
+    fontSize: 11,
+    fontFamily: ManropeWeights.bold,
+    color: CC.gold,
+  },
+  couponTicketBody: {
+    backgroundColor: C.surface,
+    paddingHorizontal: 14,
+    paddingTop: 18,
+    paddingBottom: 14,
+    gap: 10,
+    borderTopWidth: 1.5,
+    borderStyle: 'dashed',
+    borderTopColor: C.border,
+  },
+  couponBodyNotchLeft: {
+    position: 'absolute',
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: C.bg,
+    top: -8,
+    left: -8,
+  },
+  couponBodyNotchRight: {
+    position: 'absolute',
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: C.bg,
+    top: -8,
+    right: -8,
+  },
+  couponDividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
+  couponDividerLine: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: C.border,
+  },
+  couponDividerText: {
+    fontSize: 9.5,
+    fontFamily: ManropeWeights.bold,
+    color: C.muted,
+    letterSpacing: 0.8,
+  },
+  couponAvailableLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 6,
+  },
+  couponAvailableLoadingText: {
+    fontSize: 11.5,
+    fontFamily: ManropeWeights.medium,
+    color: C.muted,
+  },
+  couponOptionList: { gap: 8 },
+  couponOptionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    backgroundColor: CC.accentSoft,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: 'rgba(214,53,39,0.28)',
+  },
+  couponOptionCardPressed: { opacity: 0.75 },
+  couponOptionLeft: { flex: 1 },
+  couponOptionCode: {
+    fontSize: 13,
+    fontFamily: ManropeWeights.bold,
+    color: C.primary,
+    letterSpacing: 0.4,
+  },
+  couponOptionTitle: {
+    fontSize: 11,
+    fontFamily: ManropeWeights.medium,
+    color: C.secondary,
+    marginTop: 1,
+  },
+  couponOptionMeta: {
+    fontSize: 10,
+    fontFamily: ManropeWeights.medium,
+    color: C.muted,
+    marginTop: 3,
+  },
+  couponOptionRight: { alignItems: 'flex-end' },
+  couponOptionDiscountPill: {
+    backgroundColor: CC.accent,
+    borderRadius: 20,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+  },
+  couponOptionDiscountText: {
+    fontSize: 10.5,
+    fontFamily: ManropeWeights.bold,
+    color: '#FFF',
+  },
+  couponOptionApplyHint: {
+    fontSize: 9.5,
+    fontFamily: ManropeWeights.semiBold,
+    color: C.muted,
+    marginTop: 4,
   },
   couponInputRow: {
     flexDirection: 'row',

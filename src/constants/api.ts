@@ -113,6 +113,7 @@ export const API_ENDPOINTS = {
 
   COUPONS: {
     VALIDATE: `${P}/subscriptions/coupons/validate`,
+    AVAILABLE: `${P}/subscriptions/coupons/available`,
   },
 
   // CONFIRMED against admin-service source (Strike_Backend repo): this exact
