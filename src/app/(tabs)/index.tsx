@@ -28,8 +28,6 @@ import {
   ActivityIndicator,
   Animated,
   Easing,
-  Keyboard,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -51,6 +49,7 @@ import { CategoriesRow } from '@/components/home/CategoriesRow';
 import { PurchasedCardsCarousel } from '@/components/home/PurchasedCardsCarousel';
 import { PressableScale } from '@/components/ui/PressableScale';
 import { FadeInView } from '@/components/ui/FadeInView';
+import { KeyboardAvoidingScreen } from '@/components/ui/KeyboardAvoidingScreen';
 import { useLocation } from '@/hooks/useLocation';
 import { useUnreadNotificationCount } from '@/hooks/useNotificationInbox';
 import {
@@ -436,6 +435,15 @@ function StoreCard({ store, index = 0, lowestPrice }: { store: Store; index?: nu
   const [imgFailed, setImgFailed] = useState(false);
   const thumbSource = useMediaSource(store.logoUrl);
   const showPhoto = !!thumbSource && !imgFailed;
+
+  // A failed-load flag has to be scoped to WHICH image it's about — without
+  // this, a card that once failed to load (e.g. a transient network blip)
+  // stays permanently blank even after `store.logoUrl` changes to a URL that
+  // would load fine (a vendor updating their photo, or this same card
+  // re-appearing under a different category/sort filter with fresh data).
+  useEffect(() => {
+    setImgFailed(false);
+  }, [thumbSource?.uri]);
 
   // Vendor-defined menu categories (e.g. "Mains", "Beverages") — falls back
   // to the store's single business category if the vendor hasn't set up a
@@ -1031,7 +1039,6 @@ function ActiveLocationSheet({
   const [searchQuery, setSearchQuery] = useState('');
   const [geoResults, setGeoResults] = useState<GeoResult[]>([]);
   const [searchPhase, setSearchPhase] = useState<SearchPhase>('idle');
-  const [kbHeight, setKbHeight] = useState(0);
 
   const sheetTranslateY = useRef(new Animated.Value(600)).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
@@ -1075,16 +1082,8 @@ function ActiveLocationSheet({
         setSearchQuery('');
         setGeoResults([]);
         setSearchPhase('idle');
-        setKbHeight(0);
       });
     }
-  }, [visible]);
-
-  useEffect(() => {
-    if (!visible || Platform.OS !== 'android') return;
-    const show = Keyboard.addListener('keyboardDidShow', (e) => setKbHeight(e.endCoordinates.height));
-    const hide = Keyboard.addListener('keyboardDidHide', () => setKbHeight(0));
-    return () => { show.remove(); hide.remove(); };
   }, [visible]);
 
   const handleOpenSearch = useCallback(() => {
@@ -1321,13 +1320,7 @@ function ActiveLocationSheet({
       onRequestClose={onClose}
       statusBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={[
-          styles.sheetKAV,
-          Platform.OS === 'android' && kbHeight > 0 && { paddingBottom: kbHeight },
-        ]}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      <KeyboardAvoidingScreen style={styles.sheetKAV}>
         {/* Animated backdrop */}
         <Animated.View
           style={[styles.sheetBackdrop, { opacity: backdropOpacity }]}
@@ -1343,7 +1336,7 @@ function ActiveLocationSheet({
           <View style={styles.sheetHandle} />
           {view === 'options' ? renderOptions() : renderSearch()}
         </Animated.View>
-      </KeyboardAvoidingView>
+      </KeyboardAvoidingScreen>
     </Modal>
   );
 }

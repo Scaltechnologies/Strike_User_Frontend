@@ -1,6 +1,7 @@
 import { subscriptionApi } from '@/api/subscription.api';
 import { PayAtStoreInfoCard } from '@/components/payment/PayAtStoreInfoCard';
 import { FadeInView } from '@/components/ui/FadeInView';
+import { KeyboardAvoidingScreen } from '@/components/ui/KeyboardAvoidingScreen';
 import { ManropeWeights } from '@/constants/theme';
 import { useAvailableCoupons, useValidateCoupon } from '@/hooks/useCoupons';
 import { useCancelPayment, useCreatePayment, useVerifyPayment } from '@/hooks/usePayments';
@@ -33,7 +34,6 @@ import {
   ActivityIndicator,
   Animated,
   Easing,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -543,10 +543,7 @@ export function ActivationSheet({
       statusBarTranslucent
       onRequestClose={!busy ? onClose : undefined}
     >
-      <KeyboardAvoidingView
-        style={styles.overlay}
-        behavior="padding"
-      >
+      <KeyboardAvoidingScreen style={styles.overlay}>
         <Pressable
           style={StyleSheet.absoluteFill}
           onPress={!busy ? onClose : undefined}
@@ -939,7 +936,7 @@ export function ActivationSheet({
             </SafeAreaView>
           )}
         </Animated.View>
-      </KeyboardAvoidingView>
+      </KeyboardAvoidingScreen>
     </Modal>
 
     {payment && (
