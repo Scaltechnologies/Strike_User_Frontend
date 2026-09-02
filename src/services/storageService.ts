@@ -2,10 +2,17 @@ import * as SecureStore from 'expo-secure-store';
 
 import { STORAGE_KEYS } from '@/constants/storage';
 
+// 'gps' — the active-tracking device location (watchPositionAsync).
+// 'manual' — the user explicitly chose this via Set Location (search or
+// history); GPS tracking is paused while a manual location is active so it
+// can't silently overwrite the user's deliberate choice. See useLocation.ts.
+export type LocationSource = 'gps' | 'manual';
+
 export interface StoredLocation {
   latitude: number;
   longitude: number;
   updatedAt: string;
+  source: LocationSource;
 }
 
 export interface RecentLocation {
@@ -83,23 +90,28 @@ export const storageService = {
 
   // --- Location coords ---
   async getLocation(): Promise<StoredLocation | null> {
-    const [lat, lng, updatedAt] = await Promise.all([
+    const [lat, lng, updatedAt, source] = await Promise.all([
       SecureStore.getItemAsync(STORAGE_KEYS.LOCATION_LAT),
       SecureStore.getItemAsync(STORAGE_KEYS.LOCATION_LNG),
       SecureStore.getItemAsync(STORAGE_KEYS.LOCATION_UPDATED_AT),
+      SecureStore.getItemAsync(STORAGE_KEYS.LOCATION_SOURCE),
     ]);
     if (!lat || !lng) return null;
     return {
       latitude: Number(lat),
       longitude: Number(lng),
       updatedAt: updatedAt ?? new Date().toISOString(),
+      // Installs from before LOCATION_SOURCE existed have no stored value —
+      // 'gps' matches their only-ever-possible source at the time.
+      source: source === 'manual' ? 'manual' : 'gps',
     };
   },
-  async setLocation(latitude: number, longitude: number, updatedAt: string): Promise<void> {
+  async setLocation(latitude: number, longitude: number, updatedAt: string, source: LocationSource): Promise<void> {
     await Promise.all([
       SecureStore.setItemAsync(STORAGE_KEYS.LOCATION_LAT, String(latitude)),
       SecureStore.setItemAsync(STORAGE_KEYS.LOCATION_LNG, String(longitude)),
       SecureStore.setItemAsync(STORAGE_KEYS.LOCATION_UPDATED_AT, updatedAt),
+      SecureStore.setItemAsync(STORAGE_KEYS.LOCATION_SOURCE, source),
     ]);
   },
   async clearLocation(): Promise<void> {
@@ -107,6 +119,7 @@ export const storageService = {
       SecureStore.deleteItemAsync(STORAGE_KEYS.LOCATION_LAT),
       SecureStore.deleteItemAsync(STORAGE_KEYS.LOCATION_LNG),
       SecureStore.deleteItemAsync(STORAGE_KEYS.LOCATION_UPDATED_AT),
+      SecureStore.deleteItemAsync(STORAGE_KEYS.LOCATION_SOURCE),
     ]);
   },
 

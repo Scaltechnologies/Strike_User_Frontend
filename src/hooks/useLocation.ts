@@ -12,8 +12,10 @@ import { storeKeys } from './useStores';
 // Below this, a GPS update is noise (device jitter, indoor drift) — not a real
 // move worth re-syncing the backend and refetching nearby stores for.
 const MOVEMENT_THRESHOLD_KM = 0.5;
-// How long a cached/last-known location is trusted before a foreground resume
-// triggers a fresh GPS read instead of reusing it as-is.
+// How long a cached/last-known GPS location is trusted before a foreground
+// resume triggers a fresh GPS read instead of reusing it as-is. Only applies
+// to locationSource 'gps' — a manually-chosen location never goes stale this
+// way (see applyLocation).
 const STALE_THRESHOLD_MS = 20 * 60 * 1000;
 // OS-level throttle passed to watchPositionAsync — coarser than our own
 // MOVEMENT_THRESHOLD_KM check, just to cut down how often the callback fires
@@ -35,11 +37,13 @@ export function useLocation() {
     locationStatus,
     coords,
     locationUpdatedAt,
+    locationSource,
     setLocationPermission,
     setLocationStatus,
     setCoords,
     setLocationName,
     setLocationSynced,
+    setLocationSource,
   } = useAppStore();
 
   const queryClient = useQueryClient();
@@ -47,6 +51,8 @@ export function useLocation() {
   // Shared tail end of "we have new coordinates worth acting on" — persists,
   // updates state, PATCHes the backend, and refreshes nearby stores. Used both
   // by the one-shot detect flow and by the watcher once it sees a >=500m move.
+  // Always marks locationSource 'gps' — this is the GPS pipeline; the manual
+  // (Set Location) pipeline is applyLocation below.
   //
   // A monotonically increasing generation guards the PATCH: if a newer call
   // starts (a manual refresh, a fresh watcher move) before an older one's
@@ -57,9 +63,10 @@ export function useLocation() {
     const updatedAt = new Date().toISOString();
     lastKnownCoords = { latitude, longitude };
 
-    void storageService.setLocation(latitude, longitude, updatedAt);
+    void storageService.setLocation(latitude, longitude, updatedAt, 'gps');
     setCoords({ latitude, longitude }, updatedAt);
     setLocationStatus('ready');
+    setLocationSource('gps');
 
     // PATCH backend — the failure path must not roll back the GPS-ready state
     // already shown to the user (GPS worked; the backend is just unreachable).
@@ -98,7 +105,7 @@ export function useLocation() {
     } catch {
       // Non-fatal — locality name is cosmetic only
     }
-  }, [queryClient, setCoords, setLocationName, setLocationStatus, setLocationSynced]);
+  }, [queryClient, setCoords, setLocationName, setLocationStatus, setLocationSynced, setLocationSource]);
 
   // Step 2 of the flow: GPS is already permitted — get a fresh one-shot fix,
   // persist, mark ready, then sync the backend + reverse-geocode via applyCoords.
@@ -151,76 +158,15 @@ export function useLocation() {
     }
   }, [detectAndSave, setLocationPermission, setLocationStatus]);
 
-  // Called once on home screen mount. Restores stored coords and locality name
-  // so the header and nearby section load immediately without triggering GPS.
-  // If that cache is older than STALE_THRESHOLD_MS, a fresh GPS read is kicked
-  // off in the background (UI already has the cached fix to show meanwhile).
-  const initLocation = useCallback(async () => {
-    const stored = await storageService.getLocation();
-    if (stored) {
-      lastKnownCoords = { latitude: stored.latitude, longitude: stored.longitude };
-      setCoords({ latitude: stored.latitude, longitude: stored.longitude }, stored.updatedAt);
-      setLocationStatus('ready');
-      // A cached location implies a prior session already PATCHed it to the
-      // backend — safe to let nearby-stores fetch immediately.
-      setLocationSynced(true);
-      const name = await storageService.getLocationName();
-      setLocationName(name);
-
-      // A cached location implies permission was granted in a prior session —
-      // confirm that's still true (read-only check, never a re-prompt) so the
-      // realtime watcher below is correctly gated for the rest of this session.
-      const { status } = await ExpoLocation.getForegroundPermissionsAsync();
-      if (status === ExpoLocation.PermissionStatus.GRANTED) {
-        setLocationPermission('granted');
-        const isStale = Date.now() - new Date(stored.updatedAt).getTime() > STALE_THRESHOLD_MS;
-        if (isStale) void detectAndSave();
-      }
-      return;
-    }
-    await requestPermissionAndLocate();
-  }, [detectAndSave, requestPermissionAndLocate, setCoords, setLocationName, setLocationPermission, setLocationStatus, setLocationSynced]);
-
-  // Optimistically apply a location from history/area-search — updates UI
-  // instantly, then PATCHes the backend and invalidates nearby cache.
-  const applyLocation = useCallback(
-    async (latitude: number, longitude: number, name: string) => {
-      const gen = ++syncGeneration;
-      const updatedAt = new Date().toISOString();
-      lastKnownCoords = { latitude, longitude };
-      setCoords({ latitude, longitude }, updatedAt);
-      setLocationName(name);
-      void storageService.setLocation(latitude, longitude, updatedAt);
-      void storageService.setLocationName(name);
-      try {
-        await userApi.updateLocation(latitude, longitude);
-        if (gen !== syncGeneration) return;
-        void queryClient.invalidateQueries({ queryKey: storeKeys.nearby() });
-      } catch {
-        // Silent fail — the UI already reflects the new location name
-      } finally {
-        if (gen === syncGeneration) setLocationSynced(true);
-      }
-    },
-    [queryClient, setCoords, setLocationName, setLocationSynced],
-  );
-
-  // Manual refresh: re-detect GPS and re-PATCH backend.
-  const refresh = useCallback(async () => {
-    if (locationPermission === 'blocked') {
-      return; // Cannot detect without Settings intervention.
-    }
-    await detectAndSave();
-  }, [detectAndSave, locationPermission]);
-
-  const openSettings = useCallback(() => {
-    void Linking.openSettings();
-  }, []);
-
   // Watcher callback: only acts once movement crosses MOVEMENT_THRESHOLD_KM
   // from the last coordinates we actually synced, so ordinary GPS jitter
-  // never triggers a backend PATCH or a nearby refetch.
+  // never triggers a backend PATCH or a nearby refetch. Also guards against
+  // the narrow race where a manual selection lands in the same tick a
+  // watcher callback was already in flight — the effect below normally stops
+  // the watcher the instant locationSource flips to 'manual', this is belt
+  // and suspenders against that race, not the primary guard.
   const handleWatchUpdate = useCallback((point: { latitude: number; longitude: number }) => {
+    if (useAppStore.getState().locationSource !== 'gps') return;
     if (!lastKnownCoords) {
       lastKnownCoords = point;
       return;
@@ -264,8 +210,9 @@ export function useLocation() {
   }, [handleWatchUpdate]);
 
   // Stops and clears the watcher — foreground-only tracking: called whenever
-  // the app leaves the foreground and whenever this effect's deps make it no
-  // longer appropriate to be watching (permission lost, GPS not ready, etc).
+  // the app leaves the foreground, whenever the user picks a manual location,
+  // and whenever this effect's deps make it no longer appropriate to be
+  // watching (permission lost, GPS not ready, etc).
   const stopWatching = useCallback(() => {
     if (watchSubscription) {
       watchSubscription.remove();
@@ -273,12 +220,94 @@ export function useLocation() {
     }
   }, []);
 
-  // On foreground resume: if the last known location is stale, get a fresh
-  // fix (which also re-syncs the backend and refreshes nearby stores);
-  // otherwise just make sure the watcher is (still) running.
+  // Called once on home screen mount. Restores stored coords and locality name
+  // so the header and nearby section load immediately without triggering GPS.
+  // If that cache is a GPS fix older than STALE_THRESHOLD_MS, a fresh GPS read
+  // is kicked off in the background — but never for a manually-chosen
+  // location, which persists as-is until the user explicitly changes it.
+  const initLocation = useCallback(async () => {
+    const stored = await storageService.getLocation();
+    if (stored) {
+      lastKnownCoords = { latitude: stored.latitude, longitude: stored.longitude };
+      setCoords({ latitude: stored.latitude, longitude: stored.longitude }, stored.updatedAt);
+      setLocationStatus('ready');
+      setLocationSource(stored.source);
+      // A cached location implies a prior session already PATCHed it to the
+      // backend — safe to let nearby-stores fetch immediately.
+      setLocationSynced(true);
+      const name = await storageService.getLocationName();
+      setLocationName(name);
+
+      if (stored.source !== 'gps') return;
+
+      // A cached GPS location implies permission was granted in a prior
+      // session — confirm that's still true (read-only check, never a
+      // re-prompt) so the realtime watcher below is correctly gated.
+      const { status } = await ExpoLocation.getForegroundPermissionsAsync();
+      if (status === ExpoLocation.PermissionStatus.GRANTED) {
+        setLocationPermission('granted');
+        const isStale = Date.now() - new Date(stored.updatedAt).getTime() > STALE_THRESHOLD_MS;
+        if (isStale) void detectAndSave();
+      }
+      return;
+    }
+    await requestPermissionAndLocate();
+  }, [detectAndSave, requestPermissionAndLocate, setCoords, setLocationName, setLocationPermission, setLocationSource, setLocationStatus, setLocationSynced]);
+
+  // Optimistically apply a location the user explicitly chose (Set Location
+  // search/history) — updates UI instantly, then PATCHes the backend and
+  // invalidates nearby cache. This is a deliberate "browse this area" choice,
+  // distinct from GPS: it marks locationSource 'manual' and stops the
+  // realtime watcher so a later GPS reading can't silently overwrite it —
+  // device GPS resumes only when the user explicitly asks for it again via
+  // refresh()/detectAndSave ("Use my current location").
+  const applyLocation = useCallback(
+    async (latitude: number, longitude: number, name: string) => {
+      const gen = ++syncGeneration;
+      const updatedAt = new Date().toISOString();
+      lastKnownCoords = { latitude, longitude };
+      stopWatching();
+      setCoords({ latitude, longitude }, updatedAt);
+      setLocationStatus('ready');
+      setLocationSource('manual');
+      setLocationName(name);
+      void storageService.setLocation(latitude, longitude, updatedAt, 'manual');
+      void storageService.setLocationName(name);
+      try {
+        await userApi.updateLocation(latitude, longitude);
+        if (gen !== syncGeneration) return;
+        void queryClient.invalidateQueries({ queryKey: storeKeys.nearby() });
+      } catch {
+        // Silent fail — the UI already reflects the new location name
+      } finally {
+        if (gen === syncGeneration) setLocationSynced(true);
+      }
+    },
+    [queryClient, setCoords, setLocationName, setLocationSource, setLocationStatus, setLocationSynced, stopWatching],
+  );
+
+  // Manual refresh: re-detect GPS and re-PATCH backend. This is the "Use my
+  // current location" action — it always wins back control from a manual
+  // Set Location choice (applyCoords marks locationSource 'gps').
+  const refresh = useCallback(async () => {
+    if (locationPermission === 'blocked') {
+      return; // Cannot detect without Settings intervention.
+    }
+    await detectAndSave();
+  }, [detectAndSave, locationPermission]);
+
+  const openSettings = useCallback(() => {
+    void Linking.openSettings();
+  }, []);
+
+  // On foreground resume: if a GPS-sourced location is stale, get a fresh fix
+  // (which also re-syncs the backend and refreshes nearby stores); otherwise
+  // just make sure the watcher is (still) running. A manually-chosen location
+  // is left completely alone — no staleness check, no watcher.
   const handleForeground = useCallback(async () => {
     const state = useAppStore.getState();
     if (state.locationPermission !== 'granted' || state.locationStatus !== 'ready') return;
+    if (state.locationSource !== 'gps') return;
 
     const updatedAt = state.locationUpdatedAt;
     const isStale = !updatedAt || Date.now() - new Date(updatedAt).getTime() > STALE_THRESHOLD_MS;
@@ -291,7 +320,8 @@ export function useLocation() {
 
   // Foreground-only tracking, tied to app lifecycle: stop the watcher the
   // moment the app leaves the foreground, and either resume it or do a
-  // staleness-driven refresh when it comes back.
+  // staleness-driven refresh when it comes back (both no-ops while a manual
+  // location is active — see handleForeground).
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next) => {
       if (next === 'active') {
@@ -304,21 +334,23 @@ export function useLocation() {
   }, [handleForeground, stopWatching]);
 
   // Start/stop the watcher as location readiness itself changes (e.g. right
-  // after the initial permission grant + first GPS fix, or if location later
-  // errors/gets denied). Runs only while the app is in the foreground and
-  // this hook's consumer is mounted — cleanup here, plus the module-level
-  // guards above, keep this to exactly one live watcher at a time.
+  // after the initial permission grant + first GPS fix, if location later
+  // errors/gets denied, or when the source switches between 'gps' and
+  // 'manual'). Runs only while the app is in the foreground, GPS is the
+  // active source, and this hook's consumer is mounted — cleanup here, plus
+  // the module-level guards above, keep this to exactly one live watcher.
   useEffect(() => {
-    if (locationPermission === 'granted' && locationStatus === 'ready') {
+    if (locationPermission === 'granted' && locationStatus === 'ready' && locationSource === 'gps') {
       void startWatching();
     }
     return () => stopWatching();
-  }, [locationPermission, locationStatus, startWatching, stopWatching]);
+  }, [locationPermission, locationStatus, locationSource, startWatching, stopWatching]);
 
   return {
     status: locationStatus,
     coords,
     updatedAt: locationUpdatedAt,
+    source: locationSource,
     initLocation,
     requestPermissionAndLocate,
     detectAndSave,

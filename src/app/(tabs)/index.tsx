@@ -1,3 +1,4 @@
+import { BlurView } from 'expo-blur';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
@@ -46,6 +47,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AnimatedHomeBackground } from '@/components/home/AnimatedHomeBackground';
 import { BannerCarousel } from '@/components/home/BannerCarousel';
 import { CategoriesRow } from '@/components/home/CategoriesRow';
+import { MapLocationPicker } from '@/components/home/MapLocationPicker';
 import { PurchasedCardsCarousel } from '@/components/home/PurchasedCardsCarousel';
 import { PressableScale } from '@/components/ui/PressableScale';
 import { FadeInView } from '@/components/ui/FadeInView';
@@ -60,6 +62,9 @@ import { ROUTES } from '@/constants/routes';
 import { ManropeWeights } from '@/constants/theme';
 import type { RecentLocation } from '@/services/storageService';
 import { storageService } from '@/services/storageService';
+import {
+  autocompletePlaces, getPlaceDetails, generateSessionToken, GooglePlacesConfigError,
+} from '@/services/googlePlacesService';
 import { useAppStore } from '@/store/appStore';
 import { isStoreOpenNow } from '@/utils/storeTiming';
 import type { Store } from '@/types/store';
@@ -297,29 +302,57 @@ interface GeoResult {
   longitude: number;
 }
 
+// Settlement-shaped Nominatim types/addresstypes — villages, hamlets, towns,
+// cities, mandal/district boundaries, neighbourhoods. Verified empirically
+// (see LOCATION_SEARCH_AUDIT.md follow-up) that Nominatim's raw top hit for
+// a small hamlet's name can be an unrelated POI located there (a school, an
+// office) rather than the hamlet itself — this set is used to bias real
+// places ahead of those, without attempting any fuzzier/heavier ranking.
+const SETTLEMENT_TYPES = new Set([
+  'village', 'hamlet', 'isolated_dwelling', 'town', 'city', 'municipality',
+  'suburb', 'neighbourhood', 'quarter', 'city_district', 'county',
+  'state_district', 'administrative', 'locality',
+]);
+
 // Throws on any provider/network failure instead of swallowing it — callers
 // must distinguish "the provider failed" from "the provider returned zero
-// matches" (an empty array here means the latter, unambiguously).
-async function searchArea(query: string): Promise<GeoResult[]> {
+// matches" (an empty array here means the latter, unambiguously — Nominatim
+// itself has no data for that locality; see LOCATION_SEARCH_AUDIT.md for why
+// that can legitimately happen for smaller Indian villages/hamlets that
+// simply aren't mapped in OpenStreetMap yet — no request-shape change fixes
+// a real data gap in the provider).
+async function searchAreaNominatim(query: string): Promise<GeoResult[]> {
   const url =
     `https://nominatim.openstreetmap.org/search` +
     `?format=json` +
-    `&q=${encodeURIComponent(query)}` +
+    `&q=${encodeURIComponent(query.trim())}` +
     `&countrycodes=in` +
-    `&limit=8` +
+    `&limit=10` +
     `&addressdetails=1` +
     `&dedupe=1` +
+    `&accept-language=en` +
     `&email=inquire.scalatechnologies%40gmail.com`;
 
-  const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+  const res = await fetch(url, {
+    headers: {
+      'Accept': 'application/json',
+      // Nominatim's usage policy requires the calling application to be
+      // identifiable — an unidentified client risks silent throttling.
+      'User-Agent': 'StrikeUserApp/1.0 (inquire.scalatechnologies@gmail.com)',
+    },
+  });
   if (!res.ok) {
     throw new Error(`Nominatim request failed: ${res.status}`);
   }
 
   const data = (await res.json()) as Array<{
+      name?: string;
       display_name: string;
       lat: string;
       lon: string;
+      type?: string;
+      addresstype?: string;
+      importance?: number;
       address?: {
         neighbourhood?: string;
         quarter?: string;
@@ -337,12 +370,27 @@ async function searchArea(query: string): Promise<GeoResult[]> {
     }>;
 
     return data
+      // Settlement-shaped results first (a village/town/hamlet the user is
+      // plausibly setting as their location), Nominatim's own `importance`
+      // as the tiebreaker within each group — not a replacement for its
+      // relevance scoring, just a bias against an unrelated POI (e.g. a
+      // school or shop sharing the searched name) outranking the real place.
+      .sort((x, y) => {
+        const xSettlement = SETTLEMENT_TYPES.has(x.addresstype ?? x.type ?? '') ? 1 : 0;
+        const ySettlement = SETTLEMENT_TYPES.has(y.addresstype ?? y.type ?? '') ? 1 : 0;
+        if (xSettlement !== ySettlement) return ySettlement - xSettlement;
+        return (y.importance ?? 0) - (x.importance ?? 0);
+      })
       .map((item) => {
         const a = item.address;
+        // Prefer Nominatim's own matched name (the literal name it found) —
+        // the address.* chain is only a fallback for the rare item missing
+        // it, reconstructing a label from whichever admin-level field exists.
         const name =
+          item.name ??
           a?.neighbourhood ?? a?.quarter ?? a?.suburb ?? a?.hamlet ??
-          a?.locality ?? a?.municipality ?? a?.city_district ??
-          a?.city ?? a?.town ?? a?.village ?? a?.county ??
+          a?.village ?? a?.town ?? a?.city ??
+          a?.locality ?? a?.municipality ?? a?.city_district ?? a?.county ??
           item.display_name.split(',')[0];
         const cityOrTown = a?.city ?? a?.town ?? a?.municipality ?? a?.county;
         const parts = [name, cityOrTown, a?.state].filter(Boolean);
@@ -351,13 +399,88 @@ async function searchArea(query: string): Promise<GeoResult[]> {
         const lon = parseFloat(item.lon);
         if (isNaN(lat) || isNaN(lon)) return null;
         return {
-          name: (name ?? item.display_name.split(',')[0]).trim(),
+          name: name.trim(),
           displayName: displayName.trim(),
           latitude: lat,
           longitude: lon,
         };
       })
       .filter((r): r is GeoResult => r !== null && r.name.length > 0);
+}
+
+// ─── Area Search (Google Places — primary) ─────────────────────────────────────
+//
+// Google Places (New) replaces Nominatim as the primary Set Location search
+// provider — it has meaningfully better coverage of small Indian villages/
+// hamlets (see LOCATION_SEARCH_AUDIT.md's "Yellareddygudem" case, where
+// Nominatim/OSM has no place node at all). Nominatim is kept as a fallback
+// for a genuine Google network/5xx failure only — never for a config error
+// (a bad/missing key must surface loudly, not be silently masked by a
+// degraded fallback) and never for a legitimate zero-result response (Google
+// already tried; Nominatim's coverage is a strict subset of what it just
+// searched, so retrying there just adds latency for no real chance of help).
+//
+// A suggestion from Autocomplete has no lat/lng yet — Google requires a
+// separate Place Details call (by placeId) once the user actually picks one,
+// which is why this list item type carries a placeId instead of coordinates
+// for the 'google' source, unlike the already-resolved 'nominatim' source.
+interface LocationSearchResult {
+  key: string;
+  name: string;
+  displayName: string;
+  source: 'google' | 'nominatim';
+  placeId?: string;
+  latitude?: number;
+  longitude?: number;
+}
+
+async function searchAreaGoogle(
+  query: string,
+  sessionToken: string,
+  signal?: AbortSignal,
+): Promise<LocationSearchResult[]> {
+  const suggestions = await autocompletePlaces(query, sessionToken, signal);
+  return suggestions.map((s) => ({
+    key: s.placeId,
+    name: s.name,
+    displayName: s.secondaryText ? `${s.name}, ${s.secondaryText}` : s.name,
+    source: 'google' as const,
+    placeId: s.placeId,
+  }));
+}
+
+async function searchAreaNominatimFallback(query: string): Promise<LocationSearchResult[]> {
+  const results = await searchAreaNominatim(query);
+  return results.map((r) => ({
+    key: `${r.latitude},${r.longitude}`,
+    name: r.name,
+    displayName: r.displayName,
+    source: 'nominatim' as const,
+    latitude: r.latitude,
+    longitude: r.longitude,
+  }));
+}
+
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === 'AbortError';
+}
+
+async function searchArea(
+  query: string,
+  sessionToken: string,
+  signal?: AbortSignal,
+): Promise<LocationSearchResult[]> {
+  try {
+    return await searchAreaGoogle(query, sessionToken, signal);
+  } catch (err) {
+    if (isAbortError(err)) throw err;
+    if (err instanceof GooglePlacesConfigError) {
+      console.error('[LocationSearch] Google Places misconfigured — not falling back to Nominatim:', err.message);
+      throw err;
+    }
+    console.warn('[LocationSearch] Google Places request failed, falling back to Nominatim:', err);
+    return await searchAreaNominatimFallback(query);
+  }
 }
 
 // ─── Skeleton ──────────────────────────────────────────────────────────────────
@@ -1028,23 +1151,36 @@ function ActiveLocationSheet({
   onClose,
   onDetect,
   onSelectHistory,
+  onPickOnMap,
 }: {
   visible: boolean;
   history: RecentLocation[];
   onClose: () => void;
   onDetect: () => void;
   onSelectHistory: (lat: number, lng: number, name: string) => void;
+  onPickOnMap: () => void;
 }) {
+  const [searchFocused, setSearchFocused] = useState(false);
+  const searchFocusAnim = useRef(new Animated.Value(0)).current;
   const [view, setView] = useState<SheetView>('options');
   const [searchQuery, setSearchQuery] = useState('');
-  const [geoResults, setGeoResults] = useState<GeoResult[]>([]);
+  const [geoResults, setGeoResults] = useState<LocationSearchResult[]>([]);
   const [searchPhase, setSearchPhase] = useState<SearchPhase>('idle');
+  // Key of the suggestion currently being resolved to lat/lng via Place
+  // Details (Google results only — Nominatim results already have coords).
+  const [resolvingKey, setResolvingKey] = useState<string | null>(null);
+  const [resolveError, setResolveError] = useState(false);
 
   const sheetTranslateY = useRef(new Animated.Value(600)).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   const searchInputRef = useRef<TextInput>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchGenRef = useRef(0);
+  const searchAbortRef = useRef<AbortController | null>(null);
+  // One Google "session" = everything from opening search to picking a
+  // result (or giving up) — bundles Autocomplete + the closing Place Details
+  // call into a single billing session, materially cheaper than per-request.
+  const sessionTokenRef = useRef(generateSessionToken());
 
   // Sheet enter/exit animation
   useEffect(() => {
@@ -1082,9 +1218,22 @@ function ActiveLocationSheet({
         setSearchQuery('');
         setGeoResults([]);
         setSearchPhase('idle');
+        setResolvingKey(null);
+        setResolveError(false);
+        searchAbortRef.current?.abort();
+        sessionTokenRef.current = generateSessionToken();
       });
     }
   }, [visible]);
+
+  useEffect(() => {
+    Animated.timing(searchFocusAnim, {
+      toValue: searchFocused ? 1 : 0,
+      duration: 200,
+      easing: Easing.out(Easing.ease),
+      useNativeDriver: false, // driving borderColor/shadowOpacity, not transform/opacity
+    }).start();
+  }, [searchFocused, searchFocusAnim]);
 
   const handleOpenSearch = useCallback(() => {
     setView('search');
@@ -1094,15 +1243,19 @@ function ActiveLocationSheet({
   const handleBackToOptions = useCallback(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     searchGenRef.current += 1;
+    searchAbortRef.current?.abort();
     setView('options');
     setSearchQuery('');
     setGeoResults([]);
     setSearchPhase('idle');
+    setResolveError(false);
   }, []);
 
   const handleSearchChange = useCallback((text: string) => {
     setSearchQuery(text);
+    setResolveError(false);
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    searchAbortRef.current?.abort();
     if (text.trim().length < 2) {
       setGeoResults([]);
       setSearchPhase('idle');
@@ -1111,14 +1264,16 @@ function ActiveLocationSheet({
     setSearchPhase('waiting');
     debounceRef.current = setTimeout(async () => {
       const gen = ++searchGenRef.current;
+      const controller = new AbortController();
+      searchAbortRef.current = controller;
       setSearchPhase('loading');
       try {
-        const results = await searchArea(text);
+        const results = await searchArea(text, sessionTokenRef.current, controller.signal);
         if (gen !== searchGenRef.current) return;
         setGeoResults(results);
         setSearchPhase('done');
       } catch (err) {
-        if (gen !== searchGenRef.current) return;
+        if (gen !== searchGenRef.current || isAbortError(err)) return;
         console.log('[LocationSearch] provider error', err);
         setGeoResults([]);
         setSearchPhase('error');
@@ -1126,69 +1281,89 @@ function ActiveLocationSheet({
     }, 400);
   }, []);
 
+  // A Google suggestion has no coordinates yet — resolve Place Details by
+  // placeId first. A Nominatim (fallback) result already has them inline.
   const handleSelectResult = useCallback(
-    (r: GeoResult) => {
-      onSelectHistory(r.latitude, r.longitude, r.name);
-      onClose();
+    async (r: LocationSearchResult) => {
+      if (r.source === 'nominatim') {
+        onSelectHistory(r.latitude!, r.longitude!, r.name);
+        onClose();
+        return;
+      }
+
+      setResolveError(false);
+      setResolvingKey(r.key);
+      try {
+        const details = await getPlaceDetails(r.placeId!, sessionTokenRef.current);
+        onSelectHistory(details.latitude, details.longitude, details.name || r.name);
+        onClose();
+      } catch (err) {
+        console.error('[LocationSearch] Place Details failed:', err);
+        setResolveError(true);
+      } finally {
+        setResolvingKey(null);
+      }
     },
     [onSelectHistory, onClose],
   );
 
   const renderOptions = () => (
     <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
-      <View style={styles.sheetTitleBlock}>
-        <Text style={styles.sheetTitle}>Set location</Text>
-        <Text style={styles.sheetSubtitle}>
-          Browse stores and subscriptions in any area
-        </Text>
-      </View>
+      <FadeInView translateYFrom={8}>
+        <View style={styles.sheetTitleBlock}>
+          <Text style={styles.sheetTitle}>Set location</Text>
+          <Text style={styles.sheetSubtitle}>
+            Browse stores and subscriptions in any area
+          </Text>
+        </View>
+      </FadeInView>
 
-      <View style={styles.sheetOptionGroup}>
+      <FadeInView delay={40} translateYFrom={14}>
         <PressableScale
-          style={styles.sheetOptionRow}
+          style={styles.optionCard}
           onPress={() => { onDetect(); onClose(); }}
         >
-          <View style={[styles.sheetOptionIcon, { backgroundColor: C.blueBg }]}>
-            <Navigation size={16} color={C.blue} strokeWidth={2} />
-          </View>
+          <LinearGradient colors={[C.blue, '#1D4ED8']} style={styles.optionIconGrad}>
+            <Navigation size={19} color="#FFFFFF" strokeWidth={2.2} />
+          </LinearGradient>
           <View style={styles.sheetOptionContent}>
             <Text style={styles.sheetOptionLabel}>Use my location</Text>
             <Text style={styles.sheetOptionSub}>Detect GPS position</Text>
           </View>
-          <ChevronRight size={14} color={C.muted} strokeWidth={2} />
+          <ChevronRight size={16} color={C.muted} strokeWidth={2} />
         </PressableScale>
+      </FadeInView>
 
-        <View style={styles.sheetOptionDivider} />
-
-        <PressableScale style={styles.sheetOptionRow} onPress={handleOpenSearch}>
-          <View style={[styles.sheetOptionIcon, { backgroundColor: C.greenBg }]}>
-            <Search size={16} color={C.green} strokeWidth={2} />
-          </View>
+      <FadeInView delay={90} translateYFrom={14}>
+        <PressableScale style={styles.optionCard} onPress={handleOpenSearch}>
+          <LinearGradient colors={[C.green, '#0E7A38']} style={styles.optionIconGrad}>
+            <Search size={19} color="#FFFFFF" strokeWidth={2.2} />
+          </LinearGradient>
           <View style={styles.sheetOptionContent}>
             <Text style={styles.sheetOptionLabel}>Search an area</Text>
             <Text style={styles.sheetOptionSub}>Locality, landmark, or city</Text>
           </View>
-          <ChevronRight size={14} color={C.muted} strokeWidth={2} />
+          <ChevronRight size={16} color={C.muted} strokeWidth={2} />
         </PressableScale>
+      </FadeInView>
 
-        <View style={styles.sheetOptionDivider} />
-
-        <View style={[styles.sheetOptionRow, { opacity: 0.42 }]}>
-          <View style={[styles.sheetOptionIcon, { backgroundColor: C.bg }]}>
-            <Map size={16} color={C.muted} strokeWidth={2} />
-          </View>
+      <FadeInView delay={140} translateYFrom={14}>
+        <PressableScale style={styles.optionCard} onPress={() => onPickOnMap()}>
+          <LinearGradient colors={[C.accent, C.accentDeep]} style={styles.optionIconGrad}>
+            <Map size={19} color="#FFFFFF" strokeWidth={2.2} />
+          </LinearGradient>
           <View style={styles.sheetOptionContent}>
             <Text style={styles.sheetOptionLabel}>Pick on map</Text>
-            <Text style={styles.sheetOptionSub}>Pin a location manually</Text>
+            <Text style={styles.sheetOptionSub}>Drag the pin to any spot</Text>
           </View>
-          <View style={styles.comingSoonBadge}>
-            <Text style={styles.comingSoonText}>Soon</Text>
+          <View style={styles.newBadge}>
+            <Text style={styles.newBadgeText}>NEW</Text>
           </View>
-        </View>
-      </View>
+        </PressableScale>
+      </FadeInView>
 
       {history.length > 0 && (
-        <View style={styles.sheetRecentSection}>
+        <FadeInView delay={190} translateYFrom={14} style={styles.sheetRecentSection}>
           <Text style={styles.sheetSectionLabel}>Recent</Text>
           {history.map((loc) => (
             <Pressable
@@ -1203,13 +1378,13 @@ function ActiveLocationSheet({
               }}
             >
               <View style={styles.sheetRecentIconWrap}>
-                <MapPin size={12} color={C.accent} strokeWidth={2} />
+                <MapPin size={13} color={C.accent} strokeWidth={2} />
               </View>
               <Text style={styles.sheetRecentName} numberOfLines={1}>{loc.name}</Text>
-              <ChevronRight size={12} color={C.muted} strokeWidth={2} />
+              <ChevronRight size={13} color={C.muted} strokeWidth={2} />
             </Pressable>
           ))}
-        </View>
+        </FadeInView>
       )}
       <View style={{ height: 8 }} />
     </ScrollView>
@@ -1221,8 +1396,16 @@ function ActiveLocationSheet({
         <Pressable onPress={handleBackToOptions} style={styles.sheetBackBtn} hitSlop={12}>
           <ChevronLeft size={20} color={C.primary} strokeWidth={2.5} />
         </Pressable>
-        <View style={styles.sheetSearchBar}>
-          <Search size={15} color={C.muted} strokeWidth={2} />
+        <Animated.View
+          style={[
+            styles.sheetSearchBar,
+            {
+              borderColor: searchFocusAnim.interpolate({ inputRange: [0, 1], outputRange: [C.border, C.accent] }),
+              shadowOpacity: searchFocusAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.16] }),
+            },
+          ]}
+        >
+          <Search size={15} color={searchFocused ? C.accent : C.muted} strokeWidth={2} />
           <TextInput
             ref={searchInputRef}
             style={styles.sheetSearchInput}
@@ -1230,6 +1413,8 @@ function ActiveLocationSheet({
             placeholderTextColor={C.placeholder}
             value={searchQuery}
             onChangeText={handleSearchChange}
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => setSearchFocused(false)}
             returnKeyType="search"
             autoCapitalize="words"
             autoCorrect={false}
@@ -1239,9 +1424,11 @@ function ActiveLocationSheet({
               onPress={() => {
                 if (debounceRef.current) clearTimeout(debounceRef.current);
                 searchGenRef.current += 1;
+                searchAbortRef.current?.abort();
                 setSearchQuery('');
                 setGeoResults([]);
                 setSearchPhase('idle');
+                setResolveError(false);
               }}
               hitSlop={8}
             >
@@ -1250,8 +1437,16 @@ function ActiveLocationSheet({
               </View>
             </Pressable>
           ) : null}
-        </View>
+        </Animated.View>
       </View>
+
+      {resolveError ? (
+        <View style={styles.sheetInlineLoading}>
+          <Text style={[styles.sheetInlineLoadingText, { color: C.danger }]}>
+            Couldn't get that location — try again
+          </Text>
+        </View>
+      ) : null}
 
       <ScrollView
         style={styles.sheetSearchResults}
@@ -1260,25 +1455,32 @@ function ActiveLocationSheet({
       >
         {geoResults.length > 0 ? (
           <>
-            {geoResults.map((r, i) => (
-              <Pressable
-                key={i}
-                style={({ pressed }) => [
-                  styles.sheetGeoRow,
-                  pressed && { backgroundColor: C.divider },
-                ]}
-                onPress={() => handleSelectResult(r)}
-              >
-                <View style={styles.sheetGeoIconWrap}>
-                  <MapPin size={13} color={C.accent} strokeWidth={2} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.sheetGeoName}>{r.name}</Text>
-                  <Text style={styles.sheetGeoSub} numberOfLines={1}>{r.displayName}</Text>
-                </View>
-                <ChevronRight size={12} color={C.muted} strokeWidth={2} />
-              </Pressable>
-            ))}
+            {geoResults.map((r) => {
+              const resolving = resolvingKey === r.key;
+              return (
+                <Pressable
+                  key={r.key}
+                  disabled={resolving}
+                  style={({ pressed }) => [
+                    styles.sheetGeoRow,
+                    pressed && { backgroundColor: C.divider },
+                    resolving && { opacity: 0.5 },
+                  ]}
+                  onPress={() => void handleSelectResult(r)}
+                >
+                  <View style={styles.sheetGeoIconWrap}>
+                    {resolving
+                      ? <ActivityIndicator size="small" color={C.accent} />
+                      : <MapPin size={13} color={C.accent} strokeWidth={2} />}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.sheetGeoName}>{r.name}</Text>
+                    <Text style={styles.sheetGeoSub} numberOfLines={1}>{r.displayName}</Text>
+                  </View>
+                  <ChevronRight size={12} color={C.muted} strokeWidth={2} />
+                </Pressable>
+              );
+            })}
             {searchPhase === 'loading' ? (
               <View style={styles.sheetInlineLoading}>
                 <ActivityIndicator size="small" color={C.muted} />
@@ -1321,11 +1523,13 @@ function ActiveLocationSheet({
       statusBarTranslucent
     >
       <KeyboardAvoidingScreen style={styles.sheetKAV}>
-        {/* Animated backdrop */}
+        {/* Animated frosted backdrop */}
         <Animated.View
-          style={[styles.sheetBackdrop, { opacity: backdropOpacity }]}
+          style={[StyleSheet.absoluteFill, { opacity: backdropOpacity }]}
           pointerEvents="box-none"
         >
+          <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFill} />
+          <View style={[StyleSheet.absoluteFill, styles.sheetBackdrop]} />
           <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         </Animated.View>
 
@@ -1394,6 +1598,8 @@ export default function HomeScreen() {
     }
   }, [initLocation]);
 
+  const [mapPickerVisible, setMapPickerVisible] = useState(false);
+
   const openLocationPicker = useCallback(async () => {
     const history = await storageService.getLocationHistory();
     setLocationHistory(history);
@@ -1402,12 +1608,37 @@ export default function HomeScreen() {
 
   const handlePickerDetect = useCallback(() => {
     setLocationPickerVisible(false);
+    setSkipLocation(false);
     void refresh();
   }, [refresh]);
 
+  // Also covers a Google/Nominatim search selection — ActiveLocationSheet's
+  // onSelectHistory prop is shared by both the "Recent" list and a resolved
+  // search result. An explicit location choice always supersedes an earlier
+  // "continue without location" — otherwise locationReady (gated on
+  // !skipLocation) would stay stuck false and nearby/search would never use
+  // the location the user just picked.
   const handlePickerSelectHistory = useCallback(
     (lat: number, lng: number, name: string) => {
       setLocationPickerVisible(false);
+      setSkipLocation(false);
+      void applyLocation(lat, lng, name);
+    },
+    [applyLocation],
+  );
+
+  const handleOpenMapPicker = useCallback(() => {
+    setLocationPickerVisible(false);
+    setMapPickerVisible(true);
+  }, []);
+
+  const handleMapPickerClose = useCallback(() => setMapPickerVisible(false), []);
+
+  // Same "explicit choice wins" semantics as handlePickerSelectHistory above.
+  const handleMapPickerConfirm = useCallback(
+    (lat: number, lng: number, name: string) => {
+      setMapPickerVisible(false);
+      setSkipLocation(false);
       void applyLocation(lat, lng, name);
     },
     [applyLocation],
@@ -1906,6 +2137,14 @@ export default function HomeScreen() {
         onClose={() => setLocationPickerVisible(false)}
         onDetect={handlePickerDetect}
         onSelectHistory={handlePickerSelectHistory}
+        onPickOnMap={handleOpenMapPicker}
+      />
+
+      <MapLocationPicker
+        visible={mapPickerVisible}
+        initialCoords={coords}
+        onClose={handleMapPickerClose}
+        onConfirm={handleMapPickerConfirm}
       />
 
       <FiltersSheet
@@ -2639,9 +2878,9 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   sheetBackdrop: {
-    position: 'absolute',
-    top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: C.overlay,
+    // Lighter than the old flat overlay — the BlurView layered beneath this
+    // now does most of the "dim the background" work.
+    backgroundColor: 'rgba(0,0,0,0.22)',
   },
   sheet: {
     flex: 1,
@@ -2687,36 +2926,32 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontFamily: ManropeWeights.regular,
   },
-  sheetOptionGroup: {
-    backgroundColor: C.bg,
-    borderRadius: 18,
-    overflow: 'hidden',
-    marginBottom: 24,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: C.border,
-  },
-  sheetOptionRow: {
+  optionCard: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
+    backgroundColor: C.surface,
+    borderRadius: 18,
     paddingVertical: 14,
     paddingHorizontal: 16,
+    marginBottom: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: C.border,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 10, shadowOffset: { width: 0, height: 3 } },
+      android: { elevation: 2 },
+    }),
   },
-  sheetOptionDivider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: C.border,
-    marginLeft: 66,
-  },
-  sheetOptionIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 11,
+  optionIconGrad: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
     justifyContent: 'center',
     alignItems: 'center',
   },
   sheetOptionContent: { flex: 1 },
   sheetOptionLabel: {
-    fontSize: 14,
+    fontSize: 14.5,
     fontWeight: '600',
     fontFamily: ManropeWeights.semiBold,
     color: C.primary,
@@ -2727,19 +2962,21 @@ const styles = StyleSheet.create({
     color: C.muted,
     fontFamily: ManropeWeights.regular,
   },
-  comingSoonBadge: {
-    backgroundColor: C.divider,
+  newBadge: {
+    backgroundColor: C.accentSoft,
     borderRadius: 7,
     paddingHorizontal: 8,
     paddingVertical: 3,
   },
-  comingSoonText: {
-    fontSize: 11,
-    fontWeight: '600',
-    fontFamily: ManropeWeights.semiBold,
-    color: C.muted,
+  newBadgeText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
+    color: C.accent,
+    letterSpacing: 0.4,
   },
   sheetRecentSection: {
+    marginTop: 6,
     marginBottom: 4,
   },
   sheetSectionLabel: {
@@ -2757,8 +2994,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     paddingVertical: 12,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     borderRadius: 14,
+    backgroundColor: C.bg,
+    marginBottom: 6,
   },
   sheetRecentIconWrap: {
     width: 32,
@@ -2802,8 +3041,11 @@ const styles = StyleSheet.create({
     height: 46,
     paddingHorizontal: 12,
     gap: 8,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1.5,
     borderColor: C.border,
+    shadowColor: C.accent,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
   },
   sheetSearchInput: {
     flex: 1,
@@ -2821,8 +3063,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     paddingVertical: 12,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     borderRadius: 14,
+    backgroundColor: C.bg,
+    marginBottom: 6,
   },
   sheetGeoIconWrap: {
     width: 32,

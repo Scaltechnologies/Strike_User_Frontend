@@ -20,6 +20,12 @@ export interface Coords {
   longitude: number;
 }
 
+// 'gps' — actively tracked via the device's realtime watcher.
+// 'manual' — the user explicitly chose this via Set Location; GPS tracking
+// pauses while a manual location is active so it can't silently overwrite
+// the user's deliberate choice. See useLocation.ts.
+export type LocationSource = 'gps' | 'manual';
+
 // Mirrors LocationPermission/LocationStatus — same idle → checking/requesting →
 // ready|denied|blocked shape drives the Notifications settings screen.
 export type NotificationPermission = 'granted' | 'denied' | 'blocked' | 'not-asked';
@@ -48,6 +54,7 @@ interface AppState {
   // GPS resolves, before that PATCH — nearby-stores must wait for this flag
   // too, or a brand-new account's first-ever fetch races the PATCH and 400s.
   locationSynced: boolean;
+  locationSource: LocationSource;
 }
 
 interface AppActions {
@@ -60,6 +67,7 @@ interface AppActions {
   setCoords: (coords: Coords | null, updatedAt?: string) => void;
   setLocationName: (name: string | null) => void;
   setLocationSynced: (synced: boolean) => void;
+  setLocationSource: (source: LocationSource) => void;
   resetLocation: () => void;
 }
 
@@ -75,6 +83,7 @@ export const useAppStore = create<AppState & AppActions>()(
     locationUpdatedAt: null,
     locationName: null,
     locationSynced: false,
+    locationSource: 'gps',
 
     setOnboardingSeen: () => set({ hasSeenOnboarding: true }),
     setNotificationsEnabled: (enabled) => set({ notificationsEnabled: enabled }),
@@ -86,6 +95,7 @@ export const useAppStore = create<AppState & AppActions>()(
       set({ coords, locationUpdatedAt: updatedAt ?? new Date().toISOString() }),
     setLocationName: (name) => set({ locationName: name }),
     setLocationSynced: (synced) => set({ locationSynced: synced }),
+    setLocationSource: (source) => set({ locationSource: source }),
     resetLocation: () =>
       set({
         locationStatus: 'idle',
@@ -94,6 +104,7 @@ export const useAppStore = create<AppState & AppActions>()(
         locationUpdatedAt: null,
         locationName: null,
         locationSynced: false,
+        locationSource: 'gps',
       }),
   }),
 );

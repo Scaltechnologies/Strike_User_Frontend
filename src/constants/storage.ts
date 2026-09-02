@@ -10,6 +10,8 @@ export const STORAGE_KEYS = {
   LOCATION_LNG: 'strike_location_lng',
   LOCATION_UPDATED_AT: 'strike_location_updated_at',
   LOCATION_NAME: 'strike_location_name',
+  // 'gps' | 'manual' — see StoredLocation.source in storageService.ts
+  LOCATION_SOURCE: 'strike_location_source',
   LOCATION_HISTORY: 'strike_location_history',
   NOTIFICATIONS_ENABLED: 'strike_notifications_enabled',
   // Superseded by PAY_AT_STORE_SESSIONS (a list — a user can have concurrent Pay-at-Store
