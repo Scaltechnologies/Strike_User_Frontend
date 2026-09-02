@@ -51,7 +51,6 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Strike needs your location to show nearby meal card stores.",
           "locationWhenInUsePermission": "Strike needs your location to show nearby meal card stores."
         }
       ],
