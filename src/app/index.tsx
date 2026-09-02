@@ -10,6 +10,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { Redirect } from 'expo-router';
 
 import { ROUTES, buildRoute } from '@/constants/routes';
@@ -65,9 +66,11 @@ export default function Index() {
   return (
     <View style={styles.container}>
       <Animated.View style={[styles.logoBlock, { opacity: fadeAnim }]}>
-        <View style={styles.badge}>
-          <Text style={styles.badgeText}>S</Text>
-        </View>
+        <Image
+          source={require('@/assets/images/icon.png')}
+          style={styles.badge}
+          contentFit="contain"
+        />
         <Text style={styles.appName}>STRIKE</Text>
         <Text style={styles.tagline}>Meal Cards. Simplified.</Text>
       </Animated.View>
@@ -94,10 +97,6 @@ const styles = StyleSheet.create({
   badge: {
     width: 72,
     height: 72,
-    borderRadius: 20,
-    backgroundColor: '#C0392B',
-    justifyContent: 'center',
-    alignItems: 'center',
     marginBottom: 16,
     ...Platform.select({
       ios: {
@@ -108,12 +107,6 @@ const styles = StyleSheet.create({
       },
       android: { elevation: 8 },
     }),
-  },
-  badgeText: {
-    fontSize: 38,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: -1,
   },
   appName: {
     fontSize: 28,

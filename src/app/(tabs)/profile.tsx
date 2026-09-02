@@ -4,7 +4,6 @@ import {
   Alert,
   Animated,
   Easing,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -44,6 +43,7 @@ import { ManropeWeights } from '@/constants/theme';
 import { useMediaSource, logMediaError } from '@/utils/media';
 import { PressableScale } from '@/components/ui/PressableScale';
 import { FadeInView } from '@/components/ui/FadeInView';
+import { KeyboardAvoidingScreen } from '@/components/ui/KeyboardAvoidingScreen';
 import { tapLight, tapWarning } from '@/utils/haptics';
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
@@ -145,6 +145,13 @@ function Avatar({
   const initials = name ? getInitials(name) : '?';
   const [imgFailed, setImgFailed] = useState(false);
   const source = useMediaSource(avatarUrl);
+
+  // Reset the failure flag whenever the actual photo changes (e.g. after
+  // uploading a new one) — otherwise an old failed load keeps the new,
+  // perfectly valid photo hidden behind the initials fallback forever.
+  useEffect(() => {
+    setImgFailed(false);
+  }, [source?.uri]);
 
   return (
     <Pressable onPress={() => { tapLight(); onPress(); }} style={styles.avatarWrap}>
@@ -359,7 +366,7 @@ function EditProfileSheet({
 
   return (
     <Modal visible={visible} animationType="none" transparent onRequestClose={onClose} statusBarTranslucent>
-      <KeyboardAvoidingView style={styles.sheetKAV} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingScreen style={styles.sheetKAV}>
         <Animated.View style={[styles.sheetBackdrop, { opacity: bdOp }]} pointerEvents="box-none">
           <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         </Animated.View>
@@ -437,7 +444,7 @@ function EditProfileSheet({
 
           <View style={{ height: Platform.OS === 'ios' ? 16 : 8 }} />
         </Animated.View>
-      </KeyboardAvoidingView>
+      </KeyboardAvoidingScreen>
     </Modal>
   );
 }
@@ -506,6 +513,42 @@ function LogoutConfirmDialog({
   );
 }
 
+// ── Logout success overlay ───────────────────────────────────────────────────────
+// Shown for a brief beat after logout has actually finished (see confirmLogout —
+// this appears once the existing API call + device-disable + clearAuth sequence
+// completes), so the user gets a calm confirmation instead of just snapping to
+// the Login screen. Same cream background used by the auth screens (splash,
+// login) — this is a transition INTO that flow, not a Profile-screen surface.
+function LogoutSuccessOverlay({ visible }: { visible: boolean }) {
+  const opacity = useRef(new Animated.Value(0)).current;
+  const scale = useRef(new Animated.Value(0.92)).current;
+
+  useEffect(() => {
+    if (visible) {
+      Animated.parallel([
+        Animated.timing(opacity, { toValue: 1, duration: 220, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+        Animated.spring(scale, { toValue: 1, useNativeDriver: true, damping: 16, stiffness: 220, mass: 0.7 }),
+      ]).start();
+    }
+  }, [visible]);
+
+  return (
+    <Modal visible={visible} animationType="none" statusBarTranslucent>
+      <View style={styles.logoutOverlay}>
+        <Animated.View style={{ opacity, transform: [{ scale }], alignItems: 'center' }}>
+          <Image
+            source={require('@/assets/images/icon.png')}
+            style={styles.logoutIcon}
+            contentFit="contain"
+          />
+          <Text style={styles.logoutTitle}>Logged out successfully</Text>
+          <Text style={styles.logoutSubtitle}>You have been securely logged out.</Text>
+        </Animated.View>
+      </View>
+    </Modal>
+  );
+}
+
 // ── Profile Screen ─────────────────────────────────────────────────────────────
 
 export default function ProfileScreen() {
@@ -521,6 +564,7 @@ export default function ProfileScreen() {
   const [photoSheetVisible, setPhotoSheetVisible] = useState(false);
   const [logoutConfirmVisible, setLogoutConfirmVisible] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [logoutSuccessVisible, setLogoutSuccessVisible] = useState(false);
 
   const name = profile?.name ?? '';
   const pal = name ? palette(name) : { bg: C.bg, text: C.muted };
@@ -588,8 +632,13 @@ export default function ProfileScreen() {
       await disableCurrentDevice();
     } finally {
       setLogoutConfirmVisible(false);
-      clearAuth();
       setLoggingOut(false);
+      // Brief success beat before the existing auth-state clear — presentation
+      // only. clearAuth() itself is unchanged; AuthProvider's existing route
+      // guard still reacts to it and redirects to Login exactly as before,
+      // just a moment later so the confirmation is actually visible.
+      setLogoutSuccessVisible(true);
+      setTimeout(clearAuth, 900);
     }
   };
 
@@ -778,6 +827,8 @@ export default function ProfileScreen() {
         onCancel={() => setLogoutConfirmVisible(false)}
         onConfirm={confirmLogout}
       />
+
+      <LogoutSuccessOverlay visible={logoutSuccessVisible} />
     </SafeAreaView>
   );
 }
@@ -1283,5 +1334,35 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontFamily: ManropeWeights.bold,
     color: '#FFFFFF',
+  },
+
+  // ── Logout success overlay ── same cream background as the auth screens
+  // (splash, login) — this is a transition into that flow, not a Profile
+  // surface, so it deliberately doesn't use Profile's own `C` palette.
+  logoutOverlay: {
+    flex: 1,
+    backgroundColor: '#FFF0E6',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  logoutIcon: {
+    width: 64,
+    height: 64,
+    marginBottom: 20,
+  },
+  logoutTitle: {
+    fontSize: 20,
+    fontFamily: ManropeWeights.bold,
+    color: '#1A1A1A',
+    letterSpacing: -0.3,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  logoutSubtitle: {
+    fontSize: 14,
+    fontFamily: ManropeWeights.regular,
+    color: '#888888',
+    textAlign: 'center',
+    lineHeight: 20,
   },
 });

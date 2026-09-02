@@ -1,8 +1,6 @@
 import { useState } from 'react';
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -10,9 +8,11 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 
+import { KeyboardAvoidingScreen } from '@/components/ui/KeyboardAvoidingScreen';
 import { authService, getFirebaseAuthErrorMessage, toIndianE164 } from '@/services/authService';
 import { ROUTES } from '@/constants/routes';
 import { ManropeWeights } from '@/constants/theme';
@@ -54,10 +54,7 @@ export default function LoginScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView
-        style={styles.kav}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+      <KeyboardAvoidingScreen style={styles.kav}>
         <ScrollView
           contentContainerStyle={styles.scroll}
           keyboardShouldPersistTaps="handled"
@@ -65,9 +62,11 @@ export default function LoginScreen() {
         >
           {/* Logo */}
           <View style={styles.logoRow}>
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>S</Text>
-            </View>
+            <Image
+              source={require('@/assets/images/icon.png')}
+              style={styles.badge}
+              contentFit="contain"
+            />
             <Text style={styles.appName}>STRIKE</Text>
           </View>
 
@@ -117,7 +116,7 @@ export default function LoginScreen() {
             <Text style={styles.disclaimerLink}>Privacy Policy</Text>
           </Text>
         </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAvoidingScreen>
     </SafeAreaView>
   );
 }
@@ -145,16 +144,6 @@ const styles = StyleSheet.create({
   badge: {
     width: 40,
     height: 40,
-    borderRadius: 10,
-    backgroundColor: '#C0392B',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  badgeText: {
-    fontSize: 22,
-    fontWeight: '800',
-    fontFamily: ManropeWeights.extraBold,
-    color: '#FFFFFF',
   },
   appName: {
     fontSize: 18,
