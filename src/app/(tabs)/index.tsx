@@ -297,22 +297,26 @@ interface GeoResult {
   longitude: number;
 }
 
+// Throws on any provider/network failure instead of swallowing it — callers
+// must distinguish "the provider failed" from "the provider returned zero
+// matches" (an empty array here means the latter, unambiguously).
 async function searchArea(query: string): Promise<GeoResult[]> {
-  try {
-    const url =
-      `https://nominatim.openstreetmap.org/search` +
-      `?format=json` +
-      `&q=${encodeURIComponent(query)}` +
-      `&countrycodes=in` +
-      `&limit=8` +
-      `&addressdetails=1` +
-      `&dedupe=1` +
-      `&email=inquire.scalatechnologies%40gmail.com`;
+  const url =
+    `https://nominatim.openstreetmap.org/search` +
+    `?format=json` +
+    `&q=${encodeURIComponent(query)}` +
+    `&countrycodes=in` +
+    `&limit=8` +
+    `&addressdetails=1` +
+    `&dedupe=1` +
+    `&email=inquire.scalatechnologies%40gmail.com`;
 
-    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-    if (!res.ok) return [];
+  const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+  if (!res.ok) {
+    throw new Error(`Nominatim request failed: ${res.status}`);
+  }
 
-    const data = (await res.json()) as Array<{
+  const data = (await res.json()) as Array<{
       display_name: string;
       lat: string;
       lon: string;
@@ -354,9 +358,6 @@ async function searchArea(query: string): Promise<GeoResult[]> {
         };
       })
       .filter((r): r is GeoResult => r !== null && r.name.length > 0);
-  } catch {
-    return [];
-  }
 }
 
 // ─── Skeleton ──────────────────────────────────────────────────────────────────
@@ -1019,7 +1020,7 @@ function LocationPermissionBanner({
 // ─── Active Location Sheet ─────────────────────────────────────────────────────
 
 type SheetView = 'options' | 'search';
-type SearchPhase = 'idle' | 'waiting' | 'loading' | 'done';
+type SearchPhase = 'idle' | 'waiting' | 'loading' | 'done' | 'error';
 
 function ActiveLocationSheet({
   visible,
@@ -1111,10 +1112,17 @@ function ActiveLocationSheet({
     debounceRef.current = setTimeout(async () => {
       const gen = ++searchGenRef.current;
       setSearchPhase('loading');
-      const results = await searchArea(text);
-      if (gen !== searchGenRef.current) return;
-      setGeoResults(results);
-      setSearchPhase('done');
+      try {
+        const results = await searchArea(text);
+        if (gen !== searchGenRef.current) return;
+        setGeoResults(results);
+        setSearchPhase('done');
+      } catch (err) {
+        if (gen !== searchGenRef.current) return;
+        console.log('[LocationSearch] provider error', err);
+        setGeoResults([]);
+        setSearchPhase('error');
+      }
     }, 400);
   }, []);
 
@@ -1288,6 +1296,11 @@ function ActiveLocationSheet({
             <Text style={styles.sheetSearchStatusTitle}>No results found</Text>
             <Text style={styles.sheetSearchStatusText}>Try a different name or spelling</Text>
           </View>
+        ) : searchPhase === 'error' ? (
+          <View style={styles.sheetSearchStatus}>
+            <Text style={styles.sheetSearchStatusTitle}>Couldn't search right now</Text>
+            <Text style={styles.sheetSearchStatusText}>Check your connection and try again</Text>
+          </View>
         ) : (
           <View style={styles.sheetSearchStatus}>
             <Text style={styles.sheetSearchStatusText}>
@@ -1427,8 +1440,16 @@ export default function HomeScreen() {
   // or list on the home screen any more.
   const { data: nearbyStores } = useNearbyStores({ enabled: locationReady && locationSynced });
 
+  // Location-aware search: sends the user's latest known coordinates directly
+  // with each request whenever GPS has resolved, so results come back
+  // distance-filtered and nearest-first — falls back to a plain keyword
+  // search (coords undefined) when location was skipped/denied/not-yet-ready.
   const isSearching = debouncedQuery.trim().length >= 2;
-  const { data: searchResults, isLoading: searchLoading } = useSearchStores(debouncedQuery);
+  const { data: searchResults, isLoading: searchLoading } = useSearchStores(
+    debouncedQuery,
+    locationReady && coords ? coords.latitude : undefined,
+    locationReady && coords ? coords.longitude : undefined,
+  );
 
   const {
     data: homeCategoryStores, isLoading: homeCategoryLoading, error: homeCategoryError,

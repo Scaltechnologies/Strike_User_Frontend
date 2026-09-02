@@ -1,12 +1,29 @@
+import { DEFAULT_RADIUS_KM } from '@/constants/api';
 import { storeApi } from '@/api/store.api';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+
+// Rounded to ~1.1km grid cells (2 decimal places) — enough to bucket "the same
+// neighborhood" together so React Query reuses results across the tiny GPS
+// jitter a watcher can report, without going so coarse that a real move
+// between areas silently keeps stale results under the same key.
+function roundCoord(n: number): number {
+  return Math.round(n * 100) / 100;
+}
 
 // Hierarchical query key factory — used for targeted invalidation.
 export const storeKeys = {
   all:    ['stores'] as const,
   list:   () => [...storeKeys.all, 'list'] as const,
   nearby: () => [...storeKeys.all, 'nearby'] as const,
-  search: (query: string) => [...storeKeys.all, 'search', query] as const,
+  search: (query: string, latitude?: number, longitude?: number, radiusKm?: number) =>
+    [
+      ...storeKeys.all,
+      'search',
+      query,
+      latitude != null ? roundCoord(latitude) : null,
+      longitude != null ? roundCoord(longitude) : null,
+      latitude != null ? (radiusKm ?? DEFAULT_RADIUS_KM) : null,
+    ] as const,
   detail: (id: string | number) => [...storeKeys.all, 'detail', String(id)] as const,
   menu:   (id: string | number) => [...storeKeys.all, 'menu', String(id)] as const,
   categories: () => [...storeKeys.all, 'categories'] as const,
@@ -53,22 +70,14 @@ export function useAllStores() {
 }
 
 // Nearby stores — only enabled once the user's location has been saved
-// to the backend (locationStatus === 'ready').
-export function useNearbyStores(opts: { enabled: boolean }) {
+// to the backend (locationStatus === 'ready'). radiusKm is sent explicitly
+// (rather than relying on the backend's own default) so it's a visible,
+// adjustable contract value — see DEFAULT_RADIUS_KM.
+export function useNearbyStores(opts: { enabled: boolean; radiusKm?: number }) {
+  const radiusKm = opts.radiusKm ?? DEFAULT_RADIUS_KM;
   return useQuery({
     queryKey: storeKeys.nearby(),
-    queryFn: async () => {
-      console.log("🚀 Nearby query started");
-
-      try {
-        const result = await storeApi.getNearbyStores();
-        console.log("✅ Nearby success:", result);
-        return result;
-      } catch (error) {
-        console.log("❌ Nearby failed:", error);
-        throw error;
-      }
-    },
+    queryFn: () => storeApi.getNearbyStores(radiusKm),
     enabled: opts.enabled,
     staleTime: 2 * 60 * 1000,
     retry: (failureCount, error: unknown) => {
@@ -79,11 +88,25 @@ export function useNearbyStores(opts: { enabled: boolean }) {
   });
 }
 
-// Search — enabled once query reaches 2+ characters.
-export function useSearchStores(query: string) {
+// Search — enabled once query reaches 2+ characters. Location-aware when
+// latitude/longitude are supplied (results come back distance-filtered and
+// nearest-first); falls back to a plain keyword search when location isn't
+// available yet (permission skipped/denied, or GPS hasn't resolved) — the
+// query key includes the (rounded) coordinates so a location change never
+// serves stale results from a different area.
+export function useSearchStores(query: string, latitude?: number, longitude?: number, radiusKm?: number) {
+  const hasLocation = latitude != null && longitude != null;
   return useQuery({
-    queryKey: storeKeys.search(query),
-    queryFn: () => storeApi.searchStores(query),
+    queryKey: storeKeys.search(query, latitude, longitude, radiusKm),
+    queryFn: async () => {
+      console.log('[Search]', { query, hasLocation, radiusKm: hasLocation ? (radiusKm ?? DEFAULT_RADIUS_KM) : null });
+      const results = await storeApi.searchStores(
+        query,
+        hasLocation ? { latitude: latitude!, longitude: longitude!, radiusKm } : undefined,
+      );
+      console.log('[Search] Result count', results.length);
+      return results;
+    },
     enabled: query.trim().length >= 2,
     staleTime: 30 * 1000,
   });

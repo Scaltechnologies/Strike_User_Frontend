@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useAudioPlayer } from 'expo-audio';
 import { CheckCircle2 } from 'lucide-react-native';
 import Animated, {
   ReduceMotion,
@@ -86,8 +87,19 @@ export default function ActivationSuccessScreen() {
   const ctaOpacity   = useSharedValue(0);
   const ctaY         = useSharedValue(10);
 
+  // Restrained two-note chime — mirrors SuccessCheck's "one premium celebration
+  // moment, no confetti" motion spec, just in sound. Plays once, right alongside
+  // the checkmark, for both ONLINE and Pay-at-Store purchases (this screen is the
+  // one and only reveal moment for both — see pay-at-store/[paymentId].tsx).
+  const chime = useAudioPlayer(require('@/assets/sounds/success.wav'));
+
   useEffect(() => {
     tapSuccess();
+    try {
+      chime.play();
+    } catch {
+      // Best-effort — a missing audio output shouldn't block the celebration.
+    }
     checkScale.value = withSpring(1, {
       damping: 9,
       stiffness: 150,

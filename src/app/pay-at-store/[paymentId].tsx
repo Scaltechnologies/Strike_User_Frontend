@@ -14,7 +14,7 @@ import { useCancelPayment, useCreatePayment, usePayment } from '@/hooks/usePayme
 import { subscriptionKeys } from '@/hooks/useSubscriptions';
 import type { StoredPayAtStoreSession } from '@/services/storageService';
 import { usePayAtStoreSessionStore } from '@/store/payAtStoreSessionStore';
-import { CC, formatCardPrice } from '@/components/cards/theme';
+import { CC } from '@/components/cards/theme';
 import { ManropeWeights } from '@/constants/theme';
 import { ROUTES, buildRoute } from '@/constants/routes';
 import { PayAtStoreQrCard } from '@/components/payment/PayAtStoreQrCard';
@@ -22,7 +22,6 @@ import { VerificationCodeDisplay } from '@/components/payment/VerificationCodeDi
 import { LockedCardPreview } from '@/components/payment/LockedCardPreview';
 import { PulsingDot } from '@/components/ui/PulsingDot';
 import { StatusRing } from '@/components/ui/StatusRing';
-import { SuccessCheck } from '@/components/ui/SuccessCheck';
 import { FadeInView } from '@/components/ui/FadeInView';
 import type { PaymentStatus } from '@/types/payment';
 
@@ -183,6 +182,11 @@ export default function PayAtStoreScreen() {
   const isOpen = !payment || OPEN_STATUSES.includes(payment.status);
 
   // ── SUCCESS handoff ────────────────────────────────────────────────────────────
+  // Hands off to /subscriptions/success immediately — no separate "confirmed" reveal
+  // screen in between. That screen already owns the one checkmark + card-flip moment
+  // (see PurchaseCardReveal); showing a second, different-looking unlock animation
+  // here first just doubled up the reveal and read as less polished than ONLINE,
+  // which goes straight from Razorpay checkout into that same screen.
   useEffect(() => {
     if (!payment || successHandled) return;
     if (payment.status === 'SUCCESS' && payment.subscriptionId) {
@@ -190,26 +194,22 @@ export default function PayAtStoreScreen() {
       removeStoreSession(paymentIdNum);
       void queryClient.invalidateQueries({ queryKey: subscriptionKeys.myActive() });
       void queryClient.invalidateQueries({ queryKey: subscriptionKeys.all });
-      const subscriptionId = payment.subscriptionId;
-      const t = setTimeout(() => {
-        subscriptionApi
-          .getById(subscriptionId)
-          .then((sub) => {
-            router.replace({
-              pathname: '/subscriptions/success',
-              params: {
-                subId: String(sub.id),
-                cardName: sub.cardName,
-                walletBalance: String(sub.walletBalance),
-                expiresAt: sub.expiresAt,
-              },
-            } as never);
-          })
-          .catch(() => {
-            router.replace(ROUTES.TABS.CARDS as never);
-          });
-      }, 700);
-      return () => clearTimeout(t);
+      subscriptionApi
+        .getById(payment.subscriptionId)
+        .then((sub) => {
+          router.replace({
+            pathname: '/subscriptions/success',
+            params: {
+              subId: String(sub.id),
+              cardName: sub.cardName,
+              walletBalance: String(sub.walletBalance),
+              expiresAt: sub.expiresAt,
+            },
+          } as never);
+        })
+        .catch(() => {
+          router.replace(ROUTES.TABS.CARDS as never);
+        });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [payment, successHandled]);
@@ -375,17 +375,17 @@ export default function PayAtStoreScreen() {
     );
   }
 
-  // ── SUCCESS — brief unlock moment before handoff to /subscriptions/success ─────
+  // ── SUCCESS — momentary bridge while the subscription loads, then straight to
+  // /subscriptions/success for the actual reveal (same as ONLINE payments; see the
+  // handoff effect above). Deliberately no checkmark/card flourish here — showing
+  // one now and another, different-looking one a beat later read as two separate,
+  // clashing "success" moments instead of one polished one. ─────────────────────
   if (status === 'SUCCESS') {
     return (
       <SafeAreaView style={styles.root} edges={['top']}>
         <View style={styles.centerState}>
-          <SuccessCheck color="#1A7A35" backgroundColor={C.successSoft} size={80} />
+          <ActivityIndicator size="large" color={C.accent} />
           <Text style={styles.centerTitle}>Payment Confirmed</Text>
-          <Text style={styles.amountLarge}>{formatCardPrice(amount)}</Text>
-          <View style={{ marginTop: 20, width: '100%', maxWidth: 320 }}>
-            <LockedCardPreview cardName={cardName} amount={amount} unlocked />
-          </View>
         </View>
       </SafeAreaView>
     );
@@ -490,7 +490,6 @@ const styles = StyleSheet.create({
   centerTitle: { fontSize: 18, fontFamily: ManropeWeights.bold, color: C.primary, marginTop: 8, textAlign: 'center' },
   centerSub: { fontSize: 14, fontFamily: ManropeWeights.regular, color: C.secondary, textAlign: 'center', lineHeight: 21, marginTop: 4 },
   actionErrorText: { fontSize: 13, fontFamily: ManropeWeights.medium, color: C.dangerDark, textAlign: 'center', marginTop: 4 },
-  amountLarge: { fontSize: 30, fontFamily: ManropeWeights.extraBold, color: C.primary, letterSpacing: -0.8, marginTop: 2 },
 
   failIcon: { width: 72, height: 72, borderRadius: 36, backgroundColor: C.dangerSoft, justifyContent: 'center', alignItems: 'center' },
 
