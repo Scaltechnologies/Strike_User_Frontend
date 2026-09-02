@@ -10,14 +10,27 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  TextInputKeyPressEvent,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Animated, {
+  Easing,
+  FadeInDown,
+  ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 
 import { authApi } from '@/api/auth.api';
 import { authService, FirebaseAuthError, getFirebaseAuthErrorMessage, toIndianE164 } from '@/services/authService';
 import { useAuthStore } from '@/store/authStore';
 import { ManropeWeights } from '@/constants/theme';
+import { PulsingDot } from '@/components/ui/PulsingDot';
+import { tapSelect, tapSuccess, tapWarning } from '@/utils/haptics';
 
 const OTP_LENGTH = 6;
 const RESEND_SECONDS = 60;
@@ -25,6 +38,104 @@ const RESEND_SECONDS = 60;
 function formatPhone(phone: string): string {
   if (phone.length <= 5) return `+91 ${phone}`;
   return `+91 ${phone.slice(0, 5)} ${phone.slice(5)}`;
+}
+
+// ── Shake wrapper — owns its own shared value (mirrors OtpDigitBox's pop
+// animation below), triggered by bumping `trigger`. ──────────────────────────
+interface ShakeViewProps {
+  trigger: number;
+  entering?: React.ComponentProps<typeof Animated.View>['entering'];
+  style?: React.ComponentProps<typeof Animated.View>['style'];
+  children: React.ReactNode;
+}
+
+function ShakeView({ trigger, entering, style, children }: ShakeViewProps) {
+  const shakeX = useSharedValue(0);
+
+  useEffect(() => {
+    if (trigger === 0) return;
+    shakeX.value = withSequence(
+      withTiming(-8, { duration: 45, reduceMotion: ReduceMotion.System }),
+      withTiming(8, { duration: 45, reduceMotion: ReduceMotion.System }),
+      withTiming(-6, { duration: 45, reduceMotion: ReduceMotion.System }),
+      withTiming(6, { duration: 45, reduceMotion: ReduceMotion.System }),
+      withTiming(0, { duration: 45, reduceMotion: ReduceMotion.System }),
+    );
+  }, [trigger, shakeX]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: shakeX.value }],
+  }));
+
+  return (
+    <Animated.View entering={entering} style={[style, animatedStyle]}>
+      {children}
+    </Animated.View>
+  );
+}
+
+// ── Single OTP box — pops on fill, so autofilled/pasted digits read as an
+// event instead of appearing statically. ─────────────────────────────────────
+interface OtpDigitBoxProps {
+  value: string;
+  focused: boolean;
+  hasError: boolean;
+  editable: boolean;
+  refCallback: (el: TextInput | null) => void;
+  onChangeText: (text: string) => void;
+  onKeyPress: (e: TextInputKeyPressEvent) => void;
+  onFocus: () => void;
+  onBlur: () => void;
+}
+
+function OtpDigitBox({
+  value, focused, hasError, editable, refCallback,
+  onChangeText, onKeyPress, onFocus, onBlur,
+}: OtpDigitBoxProps) {
+  const scale = useSharedValue(1);
+  const wasFilled = useRef(false);
+
+  useEffect(() => {
+    const filled = value.length > 0;
+    if (filled && !wasFilled.current) {
+      scale.value = withSequence(
+        withTiming(1.16, { duration: 90, easing: Easing.out(Easing.quad), reduceMotion: ReduceMotion.System }),
+        withSpring(1, { damping: 12, stiffness: 220, reduceMotion: ReduceMotion.System }),
+      );
+    }
+    wasFilled.current = filled;
+  }, [value, scale]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  return (
+    <Animated.View style={animatedStyle}>
+      <TextInput
+        ref={refCallback}
+        style={[
+          styles.box,
+          focused && styles.boxFocused,
+          !!value && styles.boxFilled,
+          hasError && styles.boxError,
+        ]}
+        value={value}
+        onChangeText={onChangeText}
+        onKeyPress={onKeyPress}
+        onFocus={onFocus}
+        onBlur={onBlur}
+        keyboardType="number-pad"
+        // Allow up to OTP_LENGTH chars so SMS autofill & paste work on box 0
+        maxLength={OTP_LENGTH}
+        textContentType="oneTimeCode"
+        autoComplete="sms-otp"
+        selectTextOnFocus
+        editable={editable}
+        caretHidden
+      />
+    </Animated.View>
+  );
 }
 
 export default function OtpScreen() {
@@ -41,7 +152,12 @@ export default function OtpScreen() {
   const [canResend, setCanResend] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
 
+  const [shakeToken, setShakeToken] = useState(0);
+
   const inputRefs = useRef<(TextInput | null)[]>(Array(OTP_LENGTH).fill(null));
+  // Guards against the auto-submit effect and a manual button tap racing
+  // each other into two concurrent verify calls.
+  const verifyingRef = useRef(false);
 
   // Auto-focus first box on mount
   useEffect(() => {
@@ -77,6 +193,7 @@ export default function OtpScreen() {
         const newDigits = [...digits];
         newDigits[index] = cleaned[1];
         setDigits(newDigits);
+        tapSelect();
         if (index < OTP_LENGTH - 1) inputRefs.current[index + 1]?.focus();
         return;
       }
@@ -89,6 +206,7 @@ export default function OtpScreen() {
           .split('')
           .forEach((d, i) => { newDigits[i] = d; });
         setDigits(newDigits);
+        tapSelect();
         inputRefs.current[Math.min(cleaned.length - 1, OTP_LENGTH - 1)]?.focus();
         return;
       }
@@ -97,6 +215,7 @@ export default function OtpScreen() {
       const newDigits = [...digits];
       newDigits[index] = cleaned;
       setDigits(newDigits);
+      tapSelect();
       if (cleaned && index < OTP_LENGTH - 1) {
         inputRefs.current[index + 1]?.focus();
       }
@@ -120,13 +239,15 @@ export default function OtpScreen() {
   const otp = digits.join('');
   const isFilled = otp.length === OTP_LENGTH;
 
-  const handleVerify = async () => {
-    if (!isFilled || loading) return;
+  const handleVerify = useCallback(async () => {
+    if (!isFilled || verifyingRef.current) return;
+    verifyingRef.current = true;
     setLoading(true);
     setError('');
     try {
       const idToken = await authService.confirmOtp(otp);
       const res = await authApi.verifyFirebaseToken(idToken);
+      tapSuccess();
       // setTokens → isAuthenticated = true → AuthProvider navigates to home
       setTokens(res.token, res.refreshToken, String(res.userId));
     } catch (err: unknown) {
@@ -136,13 +257,26 @@ export default function OtpScreen() {
           ? ((err.response?.data as { message?: string })?.message ?? 'Invalid OTP. Please try again.')
           : 'Something went wrong. Please try again.';
       setError(msg);
+      setShakeToken((t) => t + 1);
+      tapWarning();
       // Clear boxes and re-focus first on error
       setDigits(Array(OTP_LENGTH).fill(''));
       setTimeout(() => inputRefs.current[0]?.focus(), 100);
     } finally {
+      verifyingRef.current = false;
       setLoading(false);
     }
-  };
+  }, [isFilled, otp, setTokens]);
+
+  // The whole point: once the last digit lands — typed, pasted, or
+  // SMS-autofilled — verification starts on its own, no button tap needed.
+  // Deferred a tick so the setState calls inside handleVerify don't run
+  // synchronously from within the effect body.
+  useEffect(() => {
+    if (!isFilled) return;
+    const t = setTimeout(() => { void handleVerify(); }, 0);
+    return () => clearTimeout(t);
+  }, [isFilled, handleVerify]);
 
   const handleResend = async () => {
     if (!canResend || resendLoading) return;
@@ -160,6 +294,8 @@ export default function OtpScreen() {
       setResendLoading(false);
     }
   };
+
+  const statusLabel = loading ? 'Verifying…' : 'Waiting for code…';
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -181,48 +317,49 @@ export default function OtpScreen() {
             <Text style={styles.backText}>← Back</Text>
           </Pressable>
 
-          <Text style={styles.heading}>Verify OTP</Text>
-          {!!phone && (
-            <Text style={styles.sub}>
-              Code sent to{' '}
-              <Text style={styles.phoneHighlight}>{formatPhone(phone)}</Text>
-            </Text>
-          )}
+          <Animated.View entering={FadeInDown.duration(400).springify()}>
+            <Text style={styles.heading}>Verify OTP</Text>
+            {!!phone && (
+              <Text style={styles.sub}>
+                Code sent to{' '}
+                <Text style={styles.phoneHighlight}>{formatPhone(phone)}</Text>
+              </Text>
+            )}
+          </Animated.View>
 
           {/* OTP boxes */}
-          <View style={styles.boxRow}>
-            {Array.from({ length: OTP_LENGTH }).map((_, i) => (
-              <TextInput
+          <ShakeView
+            trigger={shakeToken}
+            entering={FadeInDown.duration(400).delay(80).springify()}
+            style={styles.boxRow}
+          >
+            {digits.map((d, i) => (
+              <OtpDigitBox
                 key={i}
-                ref={(el) => { inputRefs.current[i] = el; }}
-                style={[
-                  styles.box,
-                  focusedIndex === i && styles.boxFocused,
-                  !!digits[i] && styles.boxFilled,
-                  !!error && styles.boxError,
-                ]}
-                value={digits[i]}
+                value={d}
+                focused={focusedIndex === i}
+                hasError={!!error}
+                editable={!loading}
+                refCallback={(el) => { inputRefs.current[i] = el; }}
                 onChangeText={(text) => handleChange(text, i)}
-                onKeyPress={({ nativeEvent }) =>
-                  handleKeyPress(nativeEvent.key, i)
-                }
+                onKeyPress={({ nativeEvent }) => handleKeyPress(nativeEvent.key, i)}
                 onFocus={() => setFocusedIndex(i)}
                 onBlur={() => setFocusedIndex(null)}
-                keyboardType="number-pad"
-                // Allow up to OTP_LENGTH chars so SMS autofill & paste work on box 0
-                maxLength={OTP_LENGTH}
-                textContentType="oneTimeCode"
-                autoComplete="sms-otp"
-                selectTextOnFocus
-                editable={!loading}
-                caretHidden
               />
             ))}
-          </View>
+          </ShakeView>
 
-          {!!error && <Text style={styles.errorText}>{error}</Text>}
+          {error ? (
+            <Text style={styles.errorText}>{error}</Text>
+          ) : (
+            <View style={styles.statusRow}>
+              <PulsingDot color={loading ? '#C0392B' : '#B8A79E'} size={7} />
+              <Text style={styles.statusText}>{statusLabel}</Text>
+            </View>
+          )}
 
-          {/* Verify */}
+          {/* Verify — fallback for manual entry; the effect above already
+              submits automatically the moment the boxes fill. */}
           <Pressable
             style={[
               styles.button,
@@ -330,6 +467,19 @@ const styles = StyleSheet.create({
   },
   boxError: {
     borderColor: '#E74C3C',
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 16,
+    minHeight: 17,
+  },
+  statusText: {
+    fontSize: 13,
+    color: '#8A8A8A',
+    fontFamily: ManropeWeights.regular,
   },
   errorText: {
     fontSize: 13,

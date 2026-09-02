@@ -55,13 +55,18 @@ const C = CC;
 
 function extractApiError(err: unknown): string {
   const resp = (err as { response?: { data?: { message?: string } } })?.response;
-  if (resp?.data?.message) return resp.data.message;
+  const message = resp?.data?.message;
+  // The backend's generic DataIntegrityViolationException handler deliberately never leaks
+  // column/constraint names — its one canned string is a transient-conflict signal, not
+  // consumer copy (e.g. an idempotency-key race between overlapping create-payment calls).
+  // Never show it verbatim; a retry a moment later resolves it in that case.
+  if (message && message !== 'A record with this data already exists') return message;
   const code = (err as { code?: string })?.code;
   if (code === 'ERR_NETWORK' || code === 'NETWORK_ERROR') {
     return 'Network error. Check your connection and try again.';
   }
   const status = (err as { response?: { status?: number } })?.response?.status;
-  if (status === 409) return 'You already have an active membership for this card.';
+  if (status === 409) return 'That didn’t go through — please try again in a moment.';
   if (status === 400) return 'This membership plan is no longer available.';
   if (status === 401) return 'Session expired. Please log in again.';
   return 'Something went wrong. Please try again.';

@@ -16,6 +16,7 @@ import { Image } from 'expo-image';
 import {
   AlertCircle,
   ArrowLeft,
+  Calendar,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -24,10 +25,13 @@ import {
   CreditCard,
   MapPin,
   QrCode,
+  Receipt,
   SearchX,
   Settings,
+  Store,
   Tag,
   Ticket,
+  Timer,
   Wallet,
   XCircle,
 } from 'lucide-react-native';
@@ -70,6 +74,12 @@ const C = {
   danger:      '#FF3B30',
   dangerSoft:  '#FEF0EE',
   dangerDark:  '#C0261A',
+  info:        '#2563EB',
+  infoSoft:    '#EEF3FF',
+  plum:        '#7C3AED',
+  plumSoft:    '#F5F0FF',
+  teal:        '#0D9488',
+  tealSoft:    '#EBFAF8',
   skeleton:    '#E5E5EA',
   heroSurface: '#111119',
   heroMuted:   'rgba(255,255,255,0.40)',
@@ -430,21 +440,27 @@ function MembershipHero({
 
 // ── Info section ───────────────────────────────────────────────────────────────
 
-function InfoRow({
+// ── Detail tile (icon-led grid cell) ───────────────────────────────────────────
+// Replaces the old stacked "label · value" list rows — several of those in a
+// row (Validity, then Membership Details) read as one long repeating list.
+// A grid of icon-topped tiles gives each fact its own visual anchor instead.
+
+function DetailTile({
+  icon,
+  iconBg,
   label,
   value,
-  isLast,
-  highlight,
 }: {
+  icon: React.ReactNode;
+  iconBg: string;
   label: string;
   value: string;
-  isLast?: boolean;
-  highlight?: boolean;
 }) {
   return (
-    <View style={[styles.infoRow, !isLast && styles.infoRowBorder]}>
-      <Text style={styles.infoLabel}>{label}</Text>
-      <Text style={[styles.infoValue, highlight && styles.infoValueHighlight]}>{value}</Text>
+    <View style={styles.detailTile}>
+      <View style={[styles.detailTileIconWrap, { backgroundColor: iconBg }]}>{icon}</View>
+      <Text style={styles.detailTileLabel} numberOfLines={1}>{label}</Text>
+      <Text style={styles.detailTileValue} numberOfLines={1}>{value}</Text>
     </View>
   );
 }
@@ -761,14 +777,15 @@ function DetailSkeleton({ onBack }: { onBack: () => void }) {
           </View>
         </View>
 
-        {/* Validity skeleton */}
+        {/* Details grid skeleton */}
         <View style={styles.section}>
           <SkeletonBone style={{ width: 60, height: 12, marginBottom: 12 }} />
-          <View style={styles.sectionCard}>
-            {[0, 1].map((i) => (
-              <View key={i} style={[styles.infoRow, i < 1 && styles.infoRowBorder]}>
-                <SkeletonBone style={{ width: 80, height: 12 }} />
-                <SkeletonBone style={{ width: 110, height: 12 }} />
+          <View style={styles.detailsGrid}>
+            {[0, 1, 2, 3].map((i) => (
+              <View key={i} style={styles.detailTile}>
+                <View style={[styles.skBone, { width: 34, height: 34, borderRadius: 10, marginBottom: 10 }]} />
+                <SkeletonBone style={{ width: '60%', height: 9, marginBottom: 6 }} />
+                <SkeletonBone style={{ width: '80%', height: 12 }} />
               </View>
             ))}
           </View>
@@ -1098,41 +1115,46 @@ export default function SubscriptionDetailScreen() {
           storeName={store?.name ?? ''}
         />
 
-        {/* ── Validity ───────────────────────────────────────────── */}
-        <Section title="Validity">
-          <InfoRow
-            label="Valid Until"
-            value={fmtDate(sub.expiresAt)}
-            isLast={effectiveStatus !== 'ACTIVE'}
-          />
-          {effectiveStatus === 'ACTIVE' && (
-            <InfoRow
-              label="Days Remaining"
-              value={days === 0 ? 'Expires today' : `${days} days`}
-              isLast
+        {/* ── Details — validity + membership facts as an icon-tile grid ── */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Details</Text>
+          <View style={styles.detailsGrid}>
+            <DetailTile
+              icon={<Calendar size={16} color={C.accent} strokeWidth={2} />}
+              iconBg={C.accentSoft}
+              label={effectiveStatus === 'EXPIRED' ? 'Expired On' : 'Valid Until'}
+              value={fmtDate(sub.expiresAt)}
             />
-          )}
-        </Section>
-
-        {/* ── Membership details ─────────────────────────────────── */}
-        <Section title="Membership Details">
-          <InfoRow
-            label="Purchased"
-            value={fmtDate(sub.purchasedAt)}
-          />
-          <InfoRow
-            label="Store"
-            value={store?.name ?? `Store #${sub.storeId}`}
-            isLast={!paymentMethodLabel(sub.paymentMethod)}
-          />
-          {paymentMethodLabel(sub.paymentMethod) && (
-            <InfoRow
-              label="Payment Method"
-              value={paymentMethodLabel(sub.paymentMethod)!}
-              isLast
+            {effectiveStatus === 'ACTIVE' && (
+              <DetailTile
+                icon={<Timer size={16} color={C.successDark} strokeWidth={2} />}
+                iconBg={C.successSoft}
+                label="Days Remaining"
+                value={days === 0 ? 'Expires today' : `${days} days`}
+              />
+            )}
+            <DetailTile
+              icon={<Receipt size={16} color={C.plum} strokeWidth={2} />}
+              iconBg={C.plumSoft}
+              label="Purchased"
+              value={fmtDate(sub.purchasedAt)}
             />
-          )}
-        </Section>
+            <DetailTile
+              icon={<Store size={16} color={C.info} strokeWidth={2} />}
+              iconBg={C.infoSoft}
+              label="Store"
+              value={store?.name ?? `Store #${sub.storeId}`}
+            />
+            {paymentMethodLabel(sub.paymentMethod) && (
+              <DetailTile
+                icon={<CreditCard size={16} color={C.teal} strokeWidth={2} />}
+                iconBg={C.tealSoft}
+                label="Payment Method"
+                value={paymentMethodLabel(sub.paymentMethod)!}
+              />
+            )}
+          </View>
+        </View>
 
         <View style={{ height: effectiveStatus === 'ACTIVE' ? 56 + 24 + insets.bottom + 16 : 48 }} />
       </ScrollView>
@@ -1464,25 +1486,44 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: C.border,
   },
-  infoLabel: {
-    fontSize: 14,
-    color: C.secondary,
-    fontWeight: '500',
-    fontFamily: ManropeWeights.medium,
+  // ── Details grid (icon-topped tiles) ──────────────────────────────────────
+  detailsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
   },
-  infoValue: {
-    fontSize: 14,
-    color: C.primary,
-    fontWeight: '600',
+  detailTile: {
+    flexGrow: 1,
+    flexBasis: '46%',
+    backgroundColor: C.surface,
+    borderRadius: 16,
+    padding: 14,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 6 },
+      android: { elevation: 1 },
+    }),
+  },
+  detailTileIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  detailTileLabel: {
+    fontSize: 10.5,
     fontFamily: ManropeWeights.semiBold,
-    textAlign: 'right',
-    flexShrink: 1,
-    marginLeft: 12,
+    color: C.muted,
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
+    marginBottom: 3,
   },
-  infoValueHighlight: {
-    color: C.accent,
-    fontSize: 15,
-    fontFamily: ManropeWeights.regular,
+  detailTileValue: {
+    fontSize: 14.5,
+    fontFamily: ManropeWeights.bold,
+    color: C.primary,
+    letterSpacing: -0.1,
   },
 
   // ── Wallet balance row (icon + label + value) ─────────────────────────────

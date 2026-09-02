@@ -2,6 +2,12 @@
 // The /api prefix is included here so the gateway can route to services.
 const P = '/api';
 
+// Default nearby/search radius sent explicitly from the frontend — mirrors the
+// backend's own default (see UserStoreController / PublicStoreController), kept
+// here so it's a visible, adjustable contract value rather than an invisible
+// backend-only default the client silently relies on.
+export const DEFAULT_RADIUS_KM = 10;
+
 export const API_ENDPOINTS = {
   // PROVISIONAL — path + response shape not yet confirmed against the
   // backend. Meant to be a public (no-auth) endpoint the app can poll on
