@@ -3,13 +3,13 @@
 // store list to stores whose menu actually has that category; tapping the
 // active one again clears the filter.
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { UtensilsCrossed } from 'lucide-react-native';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useStoreCategories } from '@/hooks/useStores';
-import { useMediaSource } from '@/utils/media';
+import { useMediaSource, logMediaError } from '@/utils/media';
 import { tapSelect } from '@/utils/haptics';
 import { ManropeWeights } from '@/constants/theme';
 import { C } from '../store/theme';
@@ -41,6 +41,17 @@ function CategoryIcon({
   const source = useMediaSource(category.imageUrl);
   const bg = BG_PALETTE[hashIndex(category.name, BG_PALETTE.length)];
   const fg = FG_PALETTE[hashIndex(category.name, FG_PALETTE.length)];
+
+  // Without this, a category whose image URL fails to load (broken link,
+  // 404, slow/dropped request) rendered NOTHING — no error handling meant
+  // the persistent skeleton-tinted background behind the <Image> was the
+  // only thing left visible: a permanent blank gray circle instead of
+  // falling back to the UtensilsCrossed icon below.
+  const [imgFailed, setImgFailed] = useState(false);
+  const showPhoto = !!source && !imgFailed;
+  useEffect(() => {
+    setImgFailed(false);
+  }, [source?.uri]);
 
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(10)).current;
@@ -79,12 +90,21 @@ function CategoryIcon({
           <View
             style={[
               styles.iconWrap,
-              { backgroundColor: source ? C.skeleton : bg },
+              { backgroundColor: showPhoto ? C.skeleton : bg },
               selected && styles.iconWrapSelected,
             ]}
           >
-            {source ? (
-              <Image source={source} style={styles.iconImage} contentFit="cover" transition={200} />
+            {showPhoto && source ? (
+              <Image
+                source={source}
+                style={styles.iconImage}
+                contentFit="cover"
+                transition={200}
+                onError={(e) => {
+                  logMediaError(`category:${category.name}`, source.uri, e.error);
+                  setImgFailed(true);
+                }}
+              />
             ) : (
               <UtensilsCrossed size={20} color={fg} strokeWidth={1.6} />
             )}
