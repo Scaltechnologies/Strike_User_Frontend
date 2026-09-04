@@ -12,7 +12,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
-  Map,
   MapPin,
   Navigation,
   RefreshCw,
@@ -47,7 +46,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AnimatedHomeBackground } from '@/components/home/AnimatedHomeBackground';
 import { BannerCarousel } from '@/components/home/BannerCarousel';
 import { CategoriesRow } from '@/components/home/CategoriesRow';
-import { MapLocationPicker } from '@/components/home/MapLocationPicker';
 import { PurchasedCardsCarousel } from '@/components/home/PurchasedCardsCarousel';
 import { PressableScale } from '@/components/ui/PressableScale';
 import { FadeInView } from '@/components/ui/FadeInView';
@@ -1151,14 +1149,12 @@ function ActiveLocationSheet({
   onClose,
   onDetect,
   onSelectHistory,
-  onPickOnMap,
 }: {
   visible: boolean;
   history: RecentLocation[];
   onClose: () => void;
   onDetect: () => void;
   onSelectHistory: (lat: number, lng: number, name: string) => void;
-  onPickOnMap: () => void;
 }) {
   const [searchFocused, setSearchFocused] = useState(false);
   const searchFocusAnim = useRef(new Animated.Value(0)).current;
@@ -1347,21 +1343,6 @@ function ActiveLocationSheet({
         </PressableScale>
       </FadeInView>
 
-      <FadeInView delay={140} translateYFrom={14}>
-        <PressableScale style={styles.optionCard} onPress={() => onPickOnMap()}>
-          <LinearGradient colors={[C.accent, C.accentDeep]} style={styles.optionIconGrad}>
-            <Map size={19} color="#FFFFFF" strokeWidth={2.2} />
-          </LinearGradient>
-          <View style={styles.sheetOptionContent}>
-            <Text style={styles.sheetOptionLabel}>Pick on map</Text>
-            <Text style={styles.sheetOptionSub}>Drag the pin to any spot</Text>
-          </View>
-          <View style={styles.newBadge}>
-            <Text style={styles.newBadgeText}>NEW</Text>
-          </View>
-        </PressableScale>
-      </FadeInView>
-
       {history.length > 0 && (
         <FadeInView delay={190} translateYFrom={14} style={styles.sheetRecentSection}>
           <Text style={styles.sheetSectionLabel}>Recent</Text>
@@ -1523,12 +1504,15 @@ function ActiveLocationSheet({
       statusBarTranslucent
     >
       <KeyboardAvoidingScreen style={styles.sheetKAV}>
-        {/* Animated frosted backdrop */}
+        {/* Animated frosted backdrop — blur is iOS-only: expo-blur's Android
+            implementation re-captures on every parent re-render (every
+            keystroke while searching triggers one), which reads as visible
+            flicker on Android. A flat dim overlay does the same job there. */}
         <Animated.View
           style={[StyleSheet.absoluteFill, { opacity: backdropOpacity }]}
           pointerEvents="box-none"
         >
-          <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFill} />
+          {Platform.OS === 'ios' && <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFill} />}
           <View style={[StyleSheet.absoluteFill, styles.sheetBackdrop]} />
           <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         </Animated.View>
@@ -1598,8 +1582,6 @@ export default function HomeScreen() {
     }
   }, [initLocation]);
 
-  const [mapPickerVisible, setMapPickerVisible] = useState(false);
-
   const openLocationPicker = useCallback(async () => {
     const history = await storageService.getLocationHistory();
     setLocationHistory(history);
@@ -1621,23 +1603,6 @@ export default function HomeScreen() {
   const handlePickerSelectHistory = useCallback(
     (lat: number, lng: number, name: string) => {
       setLocationPickerVisible(false);
-      setSkipLocation(false);
-      void applyLocation(lat, lng, name);
-    },
-    [applyLocation],
-  );
-
-  const handleOpenMapPicker = useCallback(() => {
-    setLocationPickerVisible(false);
-    setMapPickerVisible(true);
-  }, []);
-
-  const handleMapPickerClose = useCallback(() => setMapPickerVisible(false), []);
-
-  // Same "explicit choice wins" semantics as handlePickerSelectHistory above.
-  const handleMapPickerConfirm = useCallback(
-    (lat: number, lng: number, name: string) => {
-      setMapPickerVisible(false);
       setSkipLocation(false);
       void applyLocation(lat, lng, name);
     },
@@ -2137,14 +2102,6 @@ export default function HomeScreen() {
         onClose={() => setLocationPickerVisible(false)}
         onDetect={handlePickerDetect}
         onSelectHistory={handlePickerSelectHistory}
-        onPickOnMap={handleOpenMapPicker}
-      />
-
-      <MapLocationPicker
-        visible={mapPickerVisible}
-        initialCoords={coords}
-        onClose={handleMapPickerClose}
-        onConfirm={handleMapPickerConfirm}
       />
 
       <FiltersSheet
@@ -2878,9 +2835,11 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   sheetBackdrop: {
-    // Lighter than the old flat overlay — the BlurView layered beneath this
-    // now does most of the "dim the background" work.
-    backgroundColor: 'rgba(0,0,0,0.22)',
+    // iOS also has a BlurView layered beneath this doing most of the "dim
+    // the background" work, so it can stay lighter there; Android has no
+    // blur (see the backdrop's render — flicker risk, not just a look), so
+    // this alone needs to read as a real dimmed backdrop.
+    backgroundColor: Platform.OS === 'ios' ? 'rgba(0,0,0,0.22)' : 'rgba(0,0,0,0.45)',
   },
   sheet: {
     flex: 1,
@@ -2961,19 +2920,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: C.muted,
     fontFamily: ManropeWeights.regular,
-  },
-  newBadge: {
-    backgroundColor: C.accentSoft,
-    borderRadius: 7,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  newBadgeText: {
-    fontSize: 10.5,
-    fontWeight: '700',
-    fontFamily: ManropeWeights.bold,
-    color: C.accent,
-    letterSpacing: 0.4,
   },
   sheetRecentSection: {
     marginTop: 6,

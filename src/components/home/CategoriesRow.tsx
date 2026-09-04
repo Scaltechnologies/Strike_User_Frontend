@@ -202,9 +202,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     overflow: 'hidden',
+    // Border is always present (transparent when unselected) rather than
+    // added/removed via iconWrapSelected — toggling borderWidth's presence
+    // on a rounded, overflow:hidden, elevated view is what was causing the
+    // Android render glitch: selecting a second category changes TWO
+    // sibling circles' box models in the same frame (one loses the border,
+    // one gains it), and Android's elevation shadow re-paint of elevated
+    // siblings changing box model together in one frame can drop the clipped
+    // content (photo/icon) from the redraw entirely until the next full
+    // layout pass (e.g. a reload). Keeping the border's width constant and
+    // only animating its color avoids that box-model change altogether.
+    borderWidth: 2.5,
+    borderColor: 'transparent',
   },
   iconWrapSelected: {
-    borderWidth: 2.5,
     borderColor: C.accent,
   },
   iconImage: {
