@@ -57,6 +57,7 @@ import {
 } from '@/hooks/useStores';
 import { useLowestCardPricesByStores } from '@/hooks/useCards';
 import { ROUTES } from '@/constants/routes';
+import { DEFAULT_RADIUS_KM } from '@/constants/api';
 import { ManropeWeights } from '@/constants/theme';
 import type { RecentLocation } from '@/services/storageService';
 import { storageService } from '@/services/storageService';
@@ -1676,6 +1677,16 @@ export default function HomeScreen() {
   // never hardcoded. This is what makes "Near Me" actually reorder the
   // full list instead of only the handful of stores /nearby/me happens
   // to return.
+  //
+  // Once a distance is known, it's also capped to DEFAULT_RADIUS_KM here —
+  // GET /api/user/stores (allStores) is a plain, unfiltered list of every
+  // active store with no location awareness at all, so without this a store
+  // 50km away rendered right alongside one 500m away, in whatever order the
+  // backend happened to return them, with nothing to do with actual
+  // distance unless the user manually tapped "Near Me" to sort (not filter)
+  // the same unfiltered list. A store this can't compute a distance for at
+  // all (no coords on either side, or location not resolved yet) is left
+  // in rather than hidden — an unknown distance is not evidence it's far.
   const storesWithDistance = useMemo(() => {
     // Plain object, not a JS Map — `Map` here would resolve to the lucide-react-native
     // icon imported under that same name above, not the built-in collection.
@@ -1697,7 +1708,7 @@ export default function HomeScreen() {
       return true;
     });
 
-    return dedupedStores.map((s) => {
+    const withDistance = dedupedStores.map((s) => {
       const backendDist = nearbyDistanceById[s.id];
       if (backendDist != null) {
         return backendDist === s.distanceKm ? s : { ...s, distanceKm: backendDist };
@@ -1707,7 +1718,10 @@ export default function HomeScreen() {
       }
       return s;
     });
-  }, [allStores, nearbyStores, coords]);
+
+    if (!locationReady || !coords) return withDistance;
+    return withDistance.filter((s) => s.distanceKm == null || s.distanceKm <= DEFAULT_RADIUS_KM);
+  }, [allStores, nearbyStores, coords, locationReady]);
 
   // ── Filters (category + open-now) ─────────────────────────────────────────
 

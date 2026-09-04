@@ -4,7 +4,7 @@ import { FadeInView } from '@/components/ui/FadeInView';
 import { KeyboardAvoidingScreen } from '@/components/ui/KeyboardAvoidingScreen';
 import { ManropeWeights } from '@/constants/theme';
 import { useAvailableCoupons, useValidateCoupon } from '@/hooks/useCoupons';
-import { useCancelPayment, useCreatePayment, useVerifyPayment } from '@/hooks/usePayments';
+import { useCancelPayment, useCreatePayment, usePaymentMode, useVerifyPayment } from '@/hooks/usePayments';
 import { usePayAtStoreSessionStore } from '@/store/payAtStoreSessionStore';
 import type { CardDefinition } from '@/types/card';
 import type { AvailableCoupon, ValidateCouponResponse } from '@/types/coupon';
@@ -215,6 +215,21 @@ function PaymentMethodSegment({
   );
 }
 
+// Non-interactive stand-in for PaymentMethodSegment when the admin-configured payment mode
+// only allows one method — there's nothing to toggle between, so showing a two-option control
+// with one option dead would just be confusing.
+function SingleMethodBadge({ method }: { method: 'ONLINE' | 'PAY_AT_STORE' }) {
+  const isOnline = method === 'ONLINE';
+  return (
+    <View style={styles.singleMethodBadge}>
+      {isOnline
+        ? <Zap size={15} color={C.accent} strokeWidth={2.2} />
+        : <Store size={15} color={C.gold} strokeWidth={2.2} />}
+      <Text style={styles.singleMethodBadgeText}>{isOnline ? 'Pay online' : 'Pay at store'}</Text>
+    </View>
+  );
+}
+
 // ── Activation sheet ──────────────────────────────────────────────────────────
 
 export interface ActivationSheetProps {
@@ -243,6 +258,13 @@ export function ActivationSheet({
   const { mutateAsync: createPayment, isPending: creatingPayment } = useCreatePayment();
   const { mutateAsync: verifyPayment } = useVerifyPayment();
   const { mutateAsync: cancelPayment } = useCancelPayment();
+  // Undefined (still loading, or the fetch failed) fails OPEN to both methods shown — matches
+  // the backend's own fail-open default (PaymentModeConfigClient), and means a slow/failed mode
+  // check never blocks checkout outright, only what POST /api/payments would then also enforce.
+  const { data: paymentMode } = usePaymentMode();
+  const onlineAllowed = paymentMode !== 'PAY_AT_STORE_ONLY';
+  const payAtStoreAllowed = paymentMode !== 'ONLINE_ONLY';
+  const onlyOneMethodAllowed = onlineAllowed !== payAtStoreAllowed;
   const { mutateAsync: validateCoupon, isPending: validatingCoupon } = useValidateCoupon();
   const { data: availableCoupons, isLoading: loadingAvailableCoupons } = useAvailableCoupons(card.id);
   const busy = creatingPayment || finalizing;
@@ -268,7 +290,7 @@ export function ActivationSheet({
       setCheckoutVisible(false);
       setFinalizing(false);
       setSheetStep('summary');
-      setSelectedMethod('ONLINE');
+      setSelectedMethod(payAtStoreAllowed && !onlineAllowed ? 'PAY_AT_STORE' : 'ONLINE');
       Animated.spring(slideAnim, {
         toValue: 1,
         tension: 65,
@@ -279,6 +301,19 @@ export function ActivationSheet({
       slideAnim.setValue(0);
     }
   }, [visible, slideAnim]);
+
+  // Self-heals the selection if the payment-mode fetch resolves (or changes) after the sheet is
+  // already open — the reset effect above only runs when `visible` itself flips, so without this
+  // a mode that finishes loading as PAY_AT_STORE_ONLY a moment after open would leave the sheet
+  // stuck on a since-disallowed "ONLINE" selection.
+  useEffect(() => {
+    if (!visible) return;
+    setSelectedMethod((prev) => {
+      if (prev === 'ONLINE' && !onlineAllowed) return 'PAY_AT_STORE';
+      if (prev === 'PAY_AT_STORE' && !payAtStoreAllowed) return 'ONLINE';
+      return prev;
+    });
+  }, [visible, onlineAllowed, payAtStoreAllowed]);
 
   useEffect(() => {
     if (!visible) return;
@@ -871,12 +906,16 @@ export function ActivationSheet({
               <FadeInView translateYFrom={16} delay={160}>
                 <View style={styles.paymentFooter}>
                   <View style={styles.paymentFooterTop}>
-                    <PaymentMethodSegment
-                      selected={selectedMethod}
-                      onSelectOnline={() => setSelectedMethod('ONLINE')}
-                      onSelectStore={() => setSelectedMethod('PAY_AT_STORE')}
-                      disabled={busy}
-                    />
+                    {onlyOneMethodAllowed ? (
+                      <SingleMethodBadge method={selectedMethod} />
+                    ) : (
+                      <PaymentMethodSegment
+                        selected={selectedMethod}
+                        onSelectOnline={() => setSelectedMethod('ONLINE')}
+                        onSelectStore={() => setSelectedMethod('PAY_AT_STORE')}
+                        disabled={busy}
+                      />
+                    )}
 
                     <View style={styles.footerTotal}>
                       <Text style={styles.footerTotalLabel}>Total</Text>
@@ -1524,6 +1563,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  singleMethodBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    backgroundColor: C.bg,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.border,
+    paddingHorizontal: 14,
+    height: 40,
+  },
+  singleMethodBadgeText: {
+    fontSize: 12.5,
+    fontFamily: ManropeWeights.semiBold,
+    color: C.primary,
   },
   paymentMethodSegment: {
     width: 196,

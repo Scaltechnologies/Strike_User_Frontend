@@ -14,6 +14,7 @@ import { useRouter, useSegments } from 'expo-router';
 
 import { ROUTES } from '@/constants/routes';
 import { useAuthStore } from '@/store/authStore';
+import { useProfile } from '@/hooks/useProfile';
 import { consumePendingDeepLink, syncPushTokenIfEnabled } from '@/services/notificationService';
 
 interface AuthProviderProps {
@@ -24,6 +25,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const { isAuthenticated, isBootstrapping } = useAuthStore();
   const router = useRouter();
   const segments = useSegments();
+
+  // Only fetches once authenticated — see useProfile's `enabled` doc. Backs
+  // the forced first-login profile-completion redirect below: a brand-new
+  // account's profile is auto-created with no name (getOrCreateProfile,
+  // user-service) until the OTP-verify redirect below lands them on
+  // /profile/edit, so "no name yet" doubles as "hasn't completed onboarding"
+  // with no separate flag needed.
+  const { data: profile, isLoading: profileLoading } = useProfile(isAuthenticated && !isBootstrapping);
 
   // Hydrate tokens from secure storage exactly once on mount.
   useEffect(() => {
@@ -47,6 +56,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // Cast to string — useSegments() returns typed segment unions that don't
     // include group names like '(auth)', but expo-router does return them at runtime.
     const inAuthGroup = (segments as string[])[0] === '(auth)';
+    const onProfileEdit = (segments as string[])[0] === 'profile' && (segments as string[])[1] === 'edit';
 
     if (!isAuthenticated && !inAuthGroup) {
       // Unauthenticated user tried to access a protected route.
@@ -56,19 +66,34 @@ export function AuthProvider({ children }: AuthProviderProps) {
     if (isAuthenticated && inAuthGroup) {
       // Authenticated user is sitting on a login/OTP screen.
       router.replace(ROUTES.TABS.HOME);
+      return;
+    }
+    // First-login profile completion — forced ahead of everything else an
+    // authenticated user could land on (deep link included, so this check
+    // sits before that's flushed below). Waits for the profile fetch to
+    // actually resolve rather than redirecting on an undefined/loading
+    // value, and never redirects away FROM /profile/edit on its own — that
+    // screen navigates itself once it saves successfully.
+    if (isAuthenticated && !profileLoading && profile && !profile.name.trim() && !onProfileEdit) {
+      router.replace(ROUTES.PROFILE_EDIT);
+      return;
     }
     if (isAuthenticated) {
       const pending = consumePendingDeepLink();
       if (pending) router.push(pending as never);
     }
-  }, [isAuthenticated, isBootstrapping, segments, router]);
+  }, [isAuthenticated, isBootstrapping, segments, router, profile, profileLoading]);
 
   // Re-point this device's push-token registration at whichever account is
   // now signed in — a fresh login, a session restored from secure storage on
   // launch, or a different account signing in on the same device all land
-  // here. Only registers if the user had previously opted in on this
-  // install (see syncPushTokenIfEnabled) — never prompts for permission and
-  // never silently opts someone into push.
+  // here. Registers as long as the local notifications toggle is on — which
+  // defaults to true on a fresh install (see storageService.getNotificationsEnabled)
+  // rather than requiring the user to find Settings and switch it on themselves;
+  // an explicit switch-off is still respected exactly like an explicit opt-in
+  // was before. This never itself prompts for OS permission — that's
+  // NotificationProvider's initNotifications(), which already runs at app
+  // launch regardless of auth state.
   useEffect(() => {
     if (isBootstrapping || !isAuthenticated) return;
     void syncPushTokenIfEnabled();

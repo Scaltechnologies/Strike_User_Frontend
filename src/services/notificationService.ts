@@ -157,14 +157,16 @@ export async function registerCurrentDeviceToken(): Promise<void> {
 }
 
 // Called once per authenticated session start (see AuthProvider) — registers
-// this device's current token against the now-signed-in user, but ONLY if
-// they'd previously opted in on this install (persisted toggle). Never
-// silently opts someone into push, and never triggers an OS permission
-// prompt itself (that stays user-initiated, via the Notifications settings
-// toggle) — this just keeps an already-granted registration pointed at
-// whichever account is currently signed in (a fresh login, or a different
-// account signing in on the same device, both need the backend's
-// recipientId/recipientType on this token's row updated to match).
+// this device's current token against the now-signed-in user, but only while
+// the local notifications toggle is on (persisted, defaults to true on a
+// fresh install — see storageService.getNotificationsEnabled). Respects an
+// explicit switch-off exactly like it used to respect a never-opted-in
+// install. Never triggers an OS permission prompt itself (that's
+// NotificationProvider's initNotifications(), run once at app launch) — this
+// just keeps an already-granted registration pointed at whichever account is
+// currently signed in (a fresh login, or a different account signing in on
+// the same device, both need the backend's recipientId/recipientType on this
+// token's row updated to match).
 export async function syncPushTokenIfEnabled(): Promise<void> {
   try {
     const enabled = await storageService.getNotificationsEnabled();

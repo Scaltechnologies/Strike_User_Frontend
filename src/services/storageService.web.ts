@@ -163,9 +163,11 @@ export const storageService = {
   },
 
   // --- Notifications toggle (device-local intent, synced to OS permission on read) ---
+  // Defaults to true (opt-out) when the user has never touched this setting — see the
+  // native storageService.ts for why. Once set explicitly, that stored value always wins.
   async getNotificationsEnabled(): Promise<boolean> {
     const val = await getItem(STORAGE_KEYS.NOTIFICATIONS_ENABLED);
-    return val === 'true';
+    return val === null ? true : val === 'true';
   },
   setNotificationsEnabled(enabled: boolean): Promise<void> {
     return setItem(STORAGE_KEYS.NOTIFICATIONS_ENABLED, String(enabled));

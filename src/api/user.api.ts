@@ -20,6 +20,7 @@ function toUserProfile(dto: UserProfileDto): UserProfile {
     name: dto.name ?? '',
     phone: dto.mobileNumber,
     email: dto.email,
+    gender: dto.gender,
     avatarUrl: dto.profilePicUrl,
     createdAt: dto.createdAt,
     updatedAt: dto.updatedAt,

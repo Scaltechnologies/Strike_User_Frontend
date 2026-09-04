@@ -61,11 +61,15 @@ export function useStoresByCategory(name: string | null) {
 }
 
 // All stores — always loaded, no location dependency.
+// 30s (not the earlier 3min) — this list surfaces vendor-controlled fields (banner, status,
+// timings) that vendors expect to see reflected quickly after editing from Store Settings;
+// pull-to-refresh already existed for an instant manual refresh, this just shortens how long
+// a passive revisit (app foreground, tab remount) can show stale data before that.
 export function useAllStores() {
   return useQuery({
     queryKey: storeKeys.list(),
     queryFn: storeApi.getStores,
-    staleTime: 3 * 60 * 1000,
+    staleTime: 30 * 1000,
   });
 }
 
@@ -79,7 +83,9 @@ export function useNearbyStores(opts: { enabled: boolean; radiusKm?: number }) {
     queryKey: storeKeys.nearby(),
     queryFn: () => storeApi.getNearbyStores(radiusKm),
     enabled: opts.enabled,
-    staleTime: 2 * 60 * 1000,
+    // Same reasoning as useAllStores above — shortened from 2min so a vendor-side banner/status
+    // edit shows up on a passive revisit sooner, not just via pull-to-refresh.
+    staleTime: 30 * 1000,
     retry: (failureCount, error: unknown) => {
       const status = (error as { response?: { status?: number } })?.response?.status;
       if (status === 400) return false;

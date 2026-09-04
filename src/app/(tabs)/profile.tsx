@@ -33,6 +33,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '@/store/authStore';
 import { useProfile, useUpdateProfile, useUploadAvatar } from '@/hooks/useProfile';
+import type { Gender } from '@/types/user';
 import { useMyActiveSubscriptions } from '@/hooks/useSubscriptions';
 import { useUserRedemptions } from '@/hooks/useRedemptions';
 import { apiClient } from '@/api/client';
@@ -303,15 +304,17 @@ function PhotoSheet({
 // ── Edit Profile Sheet ─────────────────────────────────────────────────────────
 
 function EditProfileSheet({
-  visible, name, email, onClose,
+  visible, name, email, gender, onClose,
 }: {
   visible: boolean;
   name: string;
   email: string | null;
+  gender: Gender | null;
   onClose: () => void;
 }) {
   const [nameVal, setNameVal] = useState('');
   const [emailVal, setEmailVal] = useState('');
+  const [genderVal, setGenderVal] = useState<Gender | null>(null);
   const [syncFailed, setSyncFailed] = useState(false);
   const emailRef = useRef<TextInput>(null);
   const { mutate, isPending, reset } = useUpdateProfile();
@@ -323,6 +326,7 @@ function EditProfileSheet({
     if (visible) {
       setNameVal(name);
       setEmailVal(email ?? '');
+      setGenderVal(gender);
       setSyncFailed(false);
       reset();
       Animated.parallel([
@@ -339,7 +343,8 @@ function EditProfileSheet({
 
   const hasChanges =
     nameVal.trim() !== name ||
-    (emailVal.trim() || null) !== email;
+    (emailVal.trim() || null) !== email ||
+    genderVal !== gender;
 
   const canSave = hasChanges && nameVal.trim().length > 0 && !isPending;
 
@@ -347,7 +352,7 @@ function EditProfileSheet({
     if (!canSave) return;
     setSyncFailed(false);
     mutate(
-      { name: nameVal.trim(), email: emailVal.trim() || undefined },
+      { name: nameVal.trim(), email: emailVal.trim() || undefined, gender: genderVal ?? undefined },
       {
         // onMutate already applied the optimistic update in the hook.
         // Close the sheet immediately — the hero card will already show the new name.
@@ -395,6 +400,25 @@ function EditProfileSheet({
               onSubmitEditing={() => emailRef.current?.focus()}
               editable={!isPending && !syncFailed}
             />
+          </View>
+
+          {/* Gender */}
+          <View style={styles.fieldBlock}>
+            <Text style={styles.fieldLabel}>Gender</Text>
+            <View style={styles.genderRow}>
+              {(['MALE', 'FEMALE'] as const).map((g) => (
+                <Pressable
+                  key={g}
+                  style={[styles.genderOption, genderVal === g && styles.genderOptionSelected]}
+                  onPress={() => setGenderVal(g)}
+                  disabled={isPending || syncFailed}
+                >
+                  <Text style={[styles.genderOptionText, genderVal === g && styles.genderOptionTextSelected]}>
+                    {g === 'MALE' ? 'Male' : 'Female'}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
           </View>
 
           {/* Email */}
@@ -818,6 +842,7 @@ export default function ProfileScreen() {
         visible={editVisible}
         name={profile?.name ?? ''}
         email={profile?.email ?? null}
+        gender={profile?.gender ?? null}
         onClose={() => setEditVisible(false)}
       />
 
@@ -1203,6 +1228,28 @@ const styles = StyleSheet.create({
   },
   fieldInputError: {
     borderColor: C.danger,
+  },
+  genderRow: { flexDirection: 'row', gap: 10 },
+  genderOption: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: C.bg,
+    borderRadius: 14,
+    height: 48,
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+  },
+  genderOptionSelected: {
+    backgroundColor: C.accent,
+  },
+  genderOptionText: {
+    fontSize: 14,
+    fontFamily: ManropeWeights.semiBold,
+    color: C.primary,
+  },
+  genderOptionTextSelected: {
+    color: '#FFFFFF',
   },
   syncWarning: {
     backgroundColor: '#FFFBEB',

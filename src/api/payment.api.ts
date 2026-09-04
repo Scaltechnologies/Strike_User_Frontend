@@ -1,9 +1,16 @@
 import { apiClient } from './client';
 import { API_ENDPOINTS } from '@/constants/api';
 import type { ApiSuccessResponse } from '@/types/api';
-import type { CreatePaymentRequest, PaymentResponse, VerifyPaymentRequest } from '@/types/payment';
+import type { CreatePaymentRequest, PaymentMode, PaymentResponse, VerifyPaymentRequest } from '@/types/payment';
 
 export const paymentApi = {
+  getMode: async (): Promise<PaymentMode> => {
+    const { data } = await apiClient.get<ApiSuccessResponse<{ paymentMode: PaymentMode }>>(
+      API_ENDPOINTS.PAYMENTS.MODE,
+    );
+    return data.data.paymentMode;
+  },
+
   // Idempotency-Key prevents a double-tap (or a network retry) from opening
   // two separate gateway orders for the same checkout attempt.
   create: async (body: CreatePaymentRequest, idempotencyKey: string): Promise<PaymentResponse> => {

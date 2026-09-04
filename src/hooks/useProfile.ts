@@ -10,15 +10,22 @@ export const profileKeys = {
 const EMPTY_PROFILE: Omit<UserProfile, 'id' | 'phone' | 'createdAt' | 'updatedAt'> = {
   name: '',
   email: null,
+  gender: null,
   avatarUrl: null,
 };
 
-export function useProfile() {
+// `enabled` defaults to true for every existing call site (all of which only
+// ever render once already authenticated). AuthProvider is the one caller
+// that mounts even while unauthenticated (it wraps the whole app, auth
+// screens included) — it passes isAuthenticated explicitly so this never
+// fires a doomed, token-less request against an auth-gated endpoint.
+export function useProfile(enabled = true) {
   return useQuery({
     queryKey: profileKeys.all,
     queryFn: userApi.getProfile,
     staleTime: 5 * 60 * 1000,
     retry: 1,
+    enabled,
   });
 }
 
@@ -38,6 +45,7 @@ export function useUpdateProfile() {
         email: updates.email !== undefined
           ? (updates.email || null)
           : (prev?.email ?? null),
+        gender: updates.gender ?? prev?.gender ?? null,
       }));
 
       return { snapshot };
@@ -66,7 +74,7 @@ export function useUploadAvatar() {
       qc.setQueryData<UserProfile>(profileKeys.all, (prev) =>
         prev
           ? { ...prev, avatarUrl: uri }
-          : { id: '', name: '', phone: '', email: null, avatarUrl: uri, createdAt: '', updatedAt: '' },
+          : { id: '', phone: '', createdAt: '', updatedAt: '', ...EMPTY_PROFILE, avatarUrl: uri },
       );
 
       return { snapshot };

@@ -18,6 +18,12 @@
 
 export type PaymentMethod = 'ONLINE' | 'PAY_AT_STORE';
 
+// GET /api/payments/mode — platform-wide, admin-configured (see PaymentModeConfigClient on the
+// backend). Checkout must respect this: ONLINE_ONLY hides "At store", PAY_AT_STORE_ONLY hides
+// "Online", BOTH shows both. The same value is what POST /api/payments will actually enforce, so
+// the UI can never offer a method the server will then reject.
+export type PaymentMode = 'ONLINE_ONLY' | 'PAY_AT_STORE_ONLY' | 'BOTH';
+
 export type PaymentStatus =
   | 'CREATED'
   | 'PENDING'

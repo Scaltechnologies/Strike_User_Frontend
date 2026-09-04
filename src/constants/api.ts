@@ -93,6 +93,7 @@ export const API_ENDPOINTS = {
   // subscription (POST /api/subscriptions itself is now ADMIN-only).
   PAYMENTS: {
     CREATE: `${P}/payments`,
+    MODE:   `${P}/payments/mode`,
     DETAIL: (id: string | number) => `${P}/payments/${id}`,
     VERIFY: (id: string | number) => `${P}/payments/${id}/verify`,
     CANCEL: (id: string | number) => `${P}/payments/${id}/cancel`,

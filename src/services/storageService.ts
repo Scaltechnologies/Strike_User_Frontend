@@ -155,9 +155,14 @@ export const storageService = {
   },
 
   // --- Notifications toggle (device-local intent, synced to OS permission on read) ---
+  // Defaults to true (opt-out) when the user has never touched this setting — most
+  // people never go looking for a notifications toggle to turn it on themselves, so a
+  // fresh install should already be getting redemption/subscription alerts rather than
+  // silently missing them until someone finds Settings. Once set explicitly (either
+  // direction, via setNotificationsEnabled), that stored value always wins.
   async getNotificationsEnabled(): Promise<boolean> {
     const val = await SecureStore.getItemAsync(STORAGE_KEYS.NOTIFICATIONS_ENABLED);
-    return val === 'true';
+    return val === null ? true : val === 'true';
   },
   setNotificationsEnabled(enabled: boolean): Promise<void> {
     return SecureStore.setItemAsync(STORAGE_KEYS.NOTIFICATIONS_ENABLED, String(enabled));

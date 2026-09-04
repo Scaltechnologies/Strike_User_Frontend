@@ -6,8 +6,21 @@ import type { CreatePaymentRequest, PaymentStatus, VerifyPaymentRequest } from '
 
 export const paymentKeys = {
   all: ['payments'] as const,
+  mode: ['payments', 'mode'] as const,
   detail: (id: number | string) => [...paymentKeys.all, 'detail', String(id)] as const,
 };
+
+// Backs the ActivationSheet payment-method picker — a short staleTime (rather than relying on
+// mount-only fetches) so a mode change from the admin panel shows up on the next time someone
+// opens checkout without requiring an app restart, while still not refetching on every render.
+export function usePaymentMode() {
+  return useQuery({
+    queryKey: paymentKeys.mode,
+    queryFn: paymentApi.getMode,
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+}
 
 const POLLABLE_STATUSES: PaymentStatus[] = [
   'CREATED',

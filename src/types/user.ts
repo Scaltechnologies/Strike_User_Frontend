@@ -1,10 +1,13 @@
 // User Service DTOs — mirrors the strike-gateway /api/user/* contracts.
 
+export type Gender = 'MALE' | 'FEMALE';
+
 export interface UserProfile {
   id: string;
   name: string;
   phone: string;
   email: string | null;
+  gender: Gender | null;
   avatarUrl: string | null;
   createdAt: string; // ISO 8601
   updatedAt: string;
@@ -17,6 +20,7 @@ export interface UserProfileDto {
   userId: number;
   name: string | null;
   email: string | null;
+  gender: Gender | null;
   mobileNumber: string;
   profilePicUrl: string | null;
   latitude: number | null;
@@ -29,6 +33,7 @@ export interface UserProfileDto {
 export interface UpdateProfileRequest {
   name?: string;
   email?: string;
+  gender?: Gender;
 }
 
 export interface UpdateLocationRequest {
