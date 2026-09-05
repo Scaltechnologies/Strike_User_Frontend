@@ -1,5 +1,7 @@
 import axios from 'axios';
+import * as Clipboard from 'expo-clipboard';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { ClipboardPaste } from 'lucide-react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -8,7 +10,6 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  TextInputKeyPressEvent,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -18,6 +19,7 @@ import Animated, {
   ReduceMotion,
   useAnimatedStyle,
   useSharedValue,
+  withRepeat,
   withSequence,
   withSpring,
   withTiming,
@@ -73,24 +75,44 @@ function ShakeView({ trigger, entering, style, children }: ShakeViewProps) {
   );
 }
 
-// ── Single OTP box — pops on fill, so autofilled/pasted digits read as an
-// event instead of appearing statically. ─────────────────────────────────────
-interface OtpDigitBoxProps {
-  value: string;
-  focused: boolean;
-  hasError: boolean;
-  editable: boolean;
-  refCallback: (el: TextInput | null) => void;
-  onChangeText: (text: string) => void;
-  onKeyPress: (e: TextInputKeyPressEvent) => void;
-  onFocus: () => void;
-  onBlur: () => void;
+// ── Blinking caret — shown only in the one box that's next to be filled,
+// while the (invisible) real input is focused. Purely decorative: the real
+// text-editing cursor lives in the hidden input, off-screen. ─────────────────
+function BlinkingCaret() {
+  const opacity = useSharedValue(1);
+
+  useEffect(() => {
+    opacity.value = withRepeat(
+      withSequence(
+        withTiming(0, { duration: 500, easing: Easing.linear, reduceMotion: ReduceMotion.System }),
+        withTiming(1, { duration: 500, easing: Easing.linear, reduceMotion: ReduceMotion.System }),
+      ),
+      -1,
+    );
+  }, [opacity]);
+
+  const animatedStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
+
+  return <Animated.View style={[styles.caret, animatedStyle]} />;
 }
 
-function OtpDigitBox({
-  value, focused, hasError, editable, refCallback,
-  onChangeText, onKeyPress, onFocus, onBlur,
-}: OtpDigitBoxProps) {
+// ── Single OTP box — purely a DISPLAY. There is no TextInput here: one real,
+// invisible TextInput (see OtpScreen) owns all typing, backspacing, native
+// SMS autofill, and paste, and every box just renders its slice of that one
+// value. This is the standard robust OTP-input shape — six independent
+// per-box TextInputs (the previous approach) is exactly what breaks native
+// autofill and paste: both expect ONE field to hand a whole code to, not six,
+// so distributing a pasted/autofilled string across separate inputs is
+// inherently fragile (which box has focus when it lands, IME quirks, etc).
+// Pops on fill so autofilled/pasted digits still read as an event rather
+// than appearing statically. ──────────────────────────────────────────────
+interface OtpDigitBoxProps {
+  value: string;
+  active: boolean;
+  hasError: boolean;
+}
+
+function OtpDigitBox({ value, active, hasError }: OtpDigitBoxProps) {
   const scale = useSharedValue(1);
   const wasFilled = useRef(false);
 
@@ -110,29 +132,16 @@ function OtpDigitBox({
   }));
 
   return (
-    <Animated.View style={animatedStyle}>
-      <TextInput
-        ref={refCallback}
-        style={[
-          styles.box,
-          focused && styles.boxFocused,
-          !!value && styles.boxFilled,
-          hasError && styles.boxError,
-        ]}
-        value={value}
-        onChangeText={onChangeText}
-        onKeyPress={onKeyPress}
-        onFocus={onFocus}
-        onBlur={onBlur}
-        keyboardType="number-pad"
-        // Allow up to OTP_LENGTH chars so SMS autofill & paste work on box 0
-        maxLength={OTP_LENGTH}
-        textContentType="oneTimeCode"
-        autoComplete="sms-otp"
-        selectTextOnFocus
-        editable={editable}
-        caretHidden
-      />
+    <Animated.View
+      style={[
+        styles.box,
+        active && styles.boxFocused,
+        !!value && styles.boxFilled,
+        hasError && styles.boxError,
+        animatedStyle,
+      ]}
+    >
+      {value ? <Text style={styles.boxText}>{value}</Text> : active ? <BlinkingCaret /> : null}
     </Animated.View>
   );
 }
@@ -142,8 +151,8 @@ export default function OtpScreen() {
   const { phone = '' } = useLocalSearchParams<{ phone: string }>();
   const setTokens = useAuthStore((s) => s.setTokens);
 
-  const [digits, setDigits] = useState<string[]>(Array(OTP_LENGTH).fill(''));
-  const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
+  const [otp, setOtp] = useState('');
+  const [focused, setFocused] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -152,15 +161,25 @@ export default function OtpScreen() {
   const [resendLoading, setResendLoading] = useState(false);
 
   const [shakeToken, setShakeToken] = useState(0);
+  // Transient feedback for the explicit Paste button below — never anything
+  // sensitive, just "clipboard didn't have a usable code" style hints, and
+  // always self-clears rather than sticking around like a real form error.
+  const [pasteHint, setPasteHint] = useState<string | null>(null);
+  const pasteHintTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const inputRefs = useRef<(TextInput | null)[]>(Array(OTP_LENGTH).fill(null));
+  // The one real input backing every box — see OtpDigitBox's comment for why
+  // this replaces six separate per-box TextInputs. Kept invisible (not
+  // display:none — Android's autofill/keyboard-suggestion machinery needs an
+  // input that's actually laid out and focusable) and stretched over the
+  // visible box row, so tapping anywhere in the row focuses it directly.
+  const inputRef = useRef<TextInput>(null);
   // Guards against the auto-submit effect and a manual button tap racing
   // each other into two concurrent verify calls.
   const verifyingRef = useRef(false);
 
-  // Auto-focus first box on mount
+  // Auto-focus on mount
   useEffect(() => {
-    const t = setTimeout(() => inputRefs.current[0]?.focus(), 300);
+    const t = setTimeout(() => inputRef.current?.focus(), 300);
     return () => clearTimeout(t);
   }, []);
 
@@ -174,68 +193,52 @@ export default function OtpScreen() {
     return () => clearTimeout(t);
   }, [countdown]);
 
-  const handleChange = useCallback(
-    (text: string, index: number) => {
-      setError('');
-      const cleaned = text.replace(/\D/g, '');
+  // Everything — typing a digit, backspacing, native SMS autofill dropping
+  // the whole code in, or pasting (long-press paste, or the OS's "paste"
+  // suggestion chip) — arrives here as one plain string. No per-box
+  // distribution logic needed: RN just reports the input's new full value.
+  const handleOtpChange = useCallback((text: string) => {
+    setError('');
+    const cleaned = text.replace(/\D/g, '').slice(0, OTP_LENGTH);
+    if (cleaned.length > otp.length) tapSelect();
+    setOtp(cleaned);
+  }, [otp.length]);
 
-      if (cleaned.length === 0) {
-        // Cleared via backspace or delete
-        const newDigits = [...digits];
-        newDigits[index] = '';
-        setDigits(newDigits);
-        return;
-      }
+  // Explicit, guaranteed-to-work paste — a same-device long-press-to-paste
+  // gesture on a custom/near-invisible input can be finicky across Android
+  // keyboards and OEM skins even when correctly laid out, so this reads the
+  // clipboard directly on a plain button tap instead of depending on that
+  // native gesture landing correctly. This is the ONLY place the clipboard
+  // is ever read — never automatically/silently on mount or app-foreground —
+  // so it only ever fires as a direct result of the user tapping Paste.
+  const showPasteHint = useCallback((message: string) => {
+    if (pasteHintTimeoutRef.current) clearTimeout(pasteHintTimeoutRef.current);
+    setPasteHint(message);
+    pasteHintTimeoutRef.current = setTimeout(() => setPasteHint(null), 2500);
+  }, []);
 
-      // Typing a new digit into an already-filled box (RN sends "oldDigit + newDigit")
-      if (cleaned.length === 2 && cleaned[0] === digits[index] && digits[index] !== '') {
-        const newDigits = [...digits];
-        newDigits[index] = cleaned[1];
-        setDigits(newDigits);
-        tapSelect();
-        if (index < OTP_LENGTH - 1) inputRefs.current[index + 1]?.focus();
-        return;
-      }
+  const handlePasteFromClipboard = useCallback(async () => {
+    tapSelect();
+    let text: string;
+    try {
+      text = await Clipboard.getStringAsync();
+    } catch {
+      showPasteHint("Couldn't read the clipboard. Try again.");
+      return;
+    }
+    const cleaned = text.replace(/\D/g, '').slice(0, OTP_LENGTH);
+    if (cleaned.length !== OTP_LENGTH) {
+      showPasteHint('Copy the code first, then tap Paste.');
+      return;
+    }
+    setPasteHint(null);
+    handleOtpChange(cleaned);
+  }, [handleOtpChange, showPasteHint]);
 
-      // SMS autofill or paste — fill all boxes at once
-      if (cleaned.length > 1) {
-        const newDigits = Array(OTP_LENGTH).fill('');
-        cleaned
-          .slice(0, OTP_LENGTH)
-          .split('')
-          .forEach((d, i) => { newDigits[i] = d; });
-        setDigits(newDigits);
-        tapSelect();
-        inputRefs.current[Math.min(cleaned.length - 1, OTP_LENGTH - 1)]?.focus();
-        return;
-      }
+  useEffect(() => () => {
+    if (pasteHintTimeoutRef.current) clearTimeout(pasteHintTimeoutRef.current);
+  }, []);
 
-      // Normal single digit
-      const newDigits = [...digits];
-      newDigits[index] = cleaned;
-      setDigits(newDigits);
-      tapSelect();
-      if (cleaned && index < OTP_LENGTH - 1) {
-        inputRefs.current[index + 1]?.focus();
-      }
-    },
-    [digits],
-  );
-
-  const handleKeyPress = useCallback(
-    (key: string, index: number) => {
-      if (key === 'Backspace' && !digits[index] && index > 0) {
-        // Move to previous box when backspacing on an empty box
-        const newDigits = [...digits];
-        newDigits[index - 1] = '';
-        setDigits(newDigits);
-        inputRefs.current[index - 1]?.focus();
-      }
-    },
-    [digits],
-  );
-
-  const otp = digits.join('');
   const isFilled = otp.length === OTP_LENGTH;
 
   const handleVerify = useCallback(async () => {
@@ -258,19 +261,19 @@ export default function OtpScreen() {
       setError(msg);
       setShakeToken((t) => t + 1);
       tapWarning();
-      // Clear boxes and re-focus first on error
-      setDigits(Array(OTP_LENGTH).fill(''));
-      setTimeout(() => inputRefs.current[0]?.focus(), 100);
+      // Clear and re-focus first on error
+      setOtp('');
+      setTimeout(() => inputRef.current?.focus(), 100);
     } finally {
       verifyingRef.current = false;
       setLoading(false);
     }
   }, [isFilled, otp, setTokens]);
 
-  // The whole point: once the last digit lands — typed, pasted, or
-  // SMS-autofilled — verification starts on its own, no button tap needed.
-  // Deferred a tick so the setState calls inside handleVerify don't run
-  // synchronously from within the effect body.
+  // The whole point: once the code fills — typed, pasted, or SMS-autofilled —
+  // verification starts on its own, no button tap needed. Deferred a tick so
+  // the setState calls inside handleVerify don't run synchronously from
+  // within the effect body.
   useEffect(() => {
     if (!isFilled) return;
     const t = setTimeout(() => { void handleVerify(); }, 0);
@@ -283,10 +286,10 @@ export default function OtpScreen() {
     setError('');
     try {
       await authService.sendOtp(toIndianE164(phone));
-      setDigits(Array(OTP_LENGTH).fill(''));
+      setOtp('');
       setCountdown(RESEND_SECONDS);
       setCanResend(false);
-      setTimeout(() => inputRefs.current[0]?.focus(), 100);
+      setTimeout(() => inputRef.current?.focus(), 100);
     } catch (err: unknown) {
       setError(getFirebaseAuthErrorMessage(err));
     } finally {
@@ -323,29 +326,64 @@ export default function OtpScreen() {
             )}
           </Animated.View>
 
-          {/* OTP boxes */}
+          {/* OTP boxes — tapping anywhere focuses the one real (invisible)
+              input stretched over the row; the boxes themselves never
+              receive touches or keyboard events directly. */}
           <ShakeView
             trigger={shakeToken}
             entering={FadeInDown.duration(400).delay(80).springify()}
-            style={styles.boxRow}
+            style={styles.boxRowWrap}
           >
-            {digits.map((d, i) => (
-              <OtpDigitBox
-                key={i}
-                value={d}
-                focused={focusedIndex === i}
-                hasError={!!error}
-                editable={!loading}
-                refCallback={(el) => { inputRefs.current[i] = el; }}
-                onChangeText={(text) => handleChange(text, i)}
-                onKeyPress={({ nativeEvent }) => handleKeyPress(nativeEvent.key, i)}
-                onFocus={() => setFocusedIndex(i)}
-                onBlur={() => setFocusedIndex(null)}
-              />
-            ))}
+            <Pressable
+              style={styles.boxRow}
+              onPress={() => inputRef.current?.focus()}
+            >
+              {Array.from({ length: OTP_LENGTH }).map((_, i) => (
+                <OtpDigitBox
+                  key={i}
+                  value={otp[i] ?? ''}
+                  active={focused && i === otp.length}
+                  hasError={!!error}
+                />
+              ))}
+            </Pressable>
+
+            <TextInput
+              ref={inputRef}
+              style={styles.hiddenInput}
+              value={otp}
+              onChangeText={handleOtpChange}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              keyboardType="number-pad"
+              maxLength={OTP_LENGTH}
+              textContentType="oneTimeCode"
+              autoComplete="sms-otp"
+              importantForAutofill="yes"
+              editable={!loading}
+              caretHidden
+              contextMenuHidden={false}
+              autoFocus={false}
+            />
           </ShakeView>
 
-          {error ? (
+          {/* Explicit, always-available paste — see handlePasteFromClipboard
+              for why this exists alongside native long-press paste rather
+              than relying on it alone. */}
+          {!isFilled && !loading ? (
+            <Pressable
+              style={({ pressed }) => [styles.pasteBtn, pressed && styles.pasteBtnPressed]}
+              onPress={() => void handlePasteFromClipboard()}
+              hitSlop={8}
+            >
+              <ClipboardPaste size={15} color="#C0392B" strokeWidth={2.2} />
+              <Text style={styles.pasteBtnText}>Paste code</Text>
+            </Pressable>
+          ) : null}
+
+          {pasteHint ? (
+            <Text style={styles.pasteHintText}>{pasteHint}</Text>
+          ) : error ? (
             <Text style={styles.errorText}>{error}</Text>
           ) : (
             <View style={styles.statusRow}>
@@ -436,10 +474,33 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontFamily: ManropeWeights.semiBold,
   },
+  boxRowWrap: {
+    marginBottom: 16,
+    // The hidden input below is absolutely positioned to exactly cover this
+    // row — without `relative` here, it has no positioned ancestor to anchor
+    // to and ends up laid out somewhere else entirely, off the visible boxes.
+    // That's what silently broke native long-press paste: tapping the boxes
+    // still called .focus() on it (an imperative ref call, position-
+    // independent, which is why typing looked fine), but a long-press lands
+    // on whatever's actually at that screen location — not the real input —
+    // so the OS never has a text field there to offer a paste menu on.
+    position: 'relative',
+  },
   boxRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 16,
+  },
+  // The one real input — stretched invisibly over the box row (not
+  // display:none, which would make it unfocusable/invisible to the OS's
+  // autofill machinery). All actual text editing happens here; it never
+  // shows its own text or caret.
+  hiddenInput: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    opacity: 0,
   },
   box: {
     width: 48,
@@ -448,11 +509,20 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: '#E8D5CC',
     backgroundColor: '#FFFFFF',
-    textAlign: 'center',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  boxText: {
     fontSize: 22,
     fontWeight: '700',
     fontFamily: ManropeWeights.bold,
     color: '#1A1A1A',
+  },
+  caret: {
+    width: 2,
+    height: 24,
+    borderRadius: 1,
+    backgroundColor: '#C0392B',
   },
   boxFocused: {
     borderColor: '#C0392B',
@@ -463,6 +533,35 @@ const styles = StyleSheet.create({
   },
   boxError: {
     borderColor: '#E74C3C',
+  },
+  pasteBtn: {
+    flexDirection: 'row',
+    alignSelf: 'center',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#F0C4B8',
+    backgroundColor: '#FFF7F4',
+    marginBottom: 14,
+  },
+  pasteBtnPressed: {
+    opacity: 0.7,
+  },
+  pasteBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    fontFamily: ManropeWeights.semiBold,
+    color: '#C0392B',
+  },
+  pasteHintText: {
+    fontSize: 12.5,
+    color: '#8A8A8A',
+    textAlign: 'center',
+    marginBottom: 16,
+    fontFamily: ManropeWeights.regular,
   },
   statusRow: {
     flexDirection: 'row',

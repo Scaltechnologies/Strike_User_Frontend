@@ -146,9 +146,11 @@ export const StoreHeader = memo(function StoreHeader({ store }: Props) {
 
           <View style={styles.badgeRow}>
             <StatusBadge store={store} />
-            <View style={styles.categoryPill}>
-              <Text style={styles.categoryText}>{store.category}</Text>
-            </View>
+            {store.category ? (
+              <View style={styles.categoryPill}>
+                <Text style={styles.categoryText}>{store.category}</Text>
+              </View>
+            ) : null}
           </View>
 
           {store.distanceKm != null ? (
