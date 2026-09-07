@@ -128,9 +128,26 @@ function NewArrivalCardSlide({
   );
 }
 
-export function BannerCarousel({ storesById }: { storesById?: Record<number, Store> }) {
+export function BannerCarousel({
+  storesById,
+  nearbyStoreIds,
+}: {
+  storesById?: Record<number, Store>;
+  // Caller's already-computed "stores within DEFAULT_RADIUS_KM" set (the same
+  // one the home store list itself is filtered to) — when provided, a New
+  // Arrival is only shown if its store is in it. GET /api/cards/new-arrivals
+  // has no location awareness at all (unlike /nearby/me and /search): it
+  // returns the newest active cards across every store nationwide, so
+  // without this filter a card from a store hundreds of km away could ride
+  // in this rail right alongside genuinely nearby ones. Undefined (location
+  // not ready yet, or caller opted out) skips filtering entirely.
+  nearbyStoreIds?: Set<number>;
+}) {
   const { data: banners } = useActiveBanners();
   const { data: newArrivals } = useNewArrivals();
+  const nearbyNewArrivals = nearbyStoreIds
+    ? (newArrivals ?? []).filter((card) => nearbyStoreIds.has(card.storeId))
+    : newArrivals;
 
   // A banner whose image genuinely can't be fetched (broken/unreachable upload — a backend
   // problem, not something retrying client-side fixes) is dropped from the rotation entirely
@@ -148,7 +165,7 @@ export function BannerCarousel({ storesById }: { storesById?: Record<number, Sto
 
   const slides: Slide[] = [
     ...sortedBanners.map((banner): Slide => ({ kind: 'banner', key: `banner-${banner.id}`, banner })),
-    ...(newArrivals ?? []).map((card): Slide => ({ kind: 'card', key: `card-${card.id}`, card })),
+    ...(nearbyNewArrivals ?? []).map((card): Slide => ({ kind: 'card', key: `card-${card.id}`, card })),
   ];
 
   const [slideWidth, setSlideWidth] = useState(

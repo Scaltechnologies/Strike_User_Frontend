@@ -9,9 +9,8 @@ import {
   Bell,
   Check,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   Clock,
+  Heart,
   MapPin,
   Navigation,
   RefreshCw,
@@ -21,6 +20,7 @@ import {
   Sparkles,
   UtensilsCrossed,
   X,
+  Zap,
 } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'expo-router';
@@ -42,6 +42,7 @@ import { formatDistanceCompact, haversineDistanceKm, openDirections } from '@/ut
 import { useMediaSource, logMediaError } from '@/utils/media';
 import { tapLight, tapSelect } from '@/utils/haptics';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Reanimated, { LinearTransition } from 'react-native-reanimated';
 
 import { AnimatedHomeBackground } from '@/components/home/AnimatedHomeBackground';
 import { BannerCarousel } from '@/components/home/BannerCarousel';
@@ -56,6 +57,7 @@ import {
   useAllStores, useInvalidateStores, useNearbyStores, useSearchStores, useStoreMenu, useStoresByCategory,
 } from '@/hooks/useStores';
 import { useLowestCardPricesByStores } from '@/hooks/useCards';
+import { useProfile } from '@/hooks/useProfile';
 import { ROUTES } from '@/constants/routes';
 import { DEFAULT_RADIUS_KM } from '@/constants/api';
 import { ManropeWeights } from '@/constants/theme';
@@ -109,6 +111,15 @@ const C = {
   green:        '#16A34A',
   greenBg:      '#F0FDF4',
   overlay:      'rgba(0,0,0,0.42)',
+} as const;
+
+// Gradient stops layered on top of the flat palette above — used sparingly,
+// only where a flat fill previously read as dull/basic (the bell button,
+// active filter chips, the price CTA family), never as a wholesale reskin.
+const GRADIENTS = {
+  accent:     ['#FF6B52', '#D63527', '#A8261B'] as const,
+  accentSoft: ['#FFE8E3', '#FFFFFF'] as const,
+  sheen:      ['rgba(255,255,255,0.55)', 'rgba(255,255,255,0)'] as const,
 } as const;
 
 // Spacing scale — every section/card/chip on this screen sizes its padding
@@ -247,6 +258,36 @@ type SortMode = 'default' | 'nearMe' | 'priceLowHigh' | 'priceHighLow';
 // order since Array.prototype.sort is stable. Previously this fell through
 // to a distance tie-break unconditionally, which silently overrode the
 // recommended ordering the moment any store carried a distanceKm.
+// Attaches a real distanceKm to every store where one can be known (the
+// authoritative backend value from /nearby/me where available, otherwise a
+// client-side haversine fallback from the store's own lat/lng), then caps
+// the result to DEFAULT_RADIUS_KM once location is actually ready. A store
+// this can't compute a distance for at all (no coords on either side, or
+// location not resolved yet) is left in rather than hidden — an unknown
+// distance is not evidence it's far. Shared by every store list on this
+// screen (the main list and the tapped-category list) so a list can never
+// forget to apply the same radius cap the others already do.
+function attachDistanceAndCapRadius(
+  stores: Store[],
+  nearbyDistanceById: Record<number, number>,
+  coords: { latitude: number; longitude: number } | null | undefined,
+  locationReady: boolean,
+): Store[] {
+  const withDistance = stores.map((s) => {
+    const backendDist = nearbyDistanceById[s.id];
+    if (backendDist != null) {
+      return backendDist === s.distanceKm ? s : { ...s, distanceKm: backendDist };
+    }
+    if (s.distanceKm == null && coords && s.latitude != null && s.longitude != null) {
+      return { ...s, distanceKm: haversineDistanceKm(coords.latitude, coords.longitude, s.latitude, s.longitude) };
+    }
+    return s;
+  });
+
+  if (!locationReady || !coords) return withDistance;
+  return withDistance.filter((s) => s.distanceKm == null || s.distanceKm <= DEFAULT_RADIUS_KM);
+}
+
 function sortStores(stores: Store[], mode: SortMode, lowestPrices?: Record<number, number>): Store[] {
   return [...stores].sort((a, b) => {
     const aOpen = isStoreOpenNow(a) ? 0 : 1;
@@ -625,6 +666,16 @@ function StoreCard({ store, index = 0, lowestPrice }: { store: Store; index?: nu
             style={styles.cardImageScrim}
             pointerEvents="none"
           />
+          {/* A thin diagonal glass highlight across the top edge — the
+              "shine" that reads as a polished, glossy surface rather than a
+              flat photo dropped into a box. */}
+          <LinearGradient
+            colors={GRADIENTS.sheen}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0.6, y: 1 }}
+            style={styles.cardImageSheen}
+            pointerEvents="none"
+          />
           <View style={styles.cardImageCategoryRow}>
             {categoriesLoading ? (
               <>
@@ -692,6 +743,49 @@ function StoreCard({ store, index = 0, lowestPrice }: { store: Store; index?: nu
 //   Price     → opens a PRICE-ONLY popover (never the complete sheet)
 //   Open Now  → directly toggles the open-now attribute filter, no popover
 
+// A gradient fill on the active state, in place of a flat accent color —
+// keeps the same glow shadow, just gives the pill itself some shine.
+function FilterChip({
+  active,
+  icon,
+  label,
+  onPress,
+}: {
+  active: boolean;
+  icon: (color: string) => React.ReactNode;
+  label: string;
+  onPress: () => void;
+}) {
+  const color = active ? '#FFFFFF' : C.secondary;
+  const content = (
+    <>
+      {icon(color)}
+      <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{label}</Text>
+    </>
+  );
+
+  if (!active) {
+    return (
+      <Pressable style={styles.filterChip} onPress={onPress} hitSlop={4}>
+        {content}
+      </Pressable>
+    );
+  }
+
+  return (
+    <Pressable style={styles.filterChipActiveShadow} onPress={onPress} hitSlop={4}>
+      <LinearGradient
+        colors={GRADIENTS.accent}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={[styles.filterChip, { borderColor: 'transparent' }]}
+      >
+        {content}
+      </LinearGradient>
+    </Pressable>
+  );
+}
+
 function FilterChipsBar({
   categoryCount,
   onOpenFilters,
@@ -724,50 +818,34 @@ function FilterChipsBar({
       style={styles.filterBar}
       contentContainerStyle={styles.filterBarContent}
     >
-      <Pressable
-        style={[styles.filterChip, categoryCount > 0 && styles.filterChipActive]}
+      <FilterChip
+        active={categoryCount > 0}
+        icon={(color) => <SlidersHorizontal size={14} color={color} strokeWidth={2.3} />}
+        label={categoryCount > 0 ? `Filters · ${categoryCount}` : 'Filters'}
         onPress={() => { tapSelect(); onOpenFilters(); }}
-        hitSlop={4}
-      >
-        <SlidersHorizontal size={14} color={categoryCount > 0 ? '#FFFFFF' : C.secondary} strokeWidth={2.3} />
-        <Text style={[styles.filterChipText, categoryCount > 0 && styles.filterChipTextActive]}>
-          {categoryCount > 0 ? `Filters · ${categoryCount}` : 'Filters'}
-        </Text>
-      </Pressable>
+      />
 
-      <Pressable
-        style={[styles.filterChip, nearMeActive && styles.filterChipActive]}
+      <FilterChip
+        active={nearMeActive}
+        icon={(color) => <Navigation size={14} color={color} strokeWidth={2.3} />}
+        label="Near Me"
         onPress={() => { tapSelect(); onToggleNearMe(); }}
-        hitSlop={4}
-      >
-        <Navigation size={14} color={nearMeActive ? '#FFFFFF' : C.secondary} strokeWidth={2.3} />
-        <Text style={[styles.filterChipText, nearMeActive && styles.filterChipTextActive]}>
-          Near Me
-        </Text>
-      </Pressable>
+      />
 
       {/* Opens a price-only popover — never the complete Filters sheet. */}
-      <Pressable
-        style={[styles.filterChip, priceActive && styles.filterChipActive]}
+      <FilterChip
+        active={priceActive}
+        icon={(color) => <PriceIcon size={14} color={color} strokeWidth={2.3} />}
+        label={sortMode === 'priceLowHigh' ? 'Low to High' : sortMode === 'priceHighLow' ? 'High to Low' : 'Price'}
         onPress={() => { tapSelect(); onOpenPriceSort(); }}
-        hitSlop={4}
-      >
-        <PriceIcon size={14} color={priceActive ? '#FFFFFF' : C.secondary} strokeWidth={2.3} />
-        <Text style={[styles.filterChipText, priceActive && styles.filterChipTextActive]}>
-          {sortMode === 'priceLowHigh' ? 'Low to High' : sortMode === 'priceHighLow' ? 'High to Low' : 'Price'}
-        </Text>
-      </Pressable>
+      />
 
-      <Pressable
-        style={[styles.filterChip, openNowOnly && styles.filterChipActive]}
+      <FilterChip
+        active={openNowOnly}
+        icon={(color) => <Clock size={14} color={color} strokeWidth={2.3} />}
+        label="Open Now"
         onPress={() => { tapSelect(); onToggleOpenNow(); }}
-        hitSlop={4}
-      >
-        <Clock size={14} color={openNowOnly ? '#FFFFFF' : C.secondary} strokeWidth={2.3} />
-        <Text style={[styles.filterChipText, openNowOnly && styles.filterChipTextActive]}>
-          Open Now
-        </Text>
-      </Pressable>
+      />
 
       {hasActiveFilters && (
         <Pressable style={styles.filterClearChip} onPress={() => { tapSelect(); onClear(); }} hitSlop={4}>
@@ -1016,7 +1094,7 @@ function SectionHeader({ title, count, icon }: {
 }) {
   return (
     <View style={styles.sectionHeader}>
-      {icon ? <View style={styles.sectionIcon}>{icon}</View> : null}
+      {icon ? <LinearGradient colors={GRADIENTS.accentSoft} style={styles.sectionIcon}>{icon}</LinearGradient> : null}
       <View style={{ flex: 1 }}>
         <Text style={styles.sectionTitle}>{title}</Text>
       </View>
@@ -1141,8 +1219,22 @@ function LocationPermissionBanner({
 
 // ─── Active Location Sheet ─────────────────────────────────────────────────────
 
-type SheetView = 'options' | 'search';
 type SearchPhase = 'idle' | 'waiting' | 'loading' | 'done' | 'error';
+
+// Occupies the exact same row shape as a real result — shown while a search
+// is debouncing/in flight so the list never jumps between a differently
+// sized "type something" / spinner block and the eventual results.
+function LocationRowSkeleton() {
+  return (
+    <View style={styles.rowItem}>
+      <SkeletonPulse width={34} height={34} radius={17} />
+      <View style={{ flex: 1, gap: 6 }}>
+        <SkeletonPulse height={13} width="55%" />
+        <SkeletonPulse height={11} width="80%" />
+      </View>
+    </View>
+  );
+}
 
 function ActiveLocationSheet({
   visible,
@@ -1159,7 +1251,6 @@ function ActiveLocationSheet({
 }) {
   const [searchFocused, setSearchFocused] = useState(false);
   const searchFocusAnim = useRef(new Animated.Value(0)).current;
-  const [view, setView] = useState<SheetView>('options');
   const [searchQuery, setSearchQuery] = useState('');
   const [geoResults, setGeoResults] = useState<LocationSearchResult[]>([]);
   const [searchPhase, setSearchPhase] = useState<SearchPhase>('idle');
@@ -1211,7 +1302,6 @@ function ActiveLocationSheet({
           useNativeDriver: true,
         }),
       ]).start(() => {
-        setView('options');
         setSearchQuery('');
         setGeoResults([]);
         setSearchPhase('idle');
@@ -1231,22 +1321,6 @@ function ActiveLocationSheet({
       useNativeDriver: false, // driving borderColor/shadowOpacity, not transform/opacity
     }).start();
   }, [searchFocused, searchFocusAnim]);
-
-  const handleOpenSearch = useCallback(() => {
-    setView('search');
-    setTimeout(() => searchInputRef.current?.focus(), 200);
-  }, []);
-
-  const handleBackToOptions = useCallback(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    searchGenRef.current += 1;
-    searchAbortRef.current?.abort();
-    setView('options');
-    setSearchQuery('');
-    setGeoResults([]);
-    setSearchPhase('idle');
-    setResolveError(false);
-  }, []);
 
   const handleSearchChange = useCallback((text: string) => {
     setSearchQuery(text);
@@ -1304,197 +1378,45 @@ function ActiveLocationSheet({
     [onSelectHistory, onClose],
   );
 
-  const renderOptions = () => (
-    <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
-      <FadeInView translateYFrom={8}>
-        <View style={styles.sheetTitleBlock}>
-          <Text style={styles.sheetTitle}>Set location</Text>
-          <Text style={styles.sheetSubtitle}>
-            Browse stores and subscriptions in any area
-          </Text>
-        </View>
-      </FadeInView>
+  // Single search-first screen, and — unlike the previous version — a
+  // SINGLE persistent ScrollView for the body no matter what's inside it.
+  // The earlier design swapped between two entirely different ScrollView
+  // trees (recent list vs. search results) the moment the query crossed 2
+  // characters, and within results it flipped between a "type something"
+  // hint / a centered spinner block / a results list on every keystroke —
+  // each with a completely different height and position. That's what read
+  // as the sheet "dancing" while typing. Fixed here by never swapping the
+  // scroll container itself, and by rendering fixed-height skeleton rows
+  // during waiting/loading instead of a differently-shaped status block.
+  const isSearchingArea = searchQuery.trim().length >= 2;
+  const searchSettling = searchPhase === 'waiting' || searchPhase === 'loading';
 
-      <FadeInView delay={40} translateYFrom={14}>
-        <PressableScale
-          style={styles.optionCard}
-          onPress={() => { onDetect(); onClose(); }}
-        >
-          <LinearGradient colors={[C.blue, '#1D4ED8']} style={styles.optionIconGrad}>
-            <Navigation size={19} color="#FFFFFF" strokeWidth={2.2} />
-          </LinearGradient>
-          <View style={styles.sheetOptionContent}>
-            <Text style={styles.sheetOptionLabel}>Use my location</Text>
-            <Text style={styles.sheetOptionSub}>Detect GPS position</Text>
-          </View>
-          <ChevronRight size={16} color={C.muted} strokeWidth={2} />
-        </PressableScale>
-      </FadeInView>
-
-      <FadeInView delay={90} translateYFrom={14}>
-        <PressableScale style={styles.optionCard} onPress={handleOpenSearch}>
-          <LinearGradient colors={[C.green, '#0E7A38']} style={styles.optionIconGrad}>
-            <Search size={19} color="#FFFFFF" strokeWidth={2.2} />
-          </LinearGradient>
-          <View style={styles.sheetOptionContent}>
-            <Text style={styles.sheetOptionLabel}>Search an area</Text>
-            <Text style={styles.sheetOptionSub}>Locality, landmark, or city</Text>
-          </View>
-          <ChevronRight size={16} color={C.muted} strokeWidth={2} />
-        </PressableScale>
-      </FadeInView>
-
-      {history.length > 0 && (
-        <FadeInView delay={190} translateYFrom={14} style={styles.sheetRecentSection}>
-          <Text style={styles.sheetSectionLabel}>Recent</Text>
-          {history.map((loc) => (
-            <Pressable
-              key={`${loc.latitude}-${loc.longitude}`}
-              style={({ pressed }) => [
-                styles.sheetRecentRow,
-                pressed && { backgroundColor: C.divider },
-              ]}
-              onPress={() => {
-                onSelectHistory(loc.latitude, loc.longitude, loc.name ?? '');
-                onClose();
-              }}
-            >
-              <View style={styles.sheetRecentIconWrap}>
-                <MapPin size={13} color={C.accent} strokeWidth={2} />
-              </View>
-              <Text style={styles.sheetRecentName} numberOfLines={1}>{loc.name}</Text>
-              <ChevronRight size={13} color={C.muted} strokeWidth={2} />
-            </Pressable>
-          ))}
-        </FadeInView>
-      )}
-      <View style={{ height: 8 }} />
-    </ScrollView>
-  );
-
-  const renderSearch = () => (
-    <>
-      <View style={styles.sheetSearchHeader}>
-        <Pressable onPress={handleBackToOptions} style={styles.sheetBackBtn} hitSlop={12}>
-          <ChevronLeft size={20} color={C.primary} strokeWidth={2.5} />
-        </Pressable>
-        <Animated.View
-          style={[
-            styles.sheetSearchBar,
-            {
-              borderColor: searchFocusAnim.interpolate({ inputRange: [0, 1], outputRange: [C.border, C.accent] }),
-              shadowOpacity: searchFocusAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.16] }),
-            },
-          ]}
-        >
-          <Search size={15} color={searchFocused ? C.accent : C.muted} strokeWidth={2} />
-          <TextInput
-            ref={searchInputRef}
-            style={styles.sheetSearchInput}
-            placeholder="Locality, landmark, or city…"
-            placeholderTextColor={C.placeholder}
-            value={searchQuery}
-            onChangeText={handleSearchChange}
-            onFocus={() => setSearchFocused(true)}
-            onBlur={() => setSearchFocused(false)}
-            returnKeyType="search"
-            autoCapitalize="words"
-            autoCorrect={false}
-          />
-          {searchQuery.length > 0 ? (
-            <Pressable
-              onPress={() => {
-                if (debounceRef.current) clearTimeout(debounceRef.current);
-                searchGenRef.current += 1;
-                searchAbortRef.current?.abort();
-                setSearchQuery('');
-                setGeoResults([]);
-                setSearchPhase('idle');
-                setResolveError(false);
-              }}
-              hitSlop={8}
-            >
-              <View style={styles.searchClearCircle}>
-                <X size={10} color={C.surface} strokeWidth={3} />
-              </View>
-            </Pressable>
-          ) : null}
-        </Animated.View>
-      </View>
-
-      {resolveError ? (
-        <View style={styles.sheetInlineLoading}>
-          <Text style={[styles.sheetInlineLoadingText, { color: C.danger }]}>
-            Couldn't get that location — try again
-          </Text>
-        </View>
-      ) : null}
-
-      <ScrollView
-        style={styles.sheetSearchResults}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
+  const renderResultRow = (r: LocationSearchResult) => {
+    const resolving = resolvingKey === r.key;
+    return (
+      <Pressable
+        key={r.key}
+        disabled={resolving}
+        style={({ pressed }) => [
+          styles.rowItem,
+          styles.rowItemDivider,
+          pressed && { backgroundColor: C.divider },
+          resolving && { opacity: 0.5 },
+        ]}
+        onPress={() => void handleSelectResult(r)}
       >
-        {geoResults.length > 0 ? (
-          <>
-            {geoResults.map((r) => {
-              const resolving = resolvingKey === r.key;
-              return (
-                <Pressable
-                  key={r.key}
-                  disabled={resolving}
-                  style={({ pressed }) => [
-                    styles.sheetGeoRow,
-                    pressed && { backgroundColor: C.divider },
-                    resolving && { opacity: 0.5 },
-                  ]}
-                  onPress={() => void handleSelectResult(r)}
-                >
-                  <View style={styles.sheetGeoIconWrap}>
-                    {resolving
-                      ? <ActivityIndicator size="small" color={C.accent} />
-                      : <MapPin size={13} color={C.accent} strokeWidth={2} />}
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.sheetGeoName}>{r.name}</Text>
-                    <Text style={styles.sheetGeoSub} numberOfLines={1}>{r.displayName}</Text>
-                  </View>
-                  <ChevronRight size={12} color={C.muted} strokeWidth={2} />
-                </Pressable>
-              );
-            })}
-            {searchPhase === 'loading' ? (
-              <View style={styles.sheetInlineLoading}>
-                <ActivityIndicator size="small" color={C.muted} />
-                <Text style={styles.sheetInlineLoadingText}>Updating…</Text>
-              </View>
-            ) : null}
-          </>
-        ) : searchPhase === 'loading' ? (
-          <View style={styles.sheetSearchStatus}>
-            <ActivityIndicator size="small" color={C.accent} />
-            <Text style={styles.sheetSearchStatusText}>Searching…</Text>
-          </View>
-        ) : searchPhase === 'done' ? (
-          <View style={styles.sheetSearchStatus}>
-            <Text style={styles.sheetSearchStatusTitle}>No results found</Text>
-            <Text style={styles.sheetSearchStatusText}>Try a different name or spelling</Text>
-          </View>
-        ) : searchPhase === 'error' ? (
-          <View style={styles.sheetSearchStatus}>
-            <Text style={styles.sheetSearchStatusTitle}>Couldn't search right now</Text>
-            <Text style={styles.sheetSearchStatusText}>Check your connection and try again</Text>
-          </View>
-        ) : (
-          <View style={styles.sheetSearchStatus}>
-            <Text style={styles.sheetSearchStatusText}>
-              Type a locality, landmark, or city
-            </Text>
-          </View>
-        )}
-      </ScrollView>
-    </>
-  );
+        <View style={styles.rowIconMuted}>
+          {resolving
+            ? <ActivityIndicator size="small" color={C.accent} />
+            : <MapPin size={15} color={C.secondary} strokeWidth={2.2} />}
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.rowTitle} numberOfLines={1}>{r.name}</Text>
+          <Text style={styles.rowSubtitle} numberOfLines={1}>{r.displayName}</Text>
+        </View>
+      </Pressable>
+    );
+  };
 
   return (
     <Modal
@@ -1522,8 +1444,158 @@ function ActiveLocationSheet({
         <Animated.View
           style={[styles.sheet, { transform: [{ translateY: sheetTranslateY }] }]}
         >
+          <LinearGradient
+            colors={['#FFF8F6', 'rgba(255,248,246,0)']}
+            style={styles.sheetTopWash}
+            pointerEvents="none"
+          />
           <View style={styles.sheetHandle} />
-          {view === 'options' ? renderOptions() : renderSearch()}
+
+          <View style={styles.sheetHeaderRow}>
+            <Text style={styles.sheetTitle}>Search location</Text>
+            <Pressable onPress={onClose} style={styles.sheetCloseBtn} hitSlop={10}>
+              <X size={16} color={C.secondary} strokeWidth={2.4} />
+            </Pressable>
+          </View>
+
+          <Animated.View
+            style={[
+              styles.sheetSearchBar,
+              {
+                borderColor: searchFocusAnim.interpolate({ inputRange: [0, 1], outputRange: [C.border, C.accent] }),
+                shadowOpacity: searchFocusAnim.interpolate({ inputRange: [0, 1], outputRange: [0.05, 0.2] }),
+              },
+            ]}
+          >
+            <Search size={16} color={searchFocused ? C.accent : C.muted} strokeWidth={2.1} />
+            <TextInput
+              ref={searchInputRef}
+              style={styles.sheetSearchInput}
+              placeholder="Locality, landmark, or city…"
+              placeholderTextColor={C.placeholder}
+              value={searchQuery}
+              onChangeText={handleSearchChange}
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => setSearchFocused(false)}
+              returnKeyType="search"
+              autoCapitalize="words"
+              autoCorrect={false}
+            />
+            {searchQuery.length > 0 ? (
+              <Pressable
+                onPress={() => {
+                  if (debounceRef.current) clearTimeout(debounceRef.current);
+                  searchGenRef.current += 1;
+                  searchAbortRef.current?.abort();
+                  setSearchQuery('');
+                  setGeoResults([]);
+                  setSearchPhase('idle');
+                  setResolveError(false);
+                }}
+                hitSlop={8}
+              >
+                <View style={styles.searchClearCircle}>
+                  <X size={10} color={C.surface} strokeWidth={3} />
+                </View>
+              </Pressable>
+            ) : null}
+          </Animated.View>
+
+          {/* One ScrollView for the whole body, always — only its CONTENT
+              changes between Recent and Results, never the container
+              itself, so scroll position and layout never reset mid-type. */}
+          <ScrollView
+            style={styles.sheetBody}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            showsVerticalScrollIndicator={false}
+            bounces={false}
+            overScrollMode="never"
+          >
+            {/* The content below resizes constantly while typing (skeleton
+                rows → a results list whose length changes with every
+                keystroke's response). Without this, each resize snaps
+                instantly and reads as the sheet "shaking" — this animates
+                the container's height/position smoothly instead. */}
+            <Reanimated.View layout={LinearTransition.duration(220)}>
+            {!isSearchingArea ? (
+              <>
+                <Pressable
+                  style={({ pressed }) => [styles.rowItem, pressed && { backgroundColor: C.divider }]}
+                  onPress={() => { onDetect(); onClose(); }}
+                >
+                  <View style={styles.rowIconAccent}>
+                    <Navigation size={16} color={C.accent} strokeWidth={2.3} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.rowTitle}>Use current location</Text>
+                    <Text style={styles.rowSubtitle}>Detect via GPS</Text>
+                  </View>
+                </Pressable>
+
+                {history.length > 0 && (
+                  <>
+                    <Text style={styles.sheetSectionLabel}>Recent</Text>
+                    {history.map((loc, i) => (
+                      <Pressable
+                        key={`${loc.latitude}-${loc.longitude}`}
+                        style={({ pressed }) => [
+                          styles.rowItem,
+                          i < history.length - 1 && styles.rowItemDivider,
+                          pressed && { backgroundColor: C.divider },
+                        ]}
+                        onPress={() => {
+                          onSelectHistory(loc.latitude, loc.longitude, loc.name ?? '');
+                          onClose();
+                        }}
+                      >
+                        <View style={styles.rowIconMuted}>
+                          <MapPin size={15} color={C.secondary} strokeWidth={2.2} />
+                        </View>
+                        <Text style={styles.rowTitle} numberOfLines={1}>{loc.name}</Text>
+                      </Pressable>
+                    ))}
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                {resolveError ? (
+                  <Text style={styles.resolveErrorText}>Couldn't get that location — try again</Text>
+                ) : null}
+
+                {searchSettling && geoResults.length === 0 ? (
+                  <>
+                    <LocationRowSkeleton />
+                    <LocationRowSkeleton />
+                    <LocationRowSkeleton />
+                  </>
+                ) : geoResults.length > 0 ? (
+                  <>
+                    {geoResults.map(renderResultRow)}
+                    {searchPhase === 'loading' ? (
+                      <View style={styles.sheetInlineLoading}>
+                        <ActivityIndicator size="small" color={C.muted} />
+                        <Text style={styles.sheetInlineLoadingText}>Updating…</Text>
+                      </View>
+                    ) : null}
+                  </>
+                ) : searchPhase === 'error' ? (
+                  <View style={styles.sheetSearchStatus}>
+                    <Text style={styles.sheetSearchStatusTitle}>Couldn't search right now</Text>
+                    <Text style={styles.sheetSearchStatusText}>Check your connection and try again</Text>
+                  </View>
+                ) : (
+                  <View style={styles.sheetSearchStatus}>
+                    <Text style={styles.sheetSearchStatusTitle}>No results found</Text>
+                    <Text style={styles.sheetSearchStatusText}>Try a different name or spelling</Text>
+                  </View>
+                )}
+              </>
+            )}
+            </Reanimated.View>
+            <View style={{ height: 8 }} />
+          </ScrollView>
         </Animated.View>
       </KeyboardAvoidingScreen>
     </Modal>
@@ -1542,6 +1614,10 @@ export default function HomeScreen() {
   // onMessage handler), so it updates live without polling; the global
   // focus-refetch (QueryProvider) covers app-foreground/screen revisit.
   const { data: unreadCount = 0 } = useUnreadNotificationCount();
+  const { data: profile } = useProfile();
+  // First word only — "What's on your mind, Nikhilvarma?" reads as a greeting,
+  // not a formal address, so a full multi-word name is trimmed to one.
+  const firstName = profile?.name?.trim().split(/\s+/)[0] || null;
 
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -1564,6 +1640,118 @@ export default function HomeScreen() {
   const searchBarFocused = useRef(false);
   const headerScale = useRef(new Animated.Value(1)).current;
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // "What's on your mind" heading — a slow, looping glow through the text
+  // color, plus a short accent stroke underneath that draws itself in once
+  // and then has a thin band of light traveling along it on a loop — a
+  // "shine," but as a decorative underline rather than an icon glued to
+  // the text.
+  const mindGlowAnim = useRef(new Animated.Value(0)).current;
+  const mindUnderlineAnim = useRef(new Animated.Value(0)).current;
+  const mindShineAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const glowLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(mindGlowAnim, {
+          toValue: 1, duration: 1800, easing: Easing.inOut(Easing.sin), useNativeDriver: false,
+        }),
+        Animated.timing(mindGlowAnim, {
+          toValue: 0, duration: 1800, easing: Easing.inOut(Easing.sin), useNativeDriver: false,
+        }),
+      ]),
+    );
+    const shineLoop = Animated.loop(
+      Animated.sequence([
+        Animated.delay(600),
+        Animated.timing(mindShineAnim, {
+          toValue: 1, duration: 1100, easing: Easing.inOut(Easing.cubic), useNativeDriver: true,
+        }),
+        Animated.timing(mindShineAnim, { toValue: 0, duration: 0, useNativeDriver: true }),
+        Animated.delay(900),
+      ]),
+    );
+    Animated.timing(mindUnderlineAnim, {
+      toValue: 1, duration: 550, delay: 150, easing: Easing.out(Easing.cubic), useNativeDriver: false,
+    }).start();
+    glowLoop.start();
+    shineLoop.start();
+    return () => {
+      glowLoop.stop();
+      shineLoop.stop();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const mindHeadingColor = mindGlowAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [C.primary, C.accent],
+  });
+  const MIND_UNDERLINE_WIDTH = 46;
+  const mindShineTranslate = mindShineAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-24, MIND_UNDERLINE_WIDTH],
+  });
+
+  // Footer signature — a heart that actually beats, and a gradient pill that
+  // softly breathes and catches a traveling glint, so the sign-off at the
+  // bottom of the screen feels alive rather than three static glyphs.
+  const footerHeartAnim = useRef(new Animated.Value(0)).current;
+  const footerPillBreatheAnim = useRef(new Animated.Value(0)).current;
+  const footerPillShineAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const heartLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(footerHeartAnim, {
+          toValue: 1, duration: 180, easing: Easing.out(Easing.quad), useNativeDriver: true,
+        }),
+        Animated.timing(footerHeartAnim, {
+          toValue: 0, duration: 220, easing: Easing.in(Easing.quad), useNativeDriver: true,
+        }),
+        Animated.timing(footerHeartAnim, {
+          toValue: 1, duration: 160, easing: Easing.out(Easing.quad), useNativeDriver: true,
+        }),
+        Animated.timing(footerHeartAnim, {
+          toValue: 0, duration: 260, easing: Easing.in(Easing.quad), useNativeDriver: true,
+        }),
+        Animated.delay(1400),
+      ]),
+    );
+    const breatheLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(footerPillBreatheAnim, {
+          toValue: 1, duration: 1400, easing: Easing.inOut(Easing.sin), useNativeDriver: true,
+        }),
+        Animated.timing(footerPillBreatheAnim, {
+          toValue: 0, duration: 1400, easing: Easing.inOut(Easing.sin), useNativeDriver: true,
+        }),
+      ]),
+    );
+    const pillShineLoop = Animated.loop(
+      Animated.sequence([
+        Animated.delay(900),
+        Animated.timing(footerPillShineAnim, {
+          toValue: 1, duration: 1200, easing: Easing.inOut(Easing.cubic), useNativeDriver: true,
+        }),
+        Animated.timing(footerPillShineAnim, { toValue: 0, duration: 0, useNativeDriver: true }),
+        Animated.delay(1400),
+      ]),
+    );
+    heartLoop.start();
+    breatheLoop.start();
+    pillShineLoop.start();
+    return () => {
+      heartLoop.stop();
+      breatheLoop.stop();
+      pillShineLoop.stop();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const footerHeartScale = footerHeartAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.35] });
+  const footerPillScale = footerPillBreatheAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.035] });
+  const FOOTER_PILL_WIDTH = 148;
+  const footerPillShineTranslate = footerPillShineAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-50, FOOTER_PILL_WIDTH],
+  });
 
   const handleQueryChange = useCallback((text: string) => {
     setQuery(text);
@@ -1658,17 +1846,6 @@ export default function HomeScreen() {
     clearSearch();
   }, [clearSearch]);
 
-  // "Starting from ₹X" needs the cheapest PURCHASABLE CARD per store (card-service),
-  // not a menu item price — batched across every store currently on screen.
-  const visibleStoreIds = useMemo(() => {
-    const ids = new Set<number>();
-    (allStores ?? []).forEach((s) => ids.add(s.id));
-    (searchResults ?? []).forEach((s) => ids.add(s.id));
-    (homeCategoryStores ?? []).forEach((s) => ids.add(s.id));
-    return Array.from(ids);
-  }, [allStores, searchResults, homeCategoryStores]);
-  const { data: lowestPrices } = useLowestCardPricesByStores(visibleStoreIds);
-
   // Single unified store list for the home screen (no more separate
   // "Nearby" / "All stores" arrays). Every store gets a real distanceKm
   // when possible: the authoritative backend value from /nearby/me where
@@ -1687,14 +1864,17 @@ export default function HomeScreen() {
   // the same unfiltered list. A store this can't compute a distance for at
   // all (no coords on either side, or location not resolved yet) is left
   // in rather than hidden — an unknown distance is not evidence it's far.
-  const storesWithDistance = useMemo(() => {
-    // Plain object, not a JS Map — `Map` here would resolve to the lucide-react-native
-    // icon imported under that same name above, not the built-in collection.
-    const nearbyDistanceById: Record<number, number> = {};
+  // Plain object, not a JS Map — `Map` here would resolve to the lucide-react-native
+  // icon imported under that same name above, not the built-in collection.
+  const nearbyDistanceById = useMemo(() => {
+    const map: Record<number, number> = {};
     (nearbyStores ?? []).forEach((s) => {
-      if (s.distanceKm != null) nearbyDistanceById[s.id] = s.distanceKm;
+      if (s.distanceKm != null) map[s.id] = s.distanceKm;
     });
+    return map;
+  }, [nearbyStores]);
 
+  const storesWithDistance = useMemo(() => {
     // Defensive de-dupe by id — a store appearing twice in the raw API
     // response (seed/test data, a backend pagination overlap, etc.) would
     // otherwise render two <StoreCard key={s.id}> siblings with the same
@@ -1708,20 +1888,41 @@ export default function HomeScreen() {
       return true;
     });
 
-    const withDistance = dedupedStores.map((s) => {
-      const backendDist = nearbyDistanceById[s.id];
-      if (backendDist != null) {
-        return backendDist === s.distanceKm ? s : { ...s, distanceKm: backendDist };
-      }
-      if (s.distanceKm == null && coords && s.latitude != null && s.longitude != null) {
-        return { ...s, distanceKm: haversineDistanceKm(coords.latitude, coords.longitude, s.latitude, s.longitude) };
-      }
-      return s;
-    });
+    return attachDistanceAndCapRadius(dedupedStores, nearbyDistanceById, coords, locationReady);
+  }, [allStores, nearbyDistanceById, coords, locationReady]);
 
-    if (!locationReady || !coords) return withDistance;
-    return withDistance.filter((s) => s.distanceKm == null || s.distanceKm <= DEFAULT_RADIUS_KM);
-  }, [allStores, nearbyStores, coords, locationReady]);
+  // Stores actually within DEFAULT_RADIUS_KM (or all stores, when location
+  // isn't ready and distance can't be known) — shared with BannerCarousel so
+  // its New Arrivals rail only surfaces cards from stores the user could
+  // actually reach, not the newest cards nationwide.
+  const nearbyStoreIds = useMemo(
+    () => new Set(storesWithDistance.map((s) => s.id)),
+    [storesWithDistance],
+  );
+
+  // The tapped home-category chip (useStoresByCategory) hits a backend
+  // endpoint with no location awareness at all — unlike /nearby/me and
+  // /search, it has no lat/lng/radius params, so it returns every store in
+  // that category regardless of distance. Without this, tapping a category
+  // showed stores from anywhere, not just nearby ones. Same radius cap as
+  // the main list, then sorted nearest-first — "filter by category" should
+  // mean "nearest stores in this category", not "every store in this
+  // category in whatever order the backend returned them".
+  const homeCategoryStoresWithDistance = useMemo(() => {
+    const capped = attachDistanceAndCapRadius(homeCategoryStores ?? [], nearbyDistanceById, coords, locationReady);
+    return sortStores(capped, 'nearMe');
+  }, [homeCategoryStores, nearbyDistanceById, coords, locationReady]);
+
+  // "Starting from ₹X" needs the cheapest PURCHASABLE CARD per store (card-service),
+  // not a menu item price — batched across every store currently on screen.
+  const visibleStoreIds = useMemo(() => {
+    const ids = new Set<number>();
+    (allStores ?? []).forEach((s) => ids.add(s.id));
+    (searchResults ?? []).forEach((s) => ids.add(s.id));
+    homeCategoryStoresWithDistance.forEach((s) => ids.add(s.id));
+    return Array.from(ids);
+  }, [allStores, searchResults, homeCategoryStoresWithDistance]);
+  const { data: lowestPrices } = useLowestCardPricesByStores(visibleStoreIds);
 
   // ── Filters (category + open-now) ─────────────────────────────────────────
 
@@ -1810,9 +2011,9 @@ export default function HomeScreen() {
             onPress={() => void openLocationPicker()}
             hitSlop={8}
           >
-            <View style={styles.locationPinWrap}>
-              <MapPin size={12} color={C.accent} strokeWidth={2.4} />
-            </View>
+            <LinearGradient colors={GRADIENTS.accent} style={styles.locationPinWrap}>
+              <MapPin size={12} color="#FFFFFF" strokeWidth={2.6} />
+            </LinearGradient>
             <Text style={styles.locationName} numberOfLines={1}>
               {locationName ?? 'Current Location'}
             </Text>
@@ -1838,13 +2039,15 @@ export default function HomeScreen() {
         )}
       </View>
 
-      <PressableScale style={styles.bellBtn} onPress={() => router.push(ROUTES.NOTIFICATIONS as never)}>
-        <Bell size={19} color={C.primary} strokeWidth={1.7} />
-        {unreadCount > 0 ? (
-          <View style={styles.bellBadge}>
-            <Text style={styles.bellBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
-          </View>
-        ) : null}
+      <PressableScale style={styles.bellBtnShadow} onPress={() => router.push(ROUTES.NOTIFICATIONS as never)}>
+        <LinearGradient colors={['#FFFFFF', '#F3F4F8']} style={styles.bellBtn}>
+          <Bell size={19} color={C.primary} strokeWidth={1.8} />
+          {unreadCount > 0 ? (
+            <View style={styles.bellBadge}>
+              <Text style={styles.bellBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+            </View>
+          ) : null}
+        </LinearGradient>
       </PressableScale>
     </View>
   );
@@ -1853,7 +2056,7 @@ export default function HomeScreen() {
 
   const renderSearchBar = () => (
     <View style={styles.searchWrap}>
-      <View style={styles.searchBar}>
+      <View style={[styles.searchBar, query.length > 0 && styles.searchBarActive]}>
         <Search size={17} color={query ? C.accent : C.muted} strokeWidth={2} />
         <TextInput
           style={styles.searchInput}
@@ -1984,7 +2187,7 @@ export default function HomeScreen() {
         <View style={{ flex: 1 }}>
           <SectionHeader
             title={selectedHomeCategory ?? ''}
-            count={homeCategoryStores?.length}
+            count={homeCategoryStoresWithDistance.length}
             icon={<UtensilsCrossed size={14} color={C.accent} strokeWidth={2} />}
           />
         </View>
@@ -2014,16 +2217,24 @@ export default function HomeScreen() {
             </PressableScale>
           </View>
         )
-        : !homeCategoryStores || homeCategoryStores.length === 0
+        : homeCategoryStoresWithDistance.length === 0
         ? (
           <EmptyState
-            title="No stores in this category yet"
-            subtitle="Check back soon, or browse everything instead"
+            title={
+              homeCategoryStores && homeCategoryStores.length > 0
+                ? 'No nearby stores in this category'
+                : 'No stores in this category yet'
+            }
+            subtitle={
+              homeCategoryStores && homeCategoryStores.length > 0
+                ? 'Every match is outside your delivery area right now'
+                : 'Check back soon, or browse everything instead'
+            }
             actionLabel="Clear filter"
             onAction={() => setSelectedHomeCategory(null)}
           />
         )
-        : homeCategoryStores.map((s, i) => (
+        : homeCategoryStoresWithDistance.map((s, i) => (
             <StoreCard key={s.id} store={s} index={i} lowestPrice={lowestPrices?.[s.id]} />
           ))
       }
@@ -2037,11 +2248,41 @@ export default function HomeScreen() {
 
     return (
       <>
+        <FadeInView translateYFrom={8}>
+          <View style={styles.mindHeadingRow}>
+            <Animated.Text style={[styles.mindHeading, { color: mindHeadingColor }]}>
+              What&apos;s on your mind{firstName ? `, ${firstName}` : ''}?
+            </Animated.Text>
+          </View>
+          <Animated.View
+            style={[
+              styles.mindUnderlineTrack,
+              { width: mindUnderlineAnim.interpolate({ inputRange: [0, 1], outputRange: [0, MIND_UNDERLINE_WIDTH] }) },
+            ]}
+          >
+            <LinearGradient
+              colors={GRADIENTS.accent}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={StyleSheet.absoluteFill}
+            />
+            <Animated.View
+              style={[styles.mindUnderlineShine, { transform: [{ translateX: mindShineTranslate }] }]}
+            >
+              <LinearGradient
+                colors={['rgba(255,255,255,0)', 'rgba(255,255,255,0.85)', 'rgba(255,255,255,0)']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={StyleSheet.absoluteFill}
+              />
+            </Animated.View>
+          </Animated.View>
+        </FadeInView>
         <CategoriesRow selectedCategory={selectedHomeCategory} onSelectCategory={handleSelectHomeCategory} />
 
         {selectedHomeCategory ? renderHomeCategoryResults() : (
           <>
-            <BannerCarousel storesById={storesById} />
+            <BannerCarousel storesById={storesById} nearbyStoreIds={nearbyStoreIds} />
 
             {showPermissionBanner && (
               <LocationPermissionBanner
@@ -2105,8 +2346,35 @@ export default function HomeScreen() {
         {renderSearchBar()}
         <View style={styles.content}>{renderContent()}</View>
         <View style={styles.footerBrand}>
-          <Text style={styles.footerBrandName}>STRIKE</Text>
-          <Text style={styles.footerBrandCredit}>designed by scalatechnologies</Text>
+          <Text style={styles.footerTagline}>
+            Subscribe once.{'\n'}
+            <Text style={styles.footerTaglineAccent}>Strike always.</Text>
+          </Text>
+          <View style={styles.footerCreditRow}>
+            <Text style={styles.footerCreditText}>Crafted with</Text>
+            <Animated.View style={{ marginHorizontal: 5, transform: [{ scale: footerHeartScale }] }}>
+              <Heart size={13} color={C.accent} fill={C.accent} strokeWidth={0} />
+            </Animated.View>
+            <Text style={styles.footerCreditText}>by ScalaTechnologies</Text>
+          </View>
+          <Animated.View
+            style={[styles.footerWordmarkPillShadow, { marginTop: 28, transform: [{ scale: footerPillScale }] }]}
+          >
+            <LinearGradient colors={GRADIENTS.accent} style={styles.footerWordmarkPill}>
+              <Zap size={14} color="#FFFFFF" fill="#FFFFFF" strokeWidth={0} />
+              <Text style={styles.footerWordmarkText}>STRIKE</Text>
+              <Animated.View
+                style={[styles.footerWordmarkShine, { transform: [{ translateX: footerPillShineTranslate }] }]}
+              >
+                <LinearGradient
+                  colors={['rgba(255,255,255,0)', 'rgba(255,255,255,0.55)', 'rgba(255,255,255,0)']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={StyleSheet.absoluteFill}
+                />
+              </Animated.View>
+            </LinearGradient>
+          </Animated.View>
         </View>
       </ScrollView>
 
@@ -2154,24 +2422,72 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
 
-  // ── Footer branding ──
+  // ── Footer branding — a big, alive sign-off instead of a small centered
+  // wordmark: a bold two-line statement (the brand pun carries the "beauty"
+  // that a flat grey wordmark can't), a warm credit line, and a gradient
+  // pill signature at the end. ──
   footerBrand: {
-    alignItems: 'center',
-    paddingTop: 28,
-    paddingBottom: 20,
-    backgroundColor: C.surface,
+    alignItems: 'flex-start',
+    paddingHorizontal: SPACING.page,
+    paddingTop: 44,
+    paddingBottom: 40,
+    backgroundColor: C.bg,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    marginTop: -20,
   },
-  footerBrandName: {
-    fontSize: 15,
+  footerTagline: {
+    fontSize: 34,
+    lineHeight: 38,
     fontFamily: ManropeWeights.extraBold,
-    color: C.muted,
-    letterSpacing: 3,
+    color: C.primary,
+    letterSpacing: -0.8,
   },
-  footerBrandCredit: {
-    fontSize: 11,
+  footerTaglineAccent: {
+    color: C.accent,
+  },
+  footerCreditRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  footerCreditText: {
+    fontSize: 13.5,
     fontFamily: ManropeWeights.medium,
-    color: C.muted,
-    marginTop: 4,
+    color: C.secondary,
+  },
+  // Split from footerWordmarkPill on purpose: Android's elevation shadow
+  // gets clipped by a sibling overflow:'hidden' + borderRadius on the SAME
+  // view (see CategoriesRow's identical iconShadow/iconWrap split) — this
+  // unclipped wrapper carries the shadow, the pill below carries the clip.
+  footerWordmarkPillShadow: {
+    alignSelf: 'flex-start',
+    borderRadius: 999,
+    ...Platform.select({
+      ios: { shadowColor: C.accent, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.28, shadowRadius: 12 },
+      android: { elevation: 3 },
+    }),
+  },
+  footerWordmarkPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 11,
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  footerWordmarkShine: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 50,
+  },
+  footerWordmarkText: {
+    fontSize: 13,
+    fontFamily: ManropeWeights.extraBold,
+    color: '#FFFFFF',
+    letterSpacing: 3,
   },
 
   // ── Header ──
@@ -2241,25 +2557,29 @@ const styles = StyleSheet.create({
     marginTop: 4,
     letterSpacing: 0.1,
   },
+  bellBtnShadow: {
+    marginLeft: 14,
+    marginTop: 4,
+    borderRadius: 14,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#0D0D0D',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 10,
+      },
+      android: { elevation: 3 },
+    }),
+  },
   bellBtn: {
     width: 44,
     height: 44,
     borderRadius: 14,
-    backgroundColor: C.bg,
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 14,
-    marginTop: 4,
     position: 'relative',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 4,
-      },
-      android: { elevation: 1 },
-    }),
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.9)',
   },
   bellBadge: {
     position: 'absolute',
@@ -2325,6 +2645,18 @@ const styles = StyleSheet.create({
       android: { elevation: 2 },
     }),
   },
+  searchBarActive: {
+    borderColor: C.accentMid,
+    ...Platform.select({
+      ios: {
+        shadowColor: C.accent,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.18,
+        shadowRadius: 12,
+      },
+      android: { elevation: 4 },
+    }),
+  },
   searchInput: {
     flex: 1,
     fontSize: 15,
@@ -2368,12 +2700,11 @@ const styles = StyleSheet.create({
       android: { elevation: 1 },
     }),
   },
-  filterChipActive: {
-    backgroundColor: C.accent,
-    borderColor: C.accent,
+  filterChipActiveShadow: {
+    borderRadius: 19,
     ...Platform.select({
-      ios: { shadowColor: C.accent, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.28, shadowRadius: 8 },
-      android: { elevation: 3 },
+      ios: { shadowColor: C.accent, shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.32, shadowRadius: 10 },
+      android: { elevation: 4 },
     }),
   },
   filterChipText: {
@@ -2535,6 +2866,31 @@ const styles = StyleSheet.create({
 
   // ── Content ──
   content: { paddingBottom: 52, backgroundColor: C.surface },
+  mindHeadingRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    paddingHorizontal: SPACING.page,
+    paddingTop: 16,
+    paddingBottom: 2,
+  },
+  mindHeading: {
+    fontSize: 16.5,
+    fontFamily: ManropeWeights.semiBold,
+    letterSpacing: -0.2,
+  },
+  mindUnderlineTrack: {
+    height: 4,
+    borderRadius: 2,
+    marginLeft: SPACING.page,
+    marginTop: 6,
+    overflow: 'hidden',
+  },
+  mindUnderlineShine: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 24,
+  },
   section: { marginTop: 4 },
   storeSectionHeader: {
     paddingHorizontal: SPACING.page,
@@ -2581,7 +2937,6 @@ const styles = StyleSheet.create({
     width: 26,
     height: 26,
     borderRadius: 8,
-    backgroundColor: C.accentSoft,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -2624,12 +2979,12 @@ const styles = StyleSheet.create({
     borderColor: '#F1F1F1',
     ...Platform.select({
       ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.06,
-        shadowRadius: 12,
+        shadowColor: '#0D0D0D',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.1,
+        shadowRadius: 18,
       },
-      android: { elevation: 2 },
+      android: { elevation: 4 },
     }),
   },
   // Closed stores render as one disabled unit — true black & white via a
@@ -2688,6 +3043,13 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     height: '45%',
+  },
+  cardImageSheen: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '55%',
   },
   cardImageCategoryRow: {
     position: 'absolute',
@@ -2874,6 +3236,15 @@ const styles = StyleSheet.create({
       android: { elevation: 12 },
     }),
   },
+  sheetTopWash: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 220,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+  },
   sheetHandle: {
     width: 40,
     height: 4,
@@ -2882,130 +3253,46 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     marginBottom: 22,
   },
-  sheetTitleBlock: {
-    marginBottom: 22,
+  // ── Location sheet header ──
+  sheetHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 16,
   },
   sheetTitle: {
     fontSize: 20,
-    fontWeight: '700',
-    fontFamily: ManropeWeights.bold,
+    fontWeight: '800',
+    fontFamily: ManropeWeights.extraBold,
     color: C.primary,
     letterSpacing: -0.5,
-    marginBottom: 4,
   },
-  sheetSubtitle: {
-    fontSize: 13,
-    color: C.muted,
-    lineHeight: 18,
-    fontFamily: ManropeWeights.regular,
-  },
-  optionCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    backgroundColor: C.surface,
-    borderRadius: 18,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    marginBottom: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: C.border,
-    ...Platform.select({
-      ios: { shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 10, shadowOffset: { width: 0, height: 3 } },
-      android: { elevation: 2 },
-    }),
-  },
-  optionIconGrad: {
-    width: 42,
-    height: 42,
-    borderRadius: 13,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  sheetOptionContent: { flex: 1 },
-  sheetOptionLabel: {
-    fontSize: 14.5,
-    fontWeight: '600',
-    fontFamily: ManropeWeights.semiBold,
-    color: C.primary,
-    marginBottom: 2,
-  },
-  sheetOptionSub: {
-    fontSize: 12,
-    color: C.muted,
-    fontFamily: ManropeWeights.regular,
-  },
-  sheetRecentSection: {
-    marginTop: 6,
-    marginBottom: 4,
-  },
-  sheetSectionLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    fontFamily: ManropeWeights.bold,
-    color: C.muted,
-    letterSpacing: 0.9,
-    textTransform: 'uppercase',
-    marginBottom: 8,
-    marginLeft: 4,
-  },
-  sheetRecentRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 14,
-    backgroundColor: C.bg,
-    marginBottom: 6,
-  },
-  sheetRecentIconWrap: {
+  sheetCloseBtn: {
     width: 32,
     height: 32,
-    borderRadius: 9,
-    backgroundColor: C.accentSoft,
+    borderRadius: 16,
+    backgroundColor: C.bg,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  sheetRecentName: {
-    fontSize: 14,
-    color: C.primary,
-    fontWeight: '500',
-    fontFamily: ManropeWeights.medium,
-    flex: 1,
   },
 
-  // ── Sheet search view ──
-  sheetSearchHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 16,
-  },
-  sheetBackBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 11,
-    backgroundColor: C.bg,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: C.border,
-  },
+  // ── Search bar — a full pill shape, always visible (no separate search
+  // screen to navigate to/from). ──
   sheetSearchBar: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: C.bg,
-    borderRadius: 14,
-    height: 46,
-    paddingHorizontal: 12,
-    gap: 8,
+    borderRadius: 25,
+    height: 50,
+    paddingHorizontal: 16,
+    gap: 10,
     borderWidth: 1.5,
     borderColor: C.border,
+    marginBottom: 12,
     shadowColor: C.accent,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
   },
   sheetSearchInput: {
     flex: 1,
@@ -3014,39 +3301,72 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
     fontFamily: ManropeWeights.regular,
   },
-  sheetSearchResults: {
+
+  // ── Body — one persistent ScrollView; only its content ever changes. ──
+  sheetBody: {
     flex: 1,
-    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
   },
-  sheetGeoRow: {
+
+  // ── Flat, minimal rows — no boxed cards, no per-row shadow. Just an icon,
+  // text, and a hairline divider where one is needed. Shared by "Use
+  // current location", "Recent", and live search results alike, so nothing
+  // in the sheet looks like a different kind of thing once you're past the
+  // search bar. ──
+  rowItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 14,
-    backgroundColor: C.bg,
-    marginBottom: 6,
+    gap: 13,
+    paddingVertical: 13,
   },
-  sheetGeoIconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 9,
+  rowItemDivider: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: C.divider,
+  },
+  rowIconAccent: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: C.accentSoft,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  sheetGeoName: {
-    fontSize: 14,
-    fontWeight: '600',
-    fontFamily: ManropeWeights.semiBold,
-    color: C.primary,
-    marginBottom: 2,
+  rowIconMuted: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: C.bg,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  sheetGeoSub: {
+  rowTitle: {
+    fontSize: 14.5,
+    color: C.primary,
+    fontWeight: '500',
+    fontFamily: ManropeWeights.medium,
+    flex: 1,
+  },
+  rowSubtitle: {
     fontSize: 12,
     color: C.muted,
     fontFamily: ManropeWeights.regular,
+    marginTop: 1,
+  },
+  sheetSectionLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    fontFamily: ManropeWeights.bold,
+    color: C.muted,
+    letterSpacing: 0.9,
+    textTransform: 'uppercase',
+    marginTop: 18,
+    marginBottom: 6,
+  },
+  resolveErrorText: {
+    fontSize: 12.5,
+    color: C.danger,
+    fontFamily: ManropeWeights.medium,
+    textAlign: 'center',
+    paddingVertical: 12,
   },
   sheetSearchStatus: {
     paddingVertical: 36,

@@ -1,5 +1,6 @@
 import { Tabs } from 'expo-router';
-import { Platform, StyleSheet, View } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { Animated, Easing, Platform, StyleSheet, View } from 'react-native';
 import { CreditCard, History, Home, User } from 'lucide-react-native';
 import { PendingRedemptionBar } from '@/components/redemptions/PendingRedemptionBar';
 import { PayAtStorePendingBar } from '@/components/payment/PayAtStorePendingBar';
@@ -20,6 +21,11 @@ const SURFACE = '#FFFFFF';
 const BORDER  = '#E8E8ED';
 const TAB_BAR_HEIGHT = Platform.select({ ios: 82, android: 64 })!;
 
+// Icon + label stay in their familiar stacked layout on every tab, always
+// visible — the only thing that changes on selection is a small solid
+// accent circle fading/scaling in behind the active icon (white icon on
+// top of it), instead of an icon+label that visually reads the same way
+// on every tab all the time.
 function TabIcon({
   Icon,
   focused,
@@ -27,9 +33,25 @@ function TabIcon({
   Icon: React.ComponentType<{ size: number; color: string; strokeWidth: number }>;
   focused: boolean;
 }) {
+  const activeAnim = useRef(new Animated.Value(focused ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.timing(activeAnim, {
+      toValue: focused ? 1 : 0,
+      duration: 200,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [focused, activeAnim]);
+
+  const circleScale = activeAnim.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] });
+
   return (
-    <View style={[styles.iconWrap, focused && styles.iconWrapActive]}>
-      <Icon size={22} color={focused ? ACCENT : MUTED} strokeWidth={focused ? 2.2 : 1.8} />
+    <View style={styles.iconWrap}>
+      <Animated.View
+        style={[styles.iconCircle, { opacity: activeAnim, transform: [{ scale: circleScale }] }]}
+      />
+      <Icon size={20} color={focused ? '#FFFFFF' : MUTED} strokeWidth={focused ? 2.2 : 1.8} />
     </View>
   );
 }
@@ -121,16 +143,19 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     fontFamily: ManropeWeights.semiBold,
-    marginTop: 2,
+    marginTop: 4,
   },
   iconWrap: {
-    width: 44,
+    width: 34,
     height: 34,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 12,
   },
-  iconWrapActive: {
-    backgroundColor: '#FEF2EF',
+  iconCircle: {
+    position: 'absolute',
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: ACCENT,
   },
 });
