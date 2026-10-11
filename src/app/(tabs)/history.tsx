@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Platform,
   Pressable,
@@ -11,7 +11,18 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Clock, Receipt, ShoppingBag, Store, XCircle } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated, {
+  Easing,
+  FadeIn,
+  runOnJS,
+  useAnimatedReaction,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
+import { CheckCircle2, Clock, Receipt, ShoppingBag, Store, Wallet, XCircle } from 'lucide-react-native';
 import { useAuthStore } from '@/store/authStore';
 import { useUserRedemptions, redemptionKeys } from '@/hooks/useRedemptions';
 import { useMySubscriptions } from '@/hooks/useSubscriptions';
@@ -21,12 +32,14 @@ import { usePayAtStoreSessionStore } from '@/store/payAtStoreSessionStore';
 import { buildRoute } from '@/constants/routes';
 import { formatCardPrice } from '@/components/cards/theme';
 import { ManropeWeights } from '@/constants/theme';
-import { tapLight } from '@/utils/haptics';
+import { PressableScale } from '@/components/ui/PressableScale';
+import { FadeInView } from '@/components/ui/FadeInView';
 import type { Redemption, RedemptionStatus } from '@/types/redemption';
 // ── Design tokens ──────────────────────────────────────────────────────────────
 
 const C = {
   accent:      '#D63527',
+  accentDeep:  '#8E1F15',
   accentSoft:  '#FEF2EF',
   bg:          '#F2F2F7',
   surface:     '#FFFFFF',
@@ -42,6 +55,8 @@ const C = {
   dangerDark:  '#C0261A',
   warning:     '#FF9500',
   skeleton:    '#E5E5EA',
+  heroMuted:   'rgba(255,255,255,0.55)',
+  heroSub:     'rgba(255,255,255,0.72)',
 } as const;
 
 // ── Status display config ──────────────────────────────────────────────────────
@@ -125,17 +140,37 @@ function groupRedemptionsByDate(
 
 // ── Empty state ────────────────────────────────────────────────────────────────
 
-function EmptyState() {
+function EmptyState({ onExplore }: { onExplore: () => void }) {
+  const pulse = useSharedValue(0);
+
+  useEffect(() => {
+    pulse.value = withRepeat(withTiming(1, { duration: 1400, easing: Easing.inOut(Easing.ease) }), -1, true);
+  }, [pulse]);
+
+  const pulseStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: 1 + pulse.value * 0.08 }],
+  }));
+
   return (
-    <View style={styles.emptyWrap}>
-      <View style={styles.emptyIconWrap}>
-        <ShoppingBag size={28} color={C.muted} strokeWidth={1.4} />
-      </View>
+    <Animated.View style={styles.emptyWrap} entering={FadeIn.duration(420)}>
+      <Animated.View style={pulseStyle}>
+        <LinearGradient
+          colors={[C.accentSoft, '#FFFFFF']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.emptyIconWrap}
+        >
+          <ShoppingBag size={28} color={C.accent} strokeWidth={1.4} />
+        </LinearGradient>
+      </Animated.View>
       <Text style={styles.emptyHeading}>No redemptions yet</Text>
       <Text style={styles.emptySub}>
         Request redemption from an active membership to see your activity here.
       </Text>
-    </View>
+      <PressableScale style={styles.emptyBtn} onPress={onExplore}>
+        <Text style={styles.emptyBtnText}>Explore memberships</Text>
+      </PressableScale>
+    </Animated.View>
   );
 }
 
@@ -146,16 +181,27 @@ function SkeletonBone({ style }: { style?: object }) {
 }
 
 function LoadingSkeleton() {
+  const shimmer = useSharedValue(0.4);
+
+  useEffect(() => {
+    shimmer.value = withRepeat(withTiming(1, { duration: 750, easing: Easing.inOut(Easing.ease) }), -1, true);
+  }, [shimmer]);
+
+  const shimmerStyle = useAnimatedStyle(() => ({ opacity: shimmer.value }));
+
   return (
-    <View style={styles.skeletonWrap}>
+    <Animated.View style={[styles.skeletonWrap, shimmerStyle]}>
       <SkeletonBone style={{ width: 60, height: 11, marginBottom: 12 }} />
       {[1, 2, 3].map((i) => (
         <View key={i} style={styles.skCard}>
           <View style={styles.skCardTop}>
-            <SkeletonBone style={{ flex: 1, height: 14 }} />
+            <SkeletonBone style={{ width: 36, height: 36, borderRadius: 18 }} />
+            <View style={{ flex: 1, gap: 6 }}>
+              <SkeletonBone style={{ width: '80%', height: 14 }} />
+              <SkeletonBone style={{ width: 110, height: 11 }} />
+            </View>
             <SkeletonBone style={{ width: 54, height: 14 }} />
           </View>
-          <SkeletonBone style={{ width: 140, height: 11, marginTop: 6 }} />
           <View style={styles.skCardBottom}>
             <SkeletonBone style={{ width: 110, height: 11 }} />
             <SkeletonBone style={{ width: 70, height: 11 }} />
@@ -166,7 +212,11 @@ function LoadingSkeleton() {
       {[1, 2].map((i) => (
         <View key={i} style={styles.skCard}>
           <View style={styles.skCardTop}>
-            <SkeletonBone style={{ flex: 1, height: 14 }} />
+            <SkeletonBone style={{ width: 36, height: 36, borderRadius: 18 }} />
+            <View style={{ flex: 1, gap: 6 }}>
+              <SkeletonBone style={{ width: '65%', height: 14 }} />
+              <SkeletonBone style={{ width: 90, height: 11 }} />
+            </View>
             <SkeletonBone style={{ width: 54, height: 14 }} />
           </View>
           <View style={styles.skCardBottom}>
@@ -175,7 +225,7 @@ function LoadingSkeleton() {
           </View>
         </View>
       ))}
-    </View>
+    </Animated.View>
   );
 }
 
@@ -204,12 +254,12 @@ function RedemptionCard({
     (redemption.status === 'APPROVED' || redemption.status === 'COMPLETED') && balanceText != null;
 
   return (
-    <Pressable
-      style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-      onPress={() => { tapLight(); onPress(); }}
-    >
-      {/* Top row: items + amount */}
+    <PressableScale style={styles.card} onPress={onPress}>
+      {/* Top row: avatar + items + amount */}
       <View style={styles.cardTop}>
+        <View style={[styles.cardAvatar, { backgroundColor: cfg.bg }]}>
+          <Icon size={16} color={cfg.color} strokeWidth={2.2} />
+        </View>
         <View style={styles.cardTopLeft}>
           <Text style={styles.cardItems} numberOfLines={2}>{itemLabel}</Text>
           <Text style={styles.cardMembership} numberOfLines={1}>
@@ -225,7 +275,6 @@ function RedemptionCard({
             {cfg.amtPrefix}{fmt(redemption.totalAmount)}
           </Text>
           <View style={[styles.statusPill, { backgroundColor: cfg.bg }]}>
-            <Icon size={10} color={cfg.color} strokeWidth={2.2} />
             <Text style={[styles.statusPillText, { color: cfg.color }]}>{cfg.label}</Text>
           </View>
         </View>
@@ -243,7 +292,7 @@ function RedemptionCard({
           </Text>
         ) : null}
       </View>
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -263,8 +312,11 @@ function PayAtStoreRow({
   cardName, amount, createdAtMs, onPress,
 }: { cardName: string; amount: number; createdAtMs: number; onPress: () => void }) {
   return (
-    <Pressable style={({ pressed }) => [styles.card, pressed && styles.cardPressed]} onPress={onPress}>
+    <PressableScale style={styles.card} onPress={onPress}>
       <View style={styles.cardTop}>
+        <View style={[styles.cardAvatar, { backgroundColor: '#FFF5E0' }]}>
+          <Clock size={16} color="#7A4500" strokeWidth={2.2} />
+        </View>
         <View style={styles.cardTopLeft}>
           <Text style={styles.cardItems} numberOfLines={1}>{cardName}</Text>
           <Text style={styles.cardMembership}>Pay at Store</Text>
@@ -272,7 +324,6 @@ function PayAtStoreRow({
         <View style={styles.cardTopRight}>
           <Text style={styles.cardAmount}>{formatCardPrice(amount)}</Text>
           <View style={[styles.statusPill, { backgroundColor: '#FFF5E0' }]}>
-            <Clock size={10} color="#7A4500" strokeWidth={2.2} />
             <Text style={[styles.statusPillText, { color: '#7A4500' }]}>Waiting</Text>
           </View>
         </View>
@@ -283,7 +334,55 @@ function PayAtStoreRow({
           <Text style={styles.cardTime}>{elapsedSince(createdAtMs)} · Tap to view QR/code</Text>
         </View>
       </View>
-    </Pressable>
+    </PressableScale>
+  );
+}
+
+// ── Activity hero — animated total-redeemed summary ─────────────────────────────
+
+function ActivityHero({ total, count }: { total: number; count: number }) {
+  const anim = useSharedValue(0);
+  const [amountText, setAmountText] = useState(fmt(0));
+
+  useEffect(() => {
+    anim.value = withTiming(total, { duration: 900, easing: Easing.out(Easing.cubic) });
+  }, [anim, total]);
+
+  const updateAmountText = useCallback((val: number) => {
+    setAmountText(fmt(val));
+  }, []);
+
+  useAnimatedReaction(
+    () => Math.round(anim.value),
+    (val, prevVal) => {
+      if (val !== prevVal) runOnJS(updateAmountText)(val);
+    },
+  );
+
+  return (
+    <Animated.View entering={FadeIn.duration(420)} style={styles.heroWrap}>
+      <LinearGradient
+        colors={[C.accent, C.accentDeep, '#1C0805']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.hero}
+      >
+        <View style={styles.heroBlob1} pointerEvents="none" />
+        <View style={styles.heroBlob2} pointerEvents="none" />
+
+        <View style={styles.heroTopRow}>
+          <View style={styles.heroIconBadge}>
+            <Wallet size={15} color="#FFFFFF" strokeWidth={2} />
+          </View>
+          <Text style={styles.heroLabel}>TOTAL REDEEMED</Text>
+        </View>
+
+        <Text style={styles.heroBalance}>{amountText}</Text>
+        <Text style={styles.heroSub}>
+          Across {count} redemption{count === 1 ? '' : 's'}
+        </Text>
+      </LinearGradient>
+    </Animated.View>
   );
 }
 
@@ -299,7 +398,7 @@ function PayAtStoreSection() {
   const sorted = [...sessions].sort((a, b) => b.createdAtMs - a.createdAtMs);
 
   return (
-    <View style={styles.group}>
+    <FadeInView style={styles.group}>
       <Text style={styles.groupLabel}>Pay at Store · Waiting</Text>
       {sorted.map((s) => (
         <PayAtStoreRow
@@ -310,13 +409,14 @@ function PayAtStoreSection() {
           onPress={() => router.push(buildRoute.payAtStore(s.paymentId) as never)}
         />
       ))}
-    </View>
+    </FadeInView>
   );
 }
 
 // ── Screen ─────────────────────────────────────────────────────────────────────
 
 export default function HistoryScreen() {
+  const router      = useRouter();
   const userId      = useAuthStore((s) => s.userId);
   const queryClient = useQueryClient();
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -365,6 +465,12 @@ export default function HistoryScreen() {
 
   const groups = groupRedemptionsByDate(sorted);
 
+  const redeemedOnly   = sorted.filter((r) => r.status === 'APPROVED' || r.status === 'COMPLETED');
+  const totalRedeemed  = redeemedOnly.reduce((sum, r) => sum + r.totalAmount, 0);
+  const redeemedCount  = redeemedOnly.length;
+
+  let cardIndex = 0;
+
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
       {/* Header */}
@@ -399,20 +505,24 @@ export default function HistoryScreen() {
             <View style={styles.emptyIconWrap}>
               <ShoppingBag size={28} color={C.muted} strokeWidth={1.4} />
             </View>
-            <Text style={styles.emptyHeading}>Couldn't load activity</Text>
+            <Text style={styles.emptyHeading}>Couldn&apos;t load activity</Text>
             <Pressable onPress={() => void refetch()} hitSlop={12}>
               <Text style={styles.retryText}>Try again</Text>
             </Pressable>
           </View>
         ) : sorted.length === 0 ? (
-          <EmptyState />
+          <EmptyState onExplore={() => router.navigate('/(tabs)/cards' as never)} />
         ) : (
           <>
+            {redeemedCount > 0 ? (
+              <ActivityHero total={totalRedeemed} count={redeemedCount} />
+            ) : null}
+
             {/* A background refetch (pull-to-refresh, focus-refetch) failed —
                 keep the last-known-good list visible instead of replacing it. */}
             {isError && (
               <View style={styles.inlineErrorBanner}>
-                <Text style={styles.inlineErrorText}>Couldn't refresh — showing saved activity</Text>
+                <Text style={styles.inlineErrorText}>Couldn&apos;t refresh — showing saved activity</Text>
                 <Pressable onPress={() => void refetch()} hitSlop={8}>
                   <Text style={styles.inlineErrorRetry}>Retry</Text>
                 </Pressable>
@@ -420,19 +530,25 @@ export default function HistoryScreen() {
             )}
             {groups.map(({ label, items }) => (
             <View key={label} style={styles.group}>
-              <Text style={styles.groupLabel}>{label}</Text>
+              <View style={styles.groupLabelRow}>
+                <View style={styles.groupLabelDot} />
+                <Text style={styles.groupLabel}>{label}</Text>
+                <Text style={styles.groupLabelCount}>{items.length}</Text>
+              </View>
               {items.map((r) => {
                 const sub       = subMap.get(r.subscriptionId);
                 const cardName  = sub?.cardName ?? 'Membership';
                 const storeName = sub ? (storeMap.get(sub.storeId) ?? '') : '';
+                const delay     = Math.min(cardIndex++, 8) * 45;
                 return (
-                  <RedemptionCard
-                    key={r.id}
-                    redemption={r}
-                    cardName={cardName}
-                    storeName={storeName}
-                    onPress={() => setSelected({ redemption: r, cardName, storeName })}
-                  />
+                  <FadeInView key={r.id} delay={delay}>
+                    <RedemptionCard
+                      redemption={r}
+                      cardName={cardName}
+                      storeName={storeName}
+                      onPress={() => setSelected({ redemption: r, cardName, storeName })}
+                    />
+                  </FadeInView>
                 );
               })}
             </View>
@@ -490,11 +606,78 @@ const styles = StyleSheet.create({
     marginTop: 28,
     paddingHorizontal: 16,
   },
+  groupLabelRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    marginBottom: 10,
+  },
+  groupLabelDot: {
+    width: 5, height: 5, borderRadius: 2.5,
+    backgroundColor: C.accent,
+  },
   groupLabel: {
     fontSize: 13, fontFamily: ManropeWeights.bold,
     color: C.muted, letterSpacing: 0.5,
     textTransform: 'uppercase',
-    marginBottom: 10,
+  },
+  groupLabelCount: {
+    fontSize: 11, fontFamily: ManropeWeights.semiBold,
+    color: C.muted,
+    backgroundColor: C.bg,
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    overflow: 'hidden',
+  },
+
+  // Activity hero
+  heroWrap: {
+    marginHorizontal: 16,
+    marginTop: 20,
+    borderRadius: 24,
+    overflow: 'hidden',
+    ...Platform.select({
+      ios: { shadowColor: C.accentDeep, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.24, shadowRadius: 18 },
+      android: { elevation: 6 },
+    }),
+  },
+  hero: {
+    paddingHorizontal: 20,
+    paddingTop: 22,
+    paddingBottom: 20,
+    overflow: 'hidden',
+  },
+  heroBlob1: {
+    position: 'absolute', width: 180, height: 180, borderRadius: 90,
+    backgroundColor: 'rgba(255,255,255,0.06)', top: -70, right: -50,
+  },
+  heroBlob2: {
+    position: 'absolute', width: 120, height: 120, borderRadius: 60,
+    backgroundColor: 'rgba(0,0,0,0.12)', bottom: -50, left: -24,
+  },
+  heroTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  heroIconBadge: {
+    width: 26, height: 26, borderRadius: 9,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  heroLabel: {
+    fontSize: 11, fontFamily: ManropeWeights.bold,
+    color: C.heroMuted, letterSpacing: 1.6,
+    textTransform: 'uppercase',
+  },
+  heroBalance: {
+    fontSize: 38, fontFamily: ManropeWeights.extraBold,
+    color: '#FFFFFF', letterSpacing: -1.6,
+    marginBottom: 4,
+  },
+  heroSub: {
+    fontSize: 13, fontFamily: ManropeWeights.medium,
+    color: C.heroSub, letterSpacing: 0.1,
   },
 
   // Redemption card
@@ -509,11 +692,15 @@ const styles = StyleSheet.create({
       android: { elevation: 2 },
     }),
   },
-  cardPressed: { opacity: 0.7 },
   cardTop: {
     flexDirection: 'row',
     gap: 12,
-    alignItems: 'flex-start',
+    alignItems: 'center',
+  },
+  cardAvatar: {
+    width: 36, height: 36, borderRadius: 18,
+    justifyContent: 'center', alignItems: 'center',
+    flexShrink: 0,
   },
   cardTopLeft:  { flex: 1, gap: 3 },
   cardTopRight: { alignItems: 'flex-end', gap: 5, flexShrink: 0 },
@@ -587,7 +774,7 @@ const styles = StyleSheet.create({
   },
   emptyIconWrap: {
     width: 64, height: 64, borderRadius: 20,
-    backgroundColor: C.surface, justifyContent: 'center',
+    justifyContent: 'center',
     alignItems: 'center', marginBottom: 8,
     ...Platform.select({
       ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.07, shadowRadius: 8 },
@@ -604,6 +791,20 @@ const styles = StyleSheet.create({
   retryText: {
     fontSize: 14, fontFamily: ManropeWeights.semiBold, color: C.accent, marginTop: 4,
   },
+  emptyBtn: {
+    backgroundColor: C.accent,
+    paddingHorizontal: 26,
+    paddingVertical: 13,
+    borderRadius: 24,
+    marginTop: 4,
+    ...Platform.select({
+      ios: { shadowColor: C.accent, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.28, shadowRadius: 12 },
+      android: { elevation: 3 },
+    }),
+  },
+  emptyBtnText: {
+    fontSize: 15, fontFamily: ManropeWeights.bold, color: '#FFFFFF', letterSpacing: -0.1,
+  },
 
   // Skeleton
   skeletonWrap: {
@@ -614,7 +815,7 @@ const styles = StyleSheet.create({
     padding: 16, marginBottom: 10, gap: 8,
   },
   skCardTop: {
-    flexDirection: 'row', gap: 12,
+    flexDirection: 'row', gap: 12, alignItems: 'center',
   },
   skCardBottom: {
     flexDirection: 'row', justifyContent: 'space-between',

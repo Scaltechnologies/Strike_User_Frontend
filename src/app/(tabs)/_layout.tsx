@@ -1,6 +1,7 @@
 import { Tabs } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import { Animated, Easing, Platform, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CreditCard, History, Home, User } from 'lucide-react-native';
 import { PendingRedemptionBar } from '@/components/redemptions/PendingRedemptionBar';
 import { PayAtStorePendingBar } from '@/components/payment/PayAtStorePendingBar';
@@ -19,7 +20,20 @@ const ACCENT  = '#D63527';
 const MUTED   = '#AEAEB2';
 const SURFACE = '#FFFFFF';
 const BORDER  = '#E8E8ED';
-const TAB_BAR_HEIGHT = Platform.select({ ios: 82, android: 64 })!;
+
+// Height of the tab bar's own content — icon row + its top padding — not
+// counting the bottom inset. SDK 56 renders edge-to-edge on Android
+// unconditionally, so the OS draws the app behind the gesture pill/3-button
+// nav bar instead of reserving space for it; without adding
+// `insets.bottom` ourselves the tab bar (and anything anchored to its
+// height) ends up drawn under the system nav bar — hidden, or with its
+// labels clipped, whenever the user has 3-button navigation on (its inset
+// is much taller than the gesture pill's).
+const TAB_BAR_CONTENT_HEIGHT = Platform.select({ ios: 50, android: 56 })!;
+const TAB_BAR_TOP_PADDING = 8;
+// Floor so the bar still has breathing room on devices that report a 0
+// bottom inset (old 3-button-less Android skins, or edge-to-edge off).
+const MIN_BOTTOM_PADDING = Platform.select({ ios: 24, android: 8 })!;
 
 // Icon + label stay in their familiar stacked layout on every tab, always
 // visible — the only thing that changes on selection is a small solid
@@ -61,12 +75,19 @@ export default function TabsLayout() {
   const { pending } = usePendingRedemptions(userId);
   const redemptionBarVisible = pending.length > 0;
 
+  const insets = useSafeAreaInsets();
+  const bottomPadding = Math.max(insets.bottom, MIN_BOTTOM_PADDING);
+  const tabBarHeight = TAB_BAR_CONTENT_HEIGHT + TAB_BAR_TOP_PADDING + bottomPadding;
+
   return (
     <View style={styles.root}>
       <Tabs
         screenOptions={{
           headerShown: false,
-          tabBarStyle: styles.tabBar,
+          tabBarStyle: [
+            styles.tabBar,
+            { height: tabBarHeight, paddingBottom: bottomPadding },
+          ],
           tabBarActiveTintColor: ACCENT,
           tabBarInactiveTintColor: MUTED,
           tabBarLabelStyle: styles.label,
@@ -106,12 +127,12 @@ export default function TabsLayout() {
 
       {/* Persistent tracker — floats above the tab bar on every tab while a
           redemption request is awaiting vendor approval. */}
-      <PendingRedemptionBar bottomOffset={TAB_BAR_HEIGHT} />
+      <PendingRedemptionBar bottomOffset={tabBarHeight} />
 
       {/* Persistent tracker for an in-flight Pay-at-Store payment — stacks above the
           redemption bar (rather than overlapping it) on the rare occasion both are pending. */}
       <PayAtStorePendingBar
-        bottomOffset={TAB_BAR_HEIGHT + (redemptionBarVisible ? BAR_STACK_HEIGHT : 0)}
+        bottomOffset={tabBarHeight + (redemptionBarVisible ? BAR_STACK_HEIGHT : 0)}
       />
     </View>
   );
@@ -123,9 +144,9 @@ const styles = StyleSheet.create({
     backgroundColor: SURFACE,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: BORDER,
-    height: Platform.select({ ios: 82, android: 64 }),
-    paddingBottom: Platform.select({ ios: 24, android: 8 }),
-    paddingTop: 8,
+    // height/paddingBottom are set dynamically per-render from safe-area
+    // insets (see TabsLayout) so the bar clears the system nav bar.
+    paddingTop: TAB_BAR_TOP_PADDING,
     ...Platform.select({
       ios: {
         shadowColor: '#000',
