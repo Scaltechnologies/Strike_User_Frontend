@@ -9,7 +9,8 @@ import {
   View,
 } from 'react-native';
 import { Image } from 'expo-image';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SymbolView } from 'expo-symbols';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 
 import { KeyboardAvoidingScreen } from '@/components/ui/KeyboardAvoidingScreen';
@@ -21,6 +22,7 @@ const INDIA_PHONE_RE = /^[6-9]\d{9}$/;
 
 export default function LoginScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [phone, setPhone] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -52,196 +54,244 @@ export default function LoginScreen() {
     }
   };
 
+  // Note: no `fontWeight` alongside Manrope families — on Android that combo
+  // can drop the custom font and fall back to the device's system font.
   return (
-    <SafeAreaView style={styles.safe}>
+    <View style={styles.root}>
+      {/* Peach only behind the status bar */}
+      <View style={{ height: insets.top, backgroundColor: PEACH }} />
       <KeyboardAvoidingScreen style={styles.kav}>
         <ScrollView
+          style={styles.scrollView}
           contentContainerStyle={styles.scroll}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          bounces={false}
         >
-          {/* Logo */}
-          <View style={styles.logoRow}>
-            <Image
-              source={require('@/assets/images/icon.png')}
-              style={styles.badge}
-              contentFit="contain"
-            />
-            <Text style={styles.appName}>STRIKE</Text>
-          </View>
+          {/* Hero illustration — shown in full, card starts below it */}
+          <Image
+            source={require('@/assets/images/login-hero.png')}
+            style={styles.hero}
+            contentFit="contain"
+          />
 
-          <Text style={styles.heading}>Welcome back!</Text>
-          <Text style={styles.sub}>Enter your mobile number to continue</Text>
+          <View style={styles.card}>
+            <Text style={styles.heading}>Welcome back!</Text>
+            <Text style={styles.sub}>Enter your mobile number to continue</Text>
 
-          {/* Phone input */}
-          <View style={[styles.inputRow, !!error && styles.inputRowError]}>
-            <View style={styles.countryCode}>
-              <Text style={styles.countryCodeText}>🇮🇳  +91</Text>
+            <Text style={styles.label}>Phone Number</Text>
+            <View style={[styles.inputRow, !!error && styles.inputRowError]}>
+              <Text style={styles.countryCode}>🇮🇳 +91</Text>
+              <View style={styles.divider} />
+              <TextInput
+                style={styles.phoneInput}
+                placeholder="98765 43210"
+                placeholderTextColor="#C9C9C9"
+                keyboardType="phone-pad"
+                textContentType="telephoneNumber"
+                autoComplete="tel"
+                maxLength={10}
+                value={phone}
+                onChangeText={handlePhoneChange}
+                returnKeyType="done"
+                onSubmitEditing={handleGetOtp}
+                editable={!loading}
+                autoFocus
+              />
             </View>
-            <View style={styles.divider} />
-            <TextInput
-              style={styles.phoneInput}
-              placeholder="98765 43210"
-              placeholderTextColor="#C4A090"
-              keyboardType="phone-pad"
-              textContentType="telephoneNumber"
-              autoComplete="tel"
-              maxLength={10}
-              value={phone}
-              onChangeText={handlePhoneChange}
-              returnKeyType="done"
-              onSubmitEditing={handleGetOtp}
-              editable={!loading}
-              autoFocus
-            />
+
+            {!!error && <Text style={styles.errorText}>{error}</Text>}
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.button,
+                (!isValid || loading) && styles.buttonDisabled,
+                pressed && styles.buttonPressed,
+              ]}
+              onPress={handleGetOtp}
+              disabled={!isValid || loading}
+            >
+              {loading ? (
+                <ActivityIndicator size="small" color="#FFFFFF" style={styles.spinner} />
+              ) : (
+                <>
+                  <Text style={styles.buttonText}>Get OTP</Text>
+                  <SymbolView
+                    name={{ ios: 'arrow.right', android: 'arrow_forward', web: 'arrow_forward' }}
+                    size={26}
+                    weight="semibold"
+                    tintColor="#FFFFFF"
+                  />
+                </>
+              )}
+            </Pressable>
+
+            <Text style={styles.disclaimer}>
+              By continuing you agree to our{' '}
+              <Text
+                style={styles.disclaimerLink}
+                onPress={() => router.push(ROUTES.LEGAL.TERMS as never)}
+                suppressHighlighting
+              >
+                Terms of Service
+              </Text>
+              {' '}and{' '}
+              <Text
+                style={styles.disclaimerLink}
+                onPress={() => router.push(ROUTES.LEGAL.PRIVACY as never)}
+                suppressHighlighting
+              >
+                Privacy Policy
+              </Text>
+            </Text>
+
+            <View style={styles.spacer} />
+
+            <Text style={styles.tagline}>Think Smartly Save monthly .</Text>
           </View>
-
-          {!!error && <Text style={styles.errorText}>{error}</Text>}
-
-          <Pressable
-            style={[styles.button, (!isValid || loading) && styles.buttonDisabled]}
-            onPress={handleGetOtp}
-            disabled={!isValid || loading}
-          >
-            {loading
-              ? <ActivityIndicator size="small" color="#FFFFFF" />
-              : <Text style={styles.buttonText}>Get OTP</Text>
-            }
-          </Pressable>
-
-          <Text style={styles.disclaimer}>
-            By continuing you agree to our{' '}
-            <Text style={styles.disclaimerLink}>Terms of Service</Text>
-            {' '}and{' '}
-            <Text style={styles.disclaimerLink}>Privacy Policy</Text>
-          </Text>
         </ScrollView>
       </KeyboardAvoidingScreen>
-    </SafeAreaView>
+    </View>
   );
 }
 
+const PEACH = '#FFE0CC';
+const RED = '#E32622';
+
 const styles = StyleSheet.create({
-  safe: {
+  // White everywhere except the status-bar strip, so any gap left when the
+  // keyboard-avoiding view resizes (e.g. above the Android nav bar) stays
+  // white instead of showing peach.
+  root: {
     flex: 1,
-    backgroundColor: '#FFF0E6',
+    backgroundColor: '#FFFFFF',
   },
   kav: {
     flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  scrollView: {
+    backgroundColor: '#FFFFFF',
   },
   scroll: {
     flexGrow: 1,
-    paddingHorizontal: 24,
-    paddingTop: 48,
-    paddingBottom: 40,
+    backgroundColor: PEACH,
   },
-  logoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 56,
+  hero: {
+    width: '100%',
+    aspectRatio: 750 / 334,
   },
-  badge: {
-    width: 40,
-    height: 40,
-  },
-  appName: {
-    fontSize: 18,
-    fontWeight: '800',
-    fontFamily: ManropeWeights.extraBold,
-    color: '#1A1A1A',
-    letterSpacing: 4,
+  card: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 36,
+    borderTopRightRadius: 36,
+    paddingHorizontal: 22,
+    paddingTop: 30,
+    paddingBottom: 32,
   },
   heading: {
-    fontSize: 28,
-    fontWeight: '700',
+    fontSize: 26,
     fontFamily: ManropeWeights.bold,
     color: '#1A1A1A',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   sub: {
-    fontSize: 15,
-    color: '#666666',
-    marginBottom: 36,
-    lineHeight: 22,
+    fontSize: 14,
+    lineHeight: 20,
     fontFamily: ManropeWeights.regular,
+    color: '#666666',
+    marginBottom: 24,
+  },
+  label: {
+    fontSize: 15,
+    fontFamily: ManropeWeights.bold,
+    color: '#1A1A1A',
+    marginBottom: 12,
   },
   inputRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
+    height: 66,
+    borderRadius: 18,
+    backgroundColor: '#F4F4F4',
     borderWidth: 1.5,
-    borderColor: '#E8D5CC',
-    height: 56,
-    overflow: 'hidden',
-    marginBottom: 8,
+    borderColor: 'transparent',
+    paddingHorizontal: 16,
   },
   inputRowError: {
     borderColor: '#E74C3C',
   },
   countryCode: {
-    paddingHorizontal: 14,
-    height: '100%',
-    justifyContent: 'center',
-  },
-  countryCodeText: {
-    fontSize: 15,
-    fontWeight: '600',
+    fontSize: 17,
     fontFamily: ManropeWeights.semiBold,
     color: '#1A1A1A',
   },
   divider: {
     width: 1,
-    height: 24,
-    backgroundColor: '#E8D5CC',
-    marginRight: 2,
+    height: 28,
+    backgroundColor: '#D6D6D6',
+    marginHorizontal: 12,
   },
   phoneInput: {
     flex: 1,
     height: '100%',
-    paddingHorizontal: 12,
-    fontSize: 17,
-    fontWeight: '500',
-    fontFamily: ManropeWeights.medium,
+    fontSize: 22,
+    fontFamily: ManropeWeights.semiBold,
     color: '#1A1A1A',
+    letterSpacing: 1,
   },
   errorText: {
     fontSize: 13,
     color: '#E74C3C',
-    marginBottom: 16,
+    marginTop: 8,
     marginLeft: 4,
     fontFamily: ManropeWeights.regular,
   },
   button: {
-    backgroundColor: '#C0392B',
-    borderRadius: 14,
-    height: 56,
-    justifyContent: 'center',
+    flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
-    marginBottom: 24,
+    justifyContent: 'space-between',
+    backgroundColor: RED,
+    borderRadius: 24,
+    height: 62,
+    paddingHorizontal: 28,
+    marginTop: 18,
   },
   buttonDisabled: {
-    backgroundColor: '#D4A89A',
+    opacity: 0.55,
+  },
+  buttonPressed: {
+    opacity: 0.85,
+  },
+  spinner: {
+    flex: 1,
   },
   buttonText: {
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 17,
     fontFamily: ManropeWeights.bold,
     color: '#FFFFFF',
-    letterSpacing: 0.5,
   },
   disclaimer: {
+    marginTop: 16,
     fontSize: 12,
-    color: '#999999',
-    textAlign: 'center',
     lineHeight: 18,
+    textAlign: 'center',
+    color: '#999999',
     fontFamily: ManropeWeights.regular,
   },
   disclaimerLink: {
-    color: '#C0392B',
-    fontWeight: '600',
+    color: '#999999',
     fontFamily: ManropeWeights.semiBold,
+  },
+  spacer: {
+    flex: 1,
+    minHeight: 32,
+  },
+  tagline: {
+    fontSize: 16,
+    fontFamily: ManropeWeights.bold,
+    color: '#A3A3A3',
+    textAlign: 'center',
   },
 });

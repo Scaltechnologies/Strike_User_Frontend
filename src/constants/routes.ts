@@ -23,7 +23,10 @@ export const ROUTES = {
   PROFILE_EDIT: '/profile/edit' as const,
   SEARCH: '/search' as const,
   SUPPORT: '/support' as const,
-  TERMS: '/support/terms' as const,
+  LEGAL: {
+    TERMS: '/legal/terms' as const,
+    PRIVACY: '/legal/privacy' as const,
+  },
   NOTIFICATIONS: '/notifications' as const,
 
   SETTINGS: {

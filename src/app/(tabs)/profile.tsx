@@ -21,9 +21,11 @@ import {
   ChevronRight,
   CreditCard,
   Edit2,
+  FileText,
   HelpCircle,
   History,
   Image as ImageIcon,
+  Lock,
   LogOut,
   Shield,
   Trash2,
@@ -561,7 +563,7 @@ function LogoutSuccessOverlay({ visible }: { visible: boolean }) {
       <View style={styles.logoutOverlay}>
         <Animated.View style={{ opacity, transform: [{ scale }], alignItems: 'center' }}>
           <Image
-            source={require('@/assets/images/icon.png')}
+            source={require('@/assets/images/logo.png')}
             style={styles.logoutIcon}
             contentFit="contain"
           />
@@ -802,6 +804,28 @@ export default function ProfileScreen() {
               sub="FAQs and contact"
               badge="Soon"
               disabled
+            />
+          </View>
+        </FadeInView>
+
+        {/* ── Legal ── */}
+        <FadeInView delay={170}>
+          <SectionLabel label="LEGAL" />
+          <View style={styles.menuGroup}>
+            <MenuItem
+              icon={<FileText size={17} color="#475569" strokeWidth={1.9} />}
+              iconBg="#F1F5F9"
+              label="Terms & Conditions"
+              sub="Rules for using STRIKE"
+              onPress={() => router.push(ROUTES.LEGAL.TERMS as never)}
+            />
+            <Divider />
+            <MenuItem
+              icon={<Lock size={17} color="#475569" strokeWidth={1.9} />}
+              iconBg="#F1F5F9"
+              label="Privacy Policy"
+              sub="How we handle your data"
+              onPress={() => router.push(ROUTES.LEGAL.PRIVACY as never)}
             />
           </View>
         </FadeInView>

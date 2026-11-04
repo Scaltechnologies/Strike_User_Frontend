@@ -6,7 +6,7 @@
 // which exchanges it for the app's own JWT/refresh token pair.
 
 import { LogBox } from 'react-native';
-import { getAuth, signInWithPhoneNumber, getIdToken } from '@react-native-firebase/auth';
+import { getAuth, signInWithPhoneNumber, getIdToken, signOut } from '@react-native-firebase/auth';
 import type { ConfirmationResult } from '@react-native-firebase/auth';
 
 // Firebase auth errors below are always caught and surfaced as friendly UI
@@ -43,6 +43,16 @@ function toFirebaseAuthError(err: unknown): FirebaseAuthError {
 // Not serializable — kept in module scope rather than passed through
 // router params between login.tsx and otp.tsx.
 let confirmation: ConfirmationResult | null = null;
+let requestedPhone: string | null = null;
+
+/** Android auto-verification (SMS Retriever / instant verification) signs the user in natively
+ *  and consumes the verification session, so a later confirm() fails with session/code-expired.
+ *  sendOtp() signs out any previous Firebase user first, so a matching currentUser here can only
+ *  come from auto-verification of the number just requested. */
+function getAutoVerifiedUser() {
+  const user = getAuth().currentUser;
+  return user && requestedPhone && user.phoneNumber === requestedPhone ? user : null;
+}
 
 // ============================================================================
 // TEMPORARY DIAGNOSTIC LOGGING — added solely to pin down why real-user Phone
@@ -68,6 +78,8 @@ export const authService = {
       // (initial send or resend) always replaces whatever session was previously active, so there
       // is never more than one live confirmation session and confirmOtp() always checks against
       // the most recent one.
+      if (getAuth().currentUser) await signOut(getAuth());
+      requestedPhone = fullPhoneNumber;
       const result = await signInWithPhoneNumber(getAuth(), fullPhoneNumber);
       confirmation = result;
       console.log(
@@ -84,6 +96,11 @@ export const authService = {
 
   async confirmOtp(code: string): Promise<string> {
     console.log(DIAG, 'OTP verification stage started. hasActiveConfirmation =', !!confirmation);
+    const autoUser = getAutoVerifiedUser();
+    if (autoUser) {
+      console.log(DIAG, 'Already auto-verified by Android — skipping confirm()');
+      return getIdToken(autoUser);
+    }
     if (!confirmation) {
       throw new FirebaseAuthError(
         'auth/session-expired',
@@ -100,6 +117,12 @@ export const authService = {
       console.log(DIAG, 'Verification succeeded. gotIdToken =', !!idToken);
       return idToken;
     } catch (err) {
+      // Auto-verification can land while confirm() is in flight — the user is already signed in.
+      const lateAutoUser = getAutoVerifiedUser();
+      if (lateAutoUser) {
+        console.log(DIAG, 'confirm() failed but Android auto-verified — using that session');
+        return getIdToken(lateAutoUser);
+      }
       const mapped = err instanceof FirebaseAuthError ? err : toFirebaseAuthError(err);
       console.log(DIAG, 'Verification failed. code =', mapped.code);
       throw mapped;

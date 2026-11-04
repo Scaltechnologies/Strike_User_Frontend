@@ -57,7 +57,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // include group names like '(auth)', but expo-router does return them at runtime.
     const inAuthGroup = (segments as string[])[0] === '(auth)';
     const onProfileEdit = (segments as string[])[0] === 'profile' && (segments as string[])[1] === 'edit';
+    // Terms / Privacy are linked from the login screen, so they must stay
+    // readable while signed out — and must not bounce a signed-in user either.
+    const onPublicPage = (segments as string[])[0] === 'legal';
 
+    if (onPublicPage) return;
     if (!isAuthenticated && !inAuthGroup) {
       // Unauthenticated user tried to access a protected route.
       router.replace(ROUTES.AUTH.LOGIN);

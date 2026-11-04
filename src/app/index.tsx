@@ -67,7 +67,7 @@ export default function Index() {
     <View style={styles.container}>
       <Animated.View style={[styles.logoBlock, { opacity: fadeAnim }]}>
         <Image
-          source={require('@/assets/images/icon.png')}
+          source={require('@/assets/images/logo.png')}
           style={styles.badge}
           contentFit="contain"
         />
